@@ -1,0 +1,9 @@
+<resources>
+    <color name="heart_primary">#FFFF80AB</color>
+    <color name="heart_on_primary">#FF3A001B</color>
+    <color name="heart_surface">#FF211A1E</color>
+    <color name="heart_background">#FF171216</color>
+    <color name="heart_text">#FFF5EAF0</color>
+    <color name="heart_muted">#FFC7B5BF</color>
+    <color name="heart_outline">#FF594852</color>
+</resources>

@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { UserService } from './user.service';
+
+test('user service builds a validated, normalized draft without saving it', () => {
+  const draft = new UserService().buildDraft({
+    username: ' CliQ.Heart ',
+    email: ' PERSON@EXAMPLE.COM ',
+    phone: ' +1 (415) 555-2671 ',
+    displayName: ' CliQ Heart ',
+  });
+
+  assert.equal(draft.username, 'cliq.heart');
+  assert.equal(draft.email, 'person@example.com');
+  assert.equal(draft.phone, '+14155552671');
+  assert.equal(draft.displayName, 'CliQ Heart');
+  assert.equal(draft.accountStatus, 'pending');
+  assert.equal(draft.isEmailVerified, false);
+  assert.equal(draft.isPhoneVerified, false);
+  assert.equal(draft.isNew, true);
+});
+
+test('user service rejects invalid and unknown fields without accepting password hashes', () => {
+  assert.throws(
+    () =>
+      new UserService().buildDraft({
+        username: 'a',
+        displayName: '',
+        passwordHash: 'not-allowed',
+      }),
+  );
+});

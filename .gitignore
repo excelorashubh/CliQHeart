@@ -1,0 +1,49 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+/app/build/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Node.js generated files
+**/node_modules/
+**/dist/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Logs, reports, and temporary files
+*.log
+*.tmp
+*.temp
+coverage/
+
+# Android signing material and generated data
+*.jks
+*.keystore
+*.hprof
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

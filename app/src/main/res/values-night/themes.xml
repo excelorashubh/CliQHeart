@@ -1,0 +1,14 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Base.Theme.CliQHeart" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/heart_primary</item>
+        <item name="colorOnPrimary">@color/heart_on_primary</item>
+        <item name="colorSurface">@color/heart_surface</item>
+        <item name="android:colorBackground">@color/heart_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/heart_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+    <style name="Theme.CliQHeart" parent="Base.Theme.CliQHeart" />
+</resources>

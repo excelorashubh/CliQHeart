@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">CliQHeart</string>
+    <string name="welcome_title">Your moments. Your people.</string>
+    <string name="welcome_subtitle">Share your world and stay close to the people who matter.</string>
+    <string name="sign_up">Sign Up</string>
+    <string name="log_in">Log In</string>
+    <string name="terms_pending">Terms of Service and Privacy Policy are pending publication.</string>
+    <string name="phase_zero_notice">Account features are not available yet. This screen is a preview; no account is created or signed in.</string>
+    <string name="backend_checking">Checking API connection...</string>
+    <string name="backend_unavailable">API status unavailable. You can still explore the welcome screen.</string>
+    <string name="username">Username</string>
+    <string name="email">Email</string>
+    <string name="password">Password</string>
+    <string name="confirm_password">Confirm password</string>
+    <string name="create_account">Create account</string>
+    <string name="continue_login">Continue</string>
+    <string name="login_title">Log in</string>
+    <string name="signup_title">Create your account</string>
+    <string name="planned_title">Coming in a later phase</string>
+    <string name="home">Home</string>
+    <string name="discover">Discover</string>
+    <string name="create">Create</string>
+    <string name="activity">Activity</string>
+    <string name="profile">Profile</string>
+</resources>

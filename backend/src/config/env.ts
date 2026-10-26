@@ -1,0 +1,117 @@
+import dotenv from 'dotenv';
+import { z } from 'zod';
+
+dotenv.config();
+
+const optionalSecretSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(32, 'must be at least 32 characters').optional(),
+);
+
+const originListSchema = z
+  .string()
+  .default('http://localhost:3000')
+  .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean))
+  .refine(
+    (origins) =>
+      origins.every((origin) => {
+        try {
+          const parsed = new URL(origin);
+          return (
+            (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+            parsed.origin === origin
+          );
+        } catch {
+          return false;
+        }
+      }),
+    'CORS_ORIGINS must contain comma-separated HTTP or HTTPS origins without paths',
+  );
+
+const optionalOriginSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z
+    .string()
+    .refine((origin) => {
+      try {
+        const parsed = new URL(origin);
+        return (
+          (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+          parsed.origin === origin
+        );
+      } catch {
+        return false;
+      }
+    }, 'ANDROID_DEV_ORIGIN must be an HTTP or HTTPS origin without a path')
+    .optional(),
+);
+
+const environmentSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    HOST: z.string().trim().min(1).default('0.0.0.0'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    APP_NAME: z.string().trim().min(1).default('CliQHeart'),
+    APP_VERSION: z.string().trim().min(1).default('0.1.0'),
+    MONGODB_URI: z
+      .string({
+        error: (issue) =>
+          issue.input === undefined ? 'MONGODB_URI is required' : 'MONGODB_URI must be a string',
+      })
+      .min(1, 'MONGODB_URI is required')
+      .refine(
+        (value) => /^mongodb(?:\+srv)?:\/\/\S+$/i.test(value),
+        'MONGODB_URI must be a MongoDB connection URI',
+      ),
+    MONGODB_DB_NAME: z.string().trim().min(1).default('cliqheart'),
+    ANDROID_DEV_ORIGIN: optionalOriginSchema,
+    CORS_ORIGINS: originListSchema,
+    LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    JWT_ACCESS_SECRET: optionalSecretSchema,
+    JWT_REFRESH_SECRET: optionalSecretSchema,
+    ACCESS_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('15m'),
+    REFRESH_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('7d'),
+  })
+  .strict()
+  .superRefine((config, context) => {
+    if (
+      config.JWT_ACCESS_SECRET !== undefined &&
+      config.JWT_ACCESS_SECRET === config.JWT_REFRESH_SECRET
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['JWT_REFRESH_SECRET'],
+        message: 'JWT access and refresh secrets must be different',
+      });
+    }
+  });
+
+export type AppConfig = z.infer<typeof environmentSchema>;
+
+export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
+  const result = environmentSchema.safeParse({
+    NODE_ENV: environment.NODE_ENV,
+    HOST: environment.HOST,
+    PORT: environment.PORT,
+    APP_NAME: environment.APP_NAME,
+    APP_VERSION: environment.APP_VERSION,
+    MONGODB_URI: environment.MONGODB_URI,
+    MONGODB_DB_NAME: environment.MONGODB_DB_NAME,
+    ANDROID_DEV_ORIGIN: environment.ANDROID_DEV_ORIGIN,
+    CORS_ORIGINS: environment.CORS_ORIGINS,
+    LOG_LEVEL: environment.LOG_LEVEL,
+    JWT_ACCESS_SECRET: environment.JWT_ACCESS_SECRET,
+    JWT_REFRESH_SECRET: environment.JWT_REFRESH_SECRET,
+    ACCESS_TOKEN_TTL: environment.ACCESS_TOKEN_TTL,
+    REFRESH_TOKEN_TTL: environment.REFRESH_TOKEN_TTL,
+  });
+
+  if (!result.success) {
+    const details = result.error.issues
+      .map(({ path, message }) => `${path.join('.') || 'environment'}: ${message}`)
+      .join('; ');
+    throw new Error(`Invalid environment configuration: ${details}`);
+  }
+
+  return result.data;
+}
