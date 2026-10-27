@@ -5,8 +5,6 @@ import { closeDatabase, connectDatabase } from './db/mongoose';
 
 async function start(): Promise<void> {
   const config = loadConfig();
-  await connectDatabase(config.MONGODB_URI, config.MONGODB_DB_NAME);
-
   const server = createServer(createApp({ config }));
 
   const shutdown = createShutdownHandler(server);
@@ -34,6 +32,14 @@ async function start(): Promise<void> {
         }),
       );
     }
+  });
+
+  void connectDatabase(config.MONGODB_URI, config.MONGODB_DB_NAME).catch(() => {
+    console.error(JSON.stringify({
+      level: 'error',
+      event: 'database_connection_failed',
+      database: config.MONGODB_DB_NAME,
+    }));
   });
 }
 

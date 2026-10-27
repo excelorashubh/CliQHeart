@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "tsx --test src/**/*.test.ts",
     "test:watch": "tsx --test --watch src/**/*.test.ts",
+    "account:remediate-trial": "tsx src/scripts/remediate-trial-account.ts",
     "lint": "eslint . --ext .ts"
   },
   "engines": {

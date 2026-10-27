@@ -14,9 +14,9 @@ test('user service builds a validated, normalized draft without saving it', () =
   assert.equal(draft.email, 'person@example.com');
   assert.equal(draft.phone, '+14155552671');
   assert.equal(draft.displayName, 'CliQ Heart');
-  assert.equal(draft.accountStatus, 'pending');
-  assert.equal(draft.isEmailVerified, false);
-  assert.equal(draft.isPhoneVerified, false);
+  assert.equal(draft.accountStatus, 'active');
+  assert.equal(draft.get('isEmailVerified'), undefined);
+  assert.equal(draft.get('isPhoneVerified'), undefined);
   assert.equal(draft.isNew, true);
 });
 

@@ -31,14 +31,21 @@ export class AuthService {
     }
 
     const passwordHash = await argon2.hash(input.password);
-    const created = await UserModel.create({
-      username,
-      email,
-      displayName,
-      passwordHash,
-      accountStatus: 'pending',
-      isEmailVerified: false,
-    });
+    let created;
+    try {
+      created = await UserModel.create({
+        username,
+        email,
+        displayName,
+        passwordHash,
+        accountStatus: 'active',
+      });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw new Error('User already exists.');
+      }
+      throw error;
+    }
 
     const userData = created.toJSON() as Record<string, unknown>;
     return { user: userData };
@@ -59,8 +66,18 @@ export class AuthService {
       throw new Error('Invalid credentials.');
     }
 
-    if (user.accountStatus !== 'active') {
-      throw new Error('Account is not active.');
+    switch (user.accountStatus) {
+      case 'active':
+        break;
+      case 'pending':
+        throw new Error('Account is pending approval.');
+      case 'suspended':
+        throw new Error('Account is suspended.');
+      case 'deleted':
+        throw new Error('Account is deleted.');
+      default:
+        console.warn(JSON.stringify({ event: 'unknown_account_status', status: user.accountStatus }));
+        throw new Error('Account status is invalid.');
     }
 
     const accessToken = this.createAccessToken(user.id ?? String(user._id));
@@ -100,4 +117,8 @@ export class AuthService {
       },
     );
   }
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
 }

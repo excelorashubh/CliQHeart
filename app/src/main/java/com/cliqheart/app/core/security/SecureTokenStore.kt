@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.google.gson.Gson
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -11,8 +12,24 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+data class SessionPayload(
+    val accessToken: String? = null,
+    val refreshToken: String? = null,
+)
+
 class SecureTokenStore(context: Context) {
+    private val gson = Gson()
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun saveSession(accessToken: String, refreshToken: String) {
+        val payload = SessionPayload(accessToken = accessToken, refreshToken = refreshToken)
+        save(gson.toJson(payload))
+    }
+
+    fun readSession(): SessionPayload? {
+        val payloadJson = read() ?: return null
+        return runCatching { gson.fromJson(payloadJson, SessionPayload::class.java) }.getOrNull()
+    }
 
     fun save(token: String) {
         require(token.isNotBlank()) { "Token must not be blank." }

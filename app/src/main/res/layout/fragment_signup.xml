@@ -28,7 +28,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="@string/phase_zero_notice"
+            android:text="@string/signup_subtitle"
             android:textColor="@color/heart_muted"
             android:textSize="14sp" />
 
@@ -98,6 +98,24 @@
                 android:inputType="textPassword"
                 android:maxLines="1" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/terms_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/agree_to_terms" />
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:id="@+id/loading_indicator"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="16dp"
+            android:contentDescription="@string/request_in_progress"
+            android:visibility="gone"
+            app:indicatorSize="32dp"
+            app:trackThickness="4dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/submit_button"

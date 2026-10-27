@@ -1,10 +1,10 @@
 # CliQHeart
 
 CliQHeart is a native Android social app foundation with a separately deployable
-TypeScript/Express API. Phase 0 establishes the app shell, navigation, API
-connectivity boundary, configuration, initial MongoDB model, and developer
-workflow. It does not implement account creation, sign-in, a social feed, or
-media features.
+TypeScript/Express API. The project includes real account registration and
+sign-in backed by MongoDB, alongside the app shell, navigation, API
+connectivity, and initial user model. A social feed and media features are not
+implemented yet.
 
 ## Technology
 
@@ -30,13 +30,13 @@ From the repository root in PowerShell:
 ```powershell
 Set-Location backend
 npm ci
-Copy-Item .env.example .env
+New-Item -Path .env -ItemType File
 ```
 
-Edit `backend/.env` locally with an Atlas connection URI and the database name.
-The environment file is ignored by Git. Configure a new database password after
-rotating any credential previously shared in chat, source, or logs. Do not use
-an Atlas administrator account.
+Edit `backend/.env` locally with the required settings described in
+[docs/DATABASE_SETUP.md](./docs/DATABASE_SETUP.md). This is the only backend
+environment file; it is ignored by Git. Rotate credentials previously shared
+in chat, source, or logs. Do not use an Atlas administrator account.
 
 Start the development API:
 
@@ -58,9 +58,10 @@ contract are described in [docs/API.md](./docs/API.md) and
 ## Open and run Android
 
 Open the repository root (the directory containing `settings.gradle.kts`) in
-Android Studio and allow Gradle sync to finish. The debug API URL defaults to
-`http://10.0.2.2:4000/api/v1/`, the emulator's route to the development host.
-Run the `app` configuration on an emulator or physical device.
+Android Studio and allow Gradle sync to finish. Select `emulatorDebug` for the
+default emulator API URL `http://10.0.2.2:4000/api/v1/`, or configure the
+computer's LAN IPv4 and select `deviceDebug` for a physical device. See
+[docs/ANDROID_SETUP.md](./docs/ANDROID_SETUP.md) for the exact commands.
 
 Build and run local checks from PowerShell:
 
@@ -69,10 +70,9 @@ Build and run local checks from PowerShell:
 .\gradlew.bat :app:testDebugUnitTest
 ```
 
-The app's Sign Up and Log In screens are validation-only placeholders; they
-never create a session or claim successful authentication. Legal documents are
-explicitly marked pending. See [docs/ANDROID_SETUP.md](./docs/ANDROID_SETUP.md)
-for physical-device networking and release configuration.
+Sign Up and Log In use real backend requests. Legal documents are explicitly
+marked pending. See [docs/ANDROID_SETUP.md](./docs/ANDROID_SETUP.md) for
+physical-device networking and release configuration.
 
 ## Backend development commands
 
@@ -105,8 +105,8 @@ watch-mode tests.
   Atlas network access, and the application user's database permissions. Never
   work around Atlas IP restrictions by opening access to all addresses.
 - **Android reports the API unavailable:** start the backend and confirm
-  `GET /api/v1/health` is reachable. The emulator uses `10.0.2.2`, not
-  `localhost`.
+  `GET /api/v1/health` is reachable. Use `emulatorDebug` with `10.0.2.2` for
+  an emulator, or `deviceDebug` with the computer's LAN IPv4 for a phone.
 - **A physical device cannot reach the API:** configure a reachable LAN address
   and allow the development port through the computer's firewall; do not use a
   public Wi-Fi network for an unprotected development API.

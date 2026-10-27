@@ -18,6 +18,33 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "apiTarget"
+    productFlavors {
+        create("emulator") {
+            dimension = "apiTarget"
+            val emulatorApiBaseUrl = providers.gradleProperty("cliqheartEmulatorApiBaseUrl")
+                .orElse("http://10.0.2.2:4000/api/v1/")
+                .get()
+            require(emulatorApiBaseUrl.endsWith("/") && emulatorApiBaseUrl.startsWith("http")) {
+                "cliqheartEmulatorApiBaseUrl must be an HTTP(S) URL ending in '/'."
+            }
+            buildConfigField("String", "API_BASE_URL", "\"$emulatorApiBaseUrl\"")
+        }
+        create("device") {
+            dimension = "apiTarget"
+            val deviceApiBaseUrl = providers.gradleProperty("cliqheartDeviceApiBaseUrl")
+                .orElse("https://cliqheart.onrender.com/api/v1/")
+                .get()
+            require(deviceApiBaseUrl.startsWith("http://") || deviceApiBaseUrl.startsWith("https://")) {
+                "cliqheartDeviceApiBaseUrl must start with http:// or https://."
+            }
+            require(deviceApiBaseUrl.endsWith("/")) {
+                "cliqheartDeviceApiBaseUrl must end with '/'."
+            }
+            buildConfigField("String", "API_BASE_URL", "\"$deviceApiBaseUrl\"")
+        }
+    }
+
     buildFeatures {
         buildConfig = true
         viewBinding = true
@@ -25,16 +52,15 @@ android {
 
     buildTypes {
         debug {
-            val developmentApiBaseUrl = providers.gradleProperty("cliqheartDevApiBaseUrl")
-                .orElse("http://10.0.2.2:4000/api/v1/")
-                .get()
-            buildConfigField("String", "API_BASE_URL", "\"$developmentApiBaseUrl\"")
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
         release {
             val configuredApiBaseUrl = providers.gradleProperty("cliqheartApiBaseUrl")
-                .orElse("https://api.example.invalid/api/v1/")
+                .orElse("https://cliqheart.onrender.com/api/v1/")
                 .get()
+            require(configuredApiBaseUrl.startsWith("https://") && configuredApiBaseUrl.endsWith("/")) {
+                "cliqheartApiBaseUrl must be an HTTPS URL ending in '/'."
+            }
             buildConfigField("String", "API_BASE_URL", "\"$configuredApiBaseUrl\"")
             manifestPlaceholders["usesCleartextTraffic"] = "false"
             optimization {
@@ -59,6 +85,7 @@ dependencies {
     implementation(libs.androidx.navigation.fragment.ktx)
     implementation(libs.androidx.navigation.ui.ktx)
     implementation(libs.androidx.splashscreen)
+    implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.material)
     implementation(libs.okhttp)

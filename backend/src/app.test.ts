@@ -9,11 +9,11 @@ const config = loadConfig({
   MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
 });
 
-test('health endpoint returns the stable response and 503 when the database is disconnected', async () => {
+test('health endpoint remains available and reports database disconnection separately', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   const response = await request(app).get('/api/v1/health');
 
-  assert.equal(response.status, 503);
+  assert.equal(response.status, 200);
   assert.deepEqual(Object.keys(response.body).sort(), [
     'application',
     'database',
@@ -24,7 +24,7 @@ test('health endpoint returns the stable response and 503 when the database is d
   ]);
   assert.deepEqual(response.body, {
     application: 'CliQHeart',
-    status: 'unavailable',
+    status: 'ok',
     timestamp: response.body.timestamp,
     environment: 'test',
     database: 'disconnected',

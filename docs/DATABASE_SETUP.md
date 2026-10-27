@@ -19,13 +19,14 @@ connectivity is not assumed. Never put a MongoDB URI in the Android app.
    connection problem.
 5. In Atlas, select **Connect** -> **Drivers** and copy the MongoDB driver URI.
    Keep the URI in the backend only.
-6. Copy `backend/.env.example` to `backend/.env`, set `MONGODB_URI` and
-   `MONGODB_DB_NAME`, and keep `.env` out of Git. Set `CORS_ORIGINS` to an
-   explicit comma-separated browser-origin allowlist if browser clients are
-   used; native Android requests do not require CORS. JWT secrets are not
-   needed before the authentication phase.
-7. Start the backend and check `GET /api/v1/health`. A ready response is the
-   evidence that the backend connected with the current settings.
+6. Create the single local file `backend/.env` and set `NODE_ENV`, `HOST`,
+   `PORT`, `MONGODB_URI`, `MONGODB_DB_NAME`, `JWT_ACCESS_SECRET`,
+   `JWT_REFRESH_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACCESS_TOKEN_TTL`,
+   and `REFRESH_TOKEN_TTL`. Keep `.env` out of Git. Set `CORS_ORIGINS` only
+   when browser clients are used; native Android requests do not require CORS.
+7. Start the backend and check `GET /api/v1/health`. HTTP 200 confirms the API
+   process is serving; inspect the separate `database` field to confirm Atlas
+   connectivity before using authentication routes.
 8. Confirm Android calls only the API; it must never contain the Atlas URI.
 
 ## Connection URI and troubleshooting
@@ -40,6 +41,7 @@ correct, the database name is intended, the cluster is running, and the
 development IP is allowlisted. Keep Atlas network restrictions in place.
 
 The app uses the Mongoose connection lifecycle and a finite server-selection
-timeout. A failed required startup dependency is a startup failure; the
-application does not report a ready health status while MongoDB is
-disconnected. Automated tests do not require Atlas credentials.
+timeout. The API can start if MongoDB is unavailable; health returns HTTP 200
+for API liveness while reporting `database: "disconnected"`. Authentication
+operations still require the database. Automated tests do not require Atlas
+credentials.

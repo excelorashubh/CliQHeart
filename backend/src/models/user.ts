@@ -55,18 +55,10 @@ const userSchema = new Schema(
         message: 'avatarUrl must be an HTTP or HTTPS URL',
       },
     },
-    isEmailVerified: {
-      type: Boolean,
-      default: false,
-    },
-    isPhoneVerified: {
-      type: Boolean,
-      default: false,
-    },
     accountStatus: {
       type: String,
       enum: ['pending', 'active', 'suspended', 'deleted'],
-      default: 'pending',
+      default: 'active',
       required: true,
     },
     passwordHash: {

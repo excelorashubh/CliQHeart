@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import hpp from 'hpp';
 import type { AppConfig } from './config/env';
 import { isDatabaseConnected } from './db/mongoose';
-import { createAuthRouter } from './modules/auth/auth.routes';
+import { createAuthRouter } from './modules/auth';
 
 export interface RequestLogEntry {
   requestId: string;
@@ -101,9 +101,9 @@ export function createApp({
   api.get('/health', (_request, response) => {
     response.locals.route = 'GET /api/v1/health';
     const connected = databaseStatus();
-    response.status(connected ? 200 : 503).json({
+    response.status(200).json({
       application: config.APP_NAME,
-      status: connected ? 'ok' : 'unavailable',
+      status: 'ok',
       timestamp: new Date().toISOString(),
       environment: config.NODE_ENV,
       database: connected ? 'connected' : 'disconnected',

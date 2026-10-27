@@ -13,6 +13,14 @@ class AuthValidationTest {
     }
 
     @Test
+    fun loginAcceptsEmailOrUsernameIdentifier() {
+        assertEquals("Email or username is required.", AuthValidation.loginIdentifierError(" "))
+        assertEquals("Enter a valid email address.", AuthValidation.loginIdentifierError("bad@"))
+        assertNull(AuthValidation.loginIdentifierError("person@example.com"))
+        assertNull(AuthValidation.loginIdentifierError("person_1"))
+    }
+
+    @Test
     fun usernameMustMeetLengthAndCharacterRules() {
         assertEquals("Username is required.", AuthValidation.usernameError(" "))
         assertEquals(

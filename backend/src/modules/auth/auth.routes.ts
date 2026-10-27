@@ -57,8 +57,16 @@ export function createAuthRouter(config: AppConfig): Router {
         return;
       }
 
-      if (error instanceof Error && error.message === 'Account is not active.') {
-        response.status(403).json({ error: 'Account is not active.' });
+      if (
+        error instanceof Error &&
+        [
+          'Account is pending approval.',
+          'Account is suspended.',
+          'Account is deleted.',
+          'Account status is invalid.',
+        ].includes(error.message)
+      ) {
+        response.status(403).json({ error: error.message });
         return;
       }
 

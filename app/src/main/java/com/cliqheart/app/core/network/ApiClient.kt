@@ -8,14 +8,20 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
     private val retrofit: Retrofit by lazy {
+        val apiBaseUrl = BuildConfig.API_BASE_URL.ifBlank { "https://cliqheart.onrender.com/api/v1/" }
+        require(apiBaseUrl.endsWith("/")) {
+            "API_BASE_URL must end in '/' for Retrofit."
+        }
+
         val httpClient = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.SECONDS)
-            .callTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(30, TimeUnit.SECONDS)
             .build()
 
         Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
+            .baseUrl(apiBaseUrl)
             .client(httpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

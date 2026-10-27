@@ -47,9 +47,9 @@ test('normalizes username, email, and phone and applies profile defaults', () =>
   assert.equal(user.displayName, 'Example User');
   assert.equal(user.email, 'person@example.com');
   assert.equal(user.phone, '+14155552671');
-  assert.equal(user.isEmailVerified, false);
-  assert.equal(user.isPhoneVerified, false);
-  assert.equal(user.accountStatus, 'pending');
+  assert.equal(user.accountStatus, 'active');
+  assert.equal(UserModel.schema.path('isEmailVerified'), undefined);
+  assert.equal(UserModel.schema.path('isPhoneVerified'), undefined);
   assert.equal(UserModel.schema.options.timestamps, true);
 });
 

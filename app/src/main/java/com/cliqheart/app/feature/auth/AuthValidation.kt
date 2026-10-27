@@ -10,6 +10,12 @@ object AuthValidation {
         else -> null
     }
 
+    fun loginIdentifierError(identifier: String): String? = when {
+        identifier.isBlank() -> "Email or username is required."
+        identifier.contains('@') -> emailError(identifier)
+        else -> usernameError(identifier)
+    }
+
     fun usernameError(username: String): String? = when {
         username.isBlank() -> "Username is required."
         !usernamePattern.matches(username) ->
