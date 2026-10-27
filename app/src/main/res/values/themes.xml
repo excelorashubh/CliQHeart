@@ -5,7 +5,7 @@
         <item name="colorSurface">@color/heart_surface</item>
         <item name="android:colorBackground">@color/heart_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@color/heart_background</item>
+        <item name="android:navigationBarColor">@color/nav_background</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>

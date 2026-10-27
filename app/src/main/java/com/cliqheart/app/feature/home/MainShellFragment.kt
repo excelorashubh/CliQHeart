@@ -7,6 +7,11 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import com.cliqheart.app.R
 import com.cliqheart.app.databinding.FragmentMainShellBinding
+import com.cliqheart.app.feature.home.tabs.ActivityFragment
+import com.cliqheart.app.feature.home.tabs.CreatePostFragment
+import com.cliqheart.app.feature.home.tabs.DiscoverFragment
+import com.cliqheart.app.feature.home.tabs.HomeFeedFragment
+import com.cliqheart.app.feature.home.tabs.ProfileFragment
 
 class MainShellFragment : Fragment() {
     private var _binding: FragmentMainShellBinding? = null
@@ -23,22 +28,46 @@ class MainShellFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         binding.bottomNavigation.setOnItemSelectedListener { item ->
-            val title = when (item.itemId) {
-                R.id.homeTab -> R.string.home
-                R.id.discoverTab -> R.string.discover
-                R.id.createTab -> R.string.create
-                R.id.activityTab -> R.string.activity
-                R.id.profileTab -> R.string.profile
+            val fragment: Fragment = when (item.itemId) {
+                R.id.homeTab -> HomeFeedFragment()
+                R.id.discoverTab -> DiscoverFragment()
+                R.id.createTab -> CreatePostFragment()
+                R.id.activityTab -> ActivityFragment()
+                R.id.profileTab -> ProfileFragment()
                 else -> return@setOnItemSelectedListener false
             }
-            binding.placeholderMessage.text =
-                getString(title) + ": " + getString(R.string.phase_zero_notice)
+            switchTab(fragment)
             true
         }
+
+        if (savedInstanceState == null) {
+            switchTab(HomeFeedFragment())
+        } else {
+            binding.bottomNavigation.selectedItemId =
+                savedInstanceState.getInt(SELECTED_TAB_KEY, R.id.homeTab)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt(
+            SELECTED_TAB_KEY,
+            _binding?.bottomNavigation?.selectedItemId ?: R.id.homeTab,
+        )
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun switchTab(fragment: Fragment) {
+        childFragmentManager.beginTransaction()
+            .replace(R.id.tab_container, fragment)
+            .commit()
     }
 
     override fun onDestroyView() {
         _binding = null
         super.onDestroyView()
+    }
+
+    private companion object {
+        const val SELECTED_TAB_KEY = "selected_tab_id"
     }
 }

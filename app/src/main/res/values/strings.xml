@@ -39,6 +39,7 @@
     <string name="discover">Discover</string>
     <string name="create">Create</string>
     <string name="activity">Activity</string>
+    <string name="likes">Likes</string>
     <string name="profile">Profile</string>
     <string name="splash_tagline">Make meaningful connections.</string>
     <string name="splash_footer">Connect. Discover. Belong.</string>

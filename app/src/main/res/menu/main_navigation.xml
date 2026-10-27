@@ -14,8 +14,8 @@
         android:title="@string/create" />
     <item
         android:id="@+id/activityTab"
-        android:icon="@drawable/ic_activity"
-        android:title="@string/activity" />
+        android:icon="@drawable/ic_heart_selected"
+        android:title="@string/likes" />
     <item
         android:id="@+id/profileTab"
         android:icon="@drawable/ic_profile"

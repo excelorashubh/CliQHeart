@@ -9,4 +9,10 @@
     <color name="heart_text">#FF24191E</color>
     <color name="heart_muted">#FF76666D</color>
     <color name="heart_outline">#FFE7D7DE</color>
+    <color name="nav_background">#FFFFFFFF</color>
+    <color name="nav_icon_selected">#FFE94078</color>
+    <color name="nav_label_selected">#FF202124</color>
+    <color name="nav_item_unselected">#FF666666</color>
+    <color name="nav_divider">#FFE5E5E5</color>
+    <color name="nav_ripple">#33E94078</color>
 </resources>
