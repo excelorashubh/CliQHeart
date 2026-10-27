@@ -82,6 +82,10 @@ const userSchema = new Schema(
         const safeResult: Record<string, unknown> = { ...result };
         delete safeResult.passwordHash;
         delete safeResult.__v;
+        if (safeResult._id) {
+          safeResult.id = String(safeResult._id);
+          delete safeResult._id;
+        }
         return safeResult;
       },
     },
@@ -90,6 +94,10 @@ const userSchema = new Schema(
         const safeResult: Record<string, unknown> = { ...result };
         delete safeResult.passwordHash;
         delete safeResult.__v;
+        if (safeResult._id) {
+          safeResult.id = String(safeResult._id);
+          delete safeResult._id;
+        }
         return safeResult;
       },
     },

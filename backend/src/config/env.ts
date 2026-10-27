@@ -69,6 +69,8 @@ const environmentSchema = z
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     JWT_ACCESS_SECRET: optionalSecretSchema,
     JWT_REFRESH_SECRET: optionalSecretSchema,
+    JWT_ISSUER: z.string().trim().min(1).default('cliqheart'),
+    JWT_AUDIENCE: z.string().trim().min(1).default('cliqheart-mobile'),
     ACCESS_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('15m'),
     REFRESH_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('7d'),
   })
@@ -102,6 +104,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     LOG_LEVEL: environment.LOG_LEVEL,
     JWT_ACCESS_SECRET: environment.JWT_ACCESS_SECRET,
     JWT_REFRESH_SECRET: environment.JWT_REFRESH_SECRET,
+    JWT_ISSUER: environment.JWT_ISSUER,
+    JWT_AUDIENCE: environment.JWT_AUDIENCE,
     ACCESS_TOKEN_TTL: environment.ACCESS_TOKEN_TTL,
     REFRESH_TOKEN_TTL: environment.REFRESH_TOKEN_TTL,
   });

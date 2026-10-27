@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import hpp from 'hpp';
 import type { AppConfig } from './config/env';
 import { isDatabaseConnected } from './db/mongoose';
+import { createAuthRouter } from './modules/auth/auth.routes';
 
 export interface RequestLogEntry {
   requestId: string;
@@ -110,6 +111,7 @@ export function createApp({
     });
   });
 
+  app.use('/api/v1', createAuthRouter(config));
   app.use('/api/v1', api);
 
   const notFoundHandler: RequestHandler = (_request, response) => {
