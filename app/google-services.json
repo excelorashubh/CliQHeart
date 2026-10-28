@@ -1,0 +1,28 @@
+{
+  "project_info": {
+    "project_number": "621436683697",
+    "project_id": "cliq-heart",
+    "storage_bucket": "cliq-heart.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621436683697:android:3a5c2933dc47f8fc0e2990",
+        "android_client_info": {
+          "package_name": "com.cliqheart.app"
+        }
+      },
+      "api_key": [
+        {
+          "current_key": "AIzaSyCPNdiuCWj6wPIaDFZAX_pYcCY-aF8FpeM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
