@@ -44,6 +44,7 @@
     <string name="splash_tagline">Make meaningful connections.</string>
     <string name="splash_footer">Connect. Discover. Belong.</string>
     <string name="your_story">Your story</string>
+    <string name="stories_unavailable">Status updates are not available yet.</string>
     <string name="view_all_comments">View all %1$d comments</string>
     <string name="likes_count">%1$s likes</string>
     <string name="search_hint">Search users, posts, or tags...</string>

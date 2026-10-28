@@ -3,7 +3,9 @@ package com.cliqheart.app.feature.home.adapters
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
+import com.cliqheart.app.R
 import com.cliqheart.app.databinding.ItemStoryBinding
 import com.cliqheart.app.feature.home.models.StoryModel
 
@@ -29,7 +31,11 @@ class StoriesAdapter(
         with(holder.binding) {
             storyUsername.text = story.username
             addStoryBadge.visibility = if (story.isYourStory) View.VISIBLE else View.GONE
-            storyRingFrame.alpha = if (story.hasNewStory || story.isYourStory) 1.0f else 0.5f
+            storyRingFrame.background = if (story.hasNewStory && !story.isYourStory) {
+                ContextCompat.getDrawable(root.context, R.drawable.bg_story_ring)
+            } else {
+                null
+            }
 
             root.setOnClickListener {
                 onStoryClick(story)

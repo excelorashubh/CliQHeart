@@ -6,13 +6,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentHomeFeedBinding
 import com.cliqheart.app.feature.home.adapters.FeedAdapter
-import com.cliqheart.app.feature.home.adapters.StoriesAdapter
+import com.cliqheart.app.feature.home.adapters.HomeFeedHeaderAdapter
 import com.cliqheart.app.feature.home.models.PostModel
-import com.cliqheart.app.feature.home.models.StoryModel
 
 class HomeFeedFragment : Fragment() {
     private var _binding: FragmentHomeFeedBinding? = null
@@ -29,7 +29,6 @@ class HomeFeedFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.limitContentWidth(680)
-        setupStories()
         setupFeed()
 
         binding.swipeRefreshLayout.setOnRefreshListener {
@@ -45,28 +44,6 @@ class HomeFeedFragment : Fragment() {
         binding.btnHeaderMessages.setOnClickListener {
             Toast.makeText(requireContext(), "Messages inbox", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun setupStories() {
-        val sampleStories = listOf(
-            StoryModel("1", "Your story", "", isYourStory = true),
-            StoryModel("2", "sarah_m", "", hasNewStory = true),
-            StoryModel("3", "alex_k", "", hasNewStory = true),
-            StoryModel("4", "mario_dev", "", hasNewStory = false),
-            StoryModel("5", "elena_v", "", hasNewStory = true),
-            StoryModel("6", "david_b", "", hasNewStory = false),
-        )
-
-        val adapter = StoriesAdapter(sampleStories) { story ->
-            Toast.makeText(requireContext(), "Viewing ${story.username}'s story", Toast.LENGTH_SHORT).show()
-        }
-
-        binding.storiesRecyclerView.layoutManager = LinearLayoutManager(
-            requireContext(),
-            LinearLayoutManager.HORIZONTAL,
-            false,
-        )
-        binding.storiesRecyclerView.adapter = adapter
     }
 
     private fun setupFeed() {
@@ -136,8 +113,9 @@ class HomeFeedFragment : Fragment() {
             },
         )
 
+        val headerAdapter = HomeFeedHeaderAdapter()
         binding.feedRecyclerView.layoutManager = LinearLayoutManager(requireContext())
-        binding.feedRecyclerView.adapter = adapter
+        binding.feedRecyclerView.adapter = ConcatAdapter(headerAdapter, adapter)
     }
 
     override fun onDestroyView() {

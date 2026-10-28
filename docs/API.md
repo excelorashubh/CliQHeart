@@ -44,5 +44,7 @@ configured.
 - `500`: unexpected server error, returned without internals.
 - `503`: readiness dependency unavailable.
 
-No User API endpoints are exposed in Phase 0. The User model and validation
-boundaries are preparatory only.
+No profile, story/status, or User API endpoints are exposed in Phase 0. The
+User model and validation boundaries are preparatory only. The Android app
+therefore shows an unavailable-yet state instead of fabricated profiles or
+active story indicators.

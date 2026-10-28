@@ -18,6 +18,8 @@
             android:id="@+id/story_avatar"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@drawable/bg_avatar_circle"
+            android:clipToOutline="true"
             android:scaleType="centerCrop"
             android:src="@drawable/ic_profile" />
 
