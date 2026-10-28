@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/heart_background"
     android:orientation="vertical">
 
-    <!-- Search Input Box -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -20,7 +18,7 @@
             android:background="@drawable/bg_rounded_card"
             android:drawableStart="@drawable/ic_discover"
             android:drawablePadding="10dp"
-            android:hint="@string/search_hint"
+            android:hint="@string/search_users_hint"
             android:imeOptions="actionSearch"
             android:inputType="text"
             android:minHeight="48dp"
@@ -29,45 +27,19 @@
             android:textSize="14sp" />
     </LinearLayout>
 
-    <ScrollView
+    <TextView
+        android:id="@+id/search_state"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="24dp"
+        android:text="@string/search_users_prompt"
+        android:textColor="@color/heart_muted" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/search_users_recycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <!-- Suggested Accounts Section -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="8dp"
-                android:text="@string/suggested_for_you"
-                android:textColor="@color/heart_text"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/suggested_users_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:clipToPadding="false"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp" />
-
-            <!-- Discover Grid Section -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/discover_grid_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:nestedScrollingEnabled="false" />
-
-        </LinearLayout>
-    </ScrollView>
+        android:clipToPadding="false" />
 </LinearLayout>

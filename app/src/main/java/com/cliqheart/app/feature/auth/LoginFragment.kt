@@ -70,7 +70,11 @@ class LoginFragment : Fragment() {
                         throw IllegalStateException("Authentication response was incomplete.")
                     }
 
-                    SecureTokenStore(requireContext()).saveSession(accessToken, refreshToken)
+                    SecureTokenStore(requireContext()).saveSession(
+                        accessToken,
+                        refreshToken,
+                        body.user,
+                    )
                     Toast.makeText(requireContext(), "Welcome back!", Toast.LENGTH_SHORT).show()
                     findNavController().navigate(R.id.mainShellFragment)
                     return@launch

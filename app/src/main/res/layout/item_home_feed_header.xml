@@ -35,4 +35,12 @@
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#F0E8EC" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="24dp"
+        android:text="@string/posts_unavailable"
+        android:textColor="@color/heart_muted" />
 </LinearLayout>

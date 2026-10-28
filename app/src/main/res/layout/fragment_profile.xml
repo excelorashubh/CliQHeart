@@ -16,14 +16,31 @@
             android:padding="16dp">
 
             <!-- Top Username Bar -->
-            <TextView
-                android:id="@+id/profile_username_title"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="username"
-                android:textColor="@color/heart_text"
-                android:textSize="20sp"
-                android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:minHeight="48dp">
+
+                <ImageButton
+                    android:id="@+id/profile_back_button"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/back"
+                    android:src="@drawable/ic_back"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/profile_username_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:contentDescription="@string/profile"
+                    android:textColor="@color/heart_text"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <!-- Avatar & Stats Header -->
             <LinearLayout
@@ -38,6 +55,8 @@
                     android:layout_width="80dp"
                     android:layout_height="80dp"
                     android:contentDescription="@string/profile"
+                    android:background="@drawable/bg_avatar_circle"
+                    android:clipToOutline="true"
                     android:scaleType="centerCrop"
                     android:src="@drawable/ic_profile" />
 
@@ -50,6 +69,7 @@
 
                     <!-- Posts Stat -->
                     <LinearLayout
+                        android:id="@+id/posts_stat"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -60,7 +80,7 @@
                             android:id="@+id/stat_posts_count"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="12"
+                            android:text="—"
                             android:textColor="@color/heart_text"
                             android:textSize="16sp"
                             android:textStyle="bold" />
@@ -75,17 +95,25 @@
 
                     <!-- Followers Stat -->
                     <LinearLayout
+                        android:id="@+id/followers_stat"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:gravity="center"
                         android:orientation="vertical">
 
+                        <ImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:contentDescription="@string/followers"
+                            android:src="@drawable/ic_followers"
+                            android:tint="@color/heart_primary" />
+
                         <TextView
                             android:id="@+id/stat_followers_count"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="342"
+                            android:text="—"
                             android:textColor="@color/heart_text"
                             android:textSize="16sp"
                             android:textStyle="bold" />
@@ -100,17 +128,25 @@
 
                     <!-- Following Stat -->
                     <LinearLayout
+                        android:id="@+id/following_stat"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:gravity="center"
                         android:orientation="vertical">
 
+                        <ImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:contentDescription="@string/following"
+                            android:src="@drawable/ic_following"
+                            android:tint="@color/heart_primary" />
+
                         <TextView
                             android:id="@+id/stat_following_count"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="189"
+                            android:text="—"
                             android:textColor="@color/heart_text"
                             android:textSize="16sp"
                             android:textStyle="bold" />
@@ -140,12 +176,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Living life one moment at a time. 🎨📸"
                 android:textColor="@color/heart_text"
-                android:textSize="13sp" />
+                android:textSize="14sp"
+                android:lineSpacingExtra="2dp" />
 
             <!-- Action Buttons -->
             <LinearLayout
+                android:id="@+id/profile_actions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
@@ -187,6 +224,24 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:nestedScrollingEnabled="false" />
+
+            <TextView
+                android:id="@+id/profile_posts_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:padding="20dp"
+                android:text="@string/posts_unavailable"
+                android:textColor="@color/heart_muted" />
+
+            <TextView
+                android:id="@+id/profile_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:padding="12dp"
+                android:textColor="@color/heart_muted"
+                android:visibility="gone" />
 
         </LinearLayout>
     </ScrollView>

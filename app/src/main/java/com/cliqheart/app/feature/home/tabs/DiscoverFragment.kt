@@ -1,22 +1,34 @@
 package com.cliqheart.app.feature.home.tabs
 
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
+import android.view.inputmethod.EditorInfo
+import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.core.view.doOnLayout
-import com.cliqheart.app.core.ui.adaptiveGridSpanCount
+import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.cliqheart.app.R
+import com.cliqheart.app.core.network.ApiClient
+import com.cliqheart.app.core.network.ConversationCreateRequest
+import com.cliqheart.app.core.network.UserResponse
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentDiscoverBinding
-import com.cliqheart.app.feature.home.adapters.GridPostsAdapter
-import com.cliqheart.app.feature.home.models.PostModel
+import com.cliqheart.app.feature.home.adapters.UserSearchAdapter
+import com.cliqheart.app.feature.home.apiErrorMessage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class DiscoverFragment : Fragment() {
     private var _binding: FragmentDiscoverBinding? = null
     private val binding get() = requireNotNull(_binding)
+    private var searchJob: Job? = null
+    private lateinit var adapter: UserSearchAdapter
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -29,36 +41,108 @@ class DiscoverFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.limitContentWidth(720)
-
-        val sampleGridPosts = (1..12).map { index ->
-            PostModel(
-                id = index.toString(),
-                authorName = "Creator $index",
-                authorUsername = "creator_$index",
-                authorAvatarUrl = "",
-                imageUrl = "",
-                caption = "Discovering new moments #$index",
-                likeCount = index * 120,
-                commentCount = index * 5,
-                timestamp = "$index d ago",
-            )
+        adapter = UserSearchAdapter(::startConversation, ::openProfile)
+        binding.searchUsersRecycler.layoutManager = LinearLayoutManager(requireContext())
+        binding.searchUsersRecycler.adapter = adapter
+        binding.searchEditText.doAfterTextChanged { editable ->
+            searchUsers(editable?.toString().orEmpty())
         }
-
-        val adapter = GridPostsAdapter(sampleGridPosts) { post ->
-            Toast.makeText(requireContext(), "Discover post by @${post.authorUsername}", Toast.LENGTH_SHORT).show()
-        }
-
-        binding.discoverGridRecycler.layoutManager = GridLayoutManager(requireContext(), 1)
-        binding.discoverGridRecycler.adapter = adapter
-        binding.discoverGridRecycler.doOnLayout {
-            val recycler = binding.discoverGridRecycler
-            (recycler.layoutManager as GridLayoutManager).spanCount =
-                recycler.adaptiveGridSpanCount(minCellWidthDp = 108)
+        binding.searchEditText.setOnEditorActionListener { _, actionId, event ->
+            if (
+                actionId == EditorInfo.IME_ACTION_SEARCH ||
+                event?.keyCode == KeyEvent.KEYCODE_ENTER
+            ) {
+                searchUsers(binding.searchEditText.text?.toString().orEmpty(), immediate = true)
+                true
+            } else {
+                false
+            }
         }
     }
 
+    private fun searchUsers(rawQuery: String, immediate: Boolean = false) {
+        searchJob?.cancel()
+        val query = rawQuery.trim()
+        if (query.length < MIN_QUERY_LENGTH) {
+            adapter.submitUsers(emptyList())
+            binding.searchState.text = getString(R.string.search_users_prompt)
+            binding.searchState.visibility = View.VISIBLE
+            return
+        }
+        searchJob = viewLifecycleOwner.lifecycleScope.launch {
+            if (!immediate) delay(SEARCH_DEBOUNCE_MS)
+            binding.searchState.text = getString(R.string.searching)
+            binding.searchState.visibility = View.VISIBLE
+            try {
+                val response = ApiClient.service.searchUsers(query)
+                if (!response.isSuccessful) {
+                    showSearchFailure(apiErrorMessage(response, getString(R.string.search_failed)))
+                    return@launch
+                }
+                val users = response.body()?.users.orEmpty()
+                adapter.submitUsers(users)
+                binding.searchState.visibility = if (users.isEmpty()) View.VISIBLE else View.GONE
+                if (users.isEmpty()) binding.searchState.text = getString(R.string.search_no_results)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                showSearchFailure()
+            }
+        }
+    }
+
+    private fun startConversation(user: UserResponse) {
+        val participantId = user.id ?: user._id
+        if (participantId.isNullOrBlank()) {
+            showSearchFailure()
+            return
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val response = ApiClient.service.createConversation(
+                    ConversationCreateRequest(participantId),
+                )
+                val conversationId = response.body()?.conversation?.id
+                if (!response.isSuccessful || conversationId.isNullOrBlank()) {
+                    showSearchFailure(apiErrorMessage(response, getString(R.string.search_failed)))
+                    return@launch
+                }
+                findNavController().navigate(
+                    R.id.chatFragment,
+                    Bundle().apply { putString(ARG_CONVERSATION_ID, conversationId) },
+                )
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                showSearchFailure()
+            }
+        }
+    }
+
+    private fun openProfile(user: UserResponse) {
+        val id = user.id ?: user._id ?: return
+        findNavController().navigate(
+            R.id.profileDetailFragment,
+            Bundle().apply { putString(ARG_PROFILE_USER_ID, id) },
+        )
+    }
+
+    private fun showSearchFailure(message: String = getString(R.string.search_failed)) {
+        binding.searchState.text = message
+        binding.searchState.visibility = View.VISIBLE
+    }
+
     override fun onDestroyView() {
+        searchJob?.cancel()
         _binding = null
         super.onDestroyView()
+    }
+
+    private companion object {
+        const val ARG_CONVERSATION_ID = "conversationId"
+        const val ARG_PROFILE_USER_ID = "profileUserId"
+        const val MIN_QUERY_LENGTH = 2
+        const val SEARCH_DEBOUNCE_MS = 300L
     }
 }

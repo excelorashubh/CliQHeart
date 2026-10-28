@@ -74,16 +74,10 @@ class FeedAdapter(
             updateBookmarkButton(this, post.isBookmarked)
 
             btnLike.setOnClickListener {
-                post.isLiked = !post.isLiked
-                post.likeCount += if (post.isLiked) 1 else -1
-                postLikeCount.text = context.getString(R.string.likes_count, post.likeCount.toString())
-                updateLikeButton(this, post.isLiked)
                 onLikeClicked(post)
             }
 
             btnBookmark.setOnClickListener {
-                post.isBookmarked = !post.isBookmarked
-                updateBookmarkButton(this, post.isBookmarked)
                 onBookmarkClicked(post)
             }
 

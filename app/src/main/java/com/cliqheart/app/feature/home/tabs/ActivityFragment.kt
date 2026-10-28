@@ -4,13 +4,9 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.fragment.app.Fragment
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentActivityBinding
-import com.cliqheart.app.feature.home.adapters.ActivityAdapter
-import com.cliqheart.app.feature.home.models.ActivityItemModel
 
 class ActivityFragment : Fragment() {
     private var _binding: FragmentActivityBinding? = null
@@ -28,20 +24,7 @@ class ActivityFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.limitContentWidth(720)
 
-        val sampleActivities = listOf(
-            ActivityItemModel("1", "", "sarah_m", "liked your photo.", "2m"),
-            ActivityItemModel("2", "", "alex_k", "started following you.", "1h", isFollowAction = true),
-            ActivityItemModel("3", "", "mario_dev", "commented: Great photo!", "3h"),
-            ActivityItemModel("4", "", "elena_v", "liked your post.", "1d"),
-            ActivityItemModel("5", "", "cliqheart", "welcome to CliQHeart community!", "2d", isFollowAction = true),
-        )
-
-        val adapter = ActivityAdapter(sampleActivities) { item ->
-            Toast.makeText(requireContext(), "@${item.username} ${item.actionText}", Toast.LENGTH_SHORT).show()
-        }
-
-        binding.activityRecyclerView.layoutManager = LinearLayoutManager(requireContext())
-        binding.activityRecyclerView.adapter = adapter
+        binding.activityEmptyState.visibility = View.VISIBLE
     }
 
     override fun onDestroyView() {

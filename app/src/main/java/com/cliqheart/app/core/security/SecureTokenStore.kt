@@ -15,15 +15,31 @@ import javax.crypto.spec.GCMParameterSpec
 data class SessionPayload(
     val accessToken: String? = null,
     val refreshToken: String? = null,
+    val currentUser: com.cliqheart.app.core.network.UserResponse? = null,
 )
 
 class SecureTokenStore(context: Context) {
     private val gson = Gson()
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
-    fun saveSession(accessToken: String, refreshToken: String) {
-        val payload = SessionPayload(accessToken = accessToken, refreshToken = refreshToken)
+    fun saveSession(
+        accessToken: String,
+        refreshToken: String,
+        currentUser: com.cliqheart.app.core.network.UserResponse? = null,
+    ) {
+        val payload = SessionPayload(
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            currentUser = currentUser,
+        )
         save(gson.toJson(payload))
+    }
+
+    fun saveCurrentUser(currentUser: com.cliqheart.app.core.network.UserResponse) {
+        val session = readSession() ?: return
+        val accessToken = session.accessToken ?: return
+        val refreshToken = session.refreshToken ?: return
+        saveSession(accessToken, refreshToken, currentUser)
     }
 
     fun readSession(): SessionPayload? {

@@ -14,10 +14,14 @@
         android:textSize="22sp"
         android:textStyle="bold" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/activity_recycler_view"
+    <TextView
+        android:id="@+id/activity_empty_state"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:gravity="center"
+        android:padding="24dp"
+        android:text="@string/activity_unavailable"
+        android:textColor="@color/heart_muted" />
 
 </LinearLayout>

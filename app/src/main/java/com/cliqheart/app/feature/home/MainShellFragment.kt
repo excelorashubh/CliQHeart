@@ -75,6 +75,10 @@ class MainShellFragment : Fragment() {
             .commit()
     }
 
+    fun openDiscover() {
+        if (_binding != null) binding.bottomNavigation.selectedItemId = R.id.discoverTab
+    }
+
     override fun onDestroyView() {
         _binding = null
         super.onDestroyView()

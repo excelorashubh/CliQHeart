@@ -99,6 +99,24 @@ test('CORS allows only configured origins', async () => {
   assert.equal(response.headers['access-control-allow-origin'], 'http://localhost:3000');
 });
 
+test('private user and message routes require a valid access token', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+
+  const profileResponse = await request(app).get('/api/v1/users/me');
+  const conversationResponse = await request(app).get('/api/v1/conversations');
+
+  assert.equal(profileResponse.status, 401);
+  assert.deepEqual(profileResponse.body, { error: 'Authentication required.' });
+  assert.equal(conversationResponse.status, 401);
+  assert.deepEqual(conversationResponse.body, { error: 'Authentication required.' });
+
+  const publicProfileResponse = await request(app).get('/api/v1/users/0123456789abcdef01234567');
+  const followersResponse = await request(app)
+    .get('/api/v1/users/0123456789abcdef01234567/followers');
+  assert.equal(publicProfileResponse.status, 401);
+  assert.equal(followersResponse.status, 401);
+});
+
 test('request ID is returned and logs omit raw URL, query, and credentials', async () => {
   const entries: RequestLogEntry[] = [];
   const app = createApp({

@@ -1,6 +1,6 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import argon2 from 'argon2';
-import * as jwt from 'jsonwebtoken';
+import { sign, type SignOptions } from 'jsonwebtoken';
 import { UserModel } from '../../models/user';
 import type { AppConfig } from '../../config/env';
 import { SessionModel } from './session.model';
@@ -102,15 +102,14 @@ export class AuthService {
       throw new Error('JWT access secret is not configured.');
     }
 
-    const signToken = (jwt as any).sign as (...args: any[]) => string;
-    return signToken(
+    return sign(
       {
         sub: subjectId,
         tokenType: 'access',
       },
       secret,
       {
-        expiresIn: this.config.ACCESS_TOKEN_TTL,
+        expiresIn: this.config.ACCESS_TOKEN_TTL as NonNullable<SignOptions['expiresIn']>,
         issuer: this.config.JWT_ISSUER,
         audience: this.config.JWT_AUDIENCE,
         jwtid: randomUUID(),

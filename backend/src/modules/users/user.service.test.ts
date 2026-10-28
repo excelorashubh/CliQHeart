@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { UserService } from './user.service';
+import { userProfileUpdateSchema } from './user.validation';
 
 test('user service builds a validated, normalized draft without saving it', () => {
   const draft = new UserService().buildDraft({
@@ -8,6 +9,21 @@ test('user service builds a validated, normalized draft without saving it', () =
     email: ' PERSON@EXAMPLE.COM ',
     phone: ' +1 (415) 555-2671 ',
     displayName: ' CliQ Heart ',
+  });
+
+  test('profile updates accept only permitted, validated profile fields', () => {
+    assert.deepEqual(
+      userProfileUpdateSchema.parse({
+        displayName: '  CliQ Heart ',
+        bio: '  Hello  ',
+      }),
+      {
+        displayName: 'CliQ Heart',
+        bio: 'Hello',
+      },
+    );
+    assert.throws(() => userProfileUpdateSchema.parse({ email: 'private@example.com' }));
+    assert.throws(() => userProfileUpdateSchema.parse({ username: 'no spaces' }));
   });
 
   assert.equal(draft.username, 'cliq.heart');

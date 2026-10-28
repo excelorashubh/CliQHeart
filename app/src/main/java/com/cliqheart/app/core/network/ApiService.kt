@@ -4,6 +4,9 @@ import retrofit2.Response
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Body
+import retrofit2.http.PATCH
+import retrofit2.http.Path
+import retrofit2.http.Query
 
 data class HealthResponse(
     val status: String? = null,
@@ -29,8 +32,43 @@ data class UserResponse(
     val username: String? = null,
     val email: String? = null,
     val displayName: String? = null,
+    val bio: String? = null,
+    val avatarUrl: String? = null,
+    val followersCount: Int? = null,
+    val followingCount: Int? = null,
+    val isFollowing: Boolean? = null,
     val accountStatus: String? = null,
 )
+
+data class UserEnvelope(val user: UserResponse? = null)
+data class UsersResponse(val users: List<UserResponse> = emptyList(), val nextCursor: String? = null)
+data class FollowResponse(val following: Boolean = false)
+data class ProfileUpdateRequest(
+    val username: String,
+    val displayName: String,
+    val bio: String,
+    val avatarUrl: String? = null,
+)
+data class ConversationCreateRequest(val participantId: String)
+data class ConversationResponse(
+    val id: String? = null,
+    val participant: UserResponse? = null,
+    val participantId: String? = null,
+    val lastMessage: LastMessageResponse? = null,
+    val lastMessageAt: String? = null,
+)
+data class LastMessageResponse(val text: String? = null, val createdAt: String? = null)
+data class ConversationsResponse(val conversations: List<ConversationResponse> = emptyList())
+data class MessageCreateRequest(val text: String)
+data class MessageResponse(
+    val id: String? = null,
+    val senderId: String? = null,
+    val text: String? = null,
+    val createdAt: String? = null,
+)
+data class MessagesResponse(val messages: List<MessageResponse> = emptyList())
+data class ConversationEnvelope(val conversation: ConversationResponse? = null)
+data class MessageEnvelope(val message: MessageResponse? = null)
 
 data class AuthResponse(
     val accessToken: String? = null,
@@ -48,4 +86,51 @@ interface ApiService {
 
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
+
+    @GET("users/me")
+    suspend fun getMyProfile(): Response<UserEnvelope>
+
+    @GET("users/{userId}")
+    suspend fun getProfile(@Path("userId") userId: String): Response<UserEnvelope>
+
+    @PATCH("users/me")
+    suspend fun updateMyProfile(@Body request: ProfileUpdateRequest): Response<UserEnvelope>
+
+    @GET("users/search")
+    suspend fun searchUsers(@Query("q") query: String): Response<UsersResponse>
+
+    @POST("users/{userId}/follow")
+    suspend fun followUser(@Path("userId") userId: String): Response<FollowResponse>
+
+    @retrofit2.http.DELETE("users/{userId}/follow")
+    suspend fun unfollowUser(@Path("userId") userId: String): Response<FollowResponse>
+
+    @GET("users/{userId}/followers")
+    suspend fun getFollowers(
+        @Path("userId") userId: String,
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<UsersResponse>
+
+    @GET("users/{userId}/following")
+    suspend fun getFollowing(
+        @Path("userId") userId: String,
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<UsersResponse>
+
+    @GET("conversations")
+    suspend fun getConversations(): Response<ConversationsResponse>
+
+    @POST("conversations")
+    suspend fun createConversation(@Body request: ConversationCreateRequest): Response<ConversationEnvelope>
+
+    @GET("conversations/{conversationId}/messages")
+    suspend fun getMessages(@Path("conversationId") conversationId: String): Response<MessagesResponse>
+
+    @POST("conversations/{conversationId}/messages")
+    suspend fun sendMessage(
+        @Path("conversationId") conversationId: String,
+        @Body request: MessageCreateRequest,
+    ): Response<MessageEnvelope>
 }

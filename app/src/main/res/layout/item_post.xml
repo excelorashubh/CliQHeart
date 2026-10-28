@@ -87,7 +87,7 @@
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like"
-            android:src="@drawable/ic_activity" />
+            android:src="@drawable/ic_heart_outline" />
 
         <ImageButton
             android:id="@+id/btn_comment"
@@ -95,7 +95,8 @@
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Comment"
-            android:src="@drawable/ic_comment" />
+            android:src="@drawable/ic_comment"
+            android:tint="@color/heart_text" />
 
         <ImageButton
             android:id="@+id/btn_share"
@@ -103,7 +104,8 @@
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Share"
-            android:src="@drawable/ic_send" />
+            android:src="@drawable/ic_send"
+            android:tint="@color/heart_text" />
 
         <View
             android:layout_width="0dp"
@@ -116,7 +118,8 @@
             android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Bookmark"
-            android:src="@drawable/ic_bookmark" />
+            android:src="@drawable/ic_bookmark"
+            android:tint="@color/heart_text" />
     </LinearLayout>
 
     <!-- Likes Count -->

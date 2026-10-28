@@ -35,4 +35,15 @@ export const userProfileInputSchema = z
   })
   .strict();
 
+export const userProfileUpdateSchema = z
+  .object({
+    username: userProfileInputSchema.shape.username.optional(),
+    displayName: userProfileInputSchema.shape.displayName.optional(),
+    bio: z.string().trim().max(500).optional(),
+    avatarUrl: userProfileInputSchema.shape.avatarUrl,
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'At least one profile field is required.');
+
 export type UserProfileInput = z.infer<typeof userProfileInputSchema>;
+export type UserProfileUpdate = z.infer<typeof userProfileUpdateSchema>;
