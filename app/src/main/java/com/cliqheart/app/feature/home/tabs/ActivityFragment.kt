@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentActivityBinding
 import com.cliqheart.app.feature.home.adapters.ActivityAdapter
 import com.cliqheart.app.feature.home.models.ActivityItemModel
@@ -25,6 +26,8 @@ class ActivityFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.limitContentWidth(720)
+
         val sampleActivities = listOf(
             ActivityItemModel("1", "", "sarah_m", "liked your photo.", "2m"),
             ActivityItemModel("2", "", "alex_k", "started following you.", "1h", isFollowAction = true),

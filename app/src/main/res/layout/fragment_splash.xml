@@ -1,68 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/heart_background"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:fillViewport="true">
 
-    <FrameLayout
-        android:layout_width="wrap_content"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp">
 
-        <LinearLayout
+        <ImageView
+            android:id="@+id/splash_logo"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_cliqheart_logo" />
+
+        <TextView
+            android:id="@+id/splash_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
+            android:layout_marginTop="16dp"
+            android:text="@string/app_name"
+            android:textColor="@color/heart_primary"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/splash_tagline"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:gravity="center"
-            android:orientation="vertical">
+            android:text="@string/splash_tagline"
+            android:textColor="@color/heart_muted"
+            android:textSize="16sp" />
 
-            <ImageView
-                android:id="@+id/splash_logo"
-                android:layout_width="120dp"
-                android:layout_height="120dp"
-                android:contentDescription="@string/app_name"
-                android:src="@drawable/ic_cliqheart_logo" />
+        <ProgressBar
+            android:id="@+id/splash_progress"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:indeterminateTint="@color/heart_primary" />
 
-            <TextView
-                android:id="@+id/splash_title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/app_name"
-                android:textColor="@color/heart_primary"
-                android:textSize="32sp"
-                android:textStyle="bold" />
+        <TextView
+            android:id="@+id/splash_footer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/splash_footer"
+            android:textColor="@color/heart_muted"
+            android:textSize="13sp" />
 
-            <TextView
-                android:id="@+id/splash_tagline"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/splash_tagline"
-                android:textColor="@color/heart_muted"
-                android:textSize="16sp" />
-
-            <ProgressBar
-                android:id="@+id/splash_progress"
-                style="?android:attr/progressBarStyleSmall"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:indeterminateTint="@color/heart_primary" />
-        </LinearLayout>
-    </FrameLayout>
-
-    <TextView
-        android:id="@+id/splash_footer"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:text="@string/splash_footer"
-        android:textColor="@color/heart_muted"
-        android:textSize="13sp" />
-
-</LinearLayout>
+    </LinearLayout>
+</ScrollView>

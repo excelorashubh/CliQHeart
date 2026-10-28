@@ -17,8 +17,8 @@
 
         <ImageView
             android:id="@+id/post_author_avatar"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:contentDescription="@string/profile"
             android:scaleType="centerCrop"
             android:src="@drawable/ic_profile" />
@@ -58,8 +58,9 @@
 
     <!-- Post Image / Media Content -->
     <FrameLayout
+        android:id="@+id/post_media_frame"
         android:layout_width="match_parent"
-        android:layout_height="320dp">
+        android:layout_height="wrap_content">
 
         <ImageView
             android:id="@+id/post_media_image"
@@ -82,24 +83,24 @@
 
         <ImageButton
             android:id="@+id/btn_like"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Like"
             android:src="@drawable/ic_activity" />
 
         <ImageButton
             android:id="@+id/btn_comment"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Comment"
             android:src="@drawable/ic_comment" />
 
         <ImageButton
             android:id="@+id/btn_share"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Share"
             android:src="@drawable/ic_send" />

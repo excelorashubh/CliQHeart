@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
+import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.core.network.ApiClient
 import com.cliqheart.app.core.network.LoginRequest
 import com.cliqheart.app.core.security.SecureTokenStore
@@ -32,6 +33,7 @@ class LoginFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.limitContentWidth(480)
         binding.submitButton.setOnClickListener {
             submitLogin()
         }

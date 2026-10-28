@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentCreatePostBinding
 
 class CreatePostFragment : Fragment() {
@@ -31,6 +32,8 @@ class CreatePostFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.limitContentWidth(600)
+
         binding.selectPhotoFrame.setOnClickListener {
             photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }

@@ -27,6 +27,19 @@ Build it from PowerShell with:
 Cleartext traffic is enabled only in the debug manifest variant for this local
 development URL. Release builds reject cleartext traffic.
 
+## Responsive UI checks
+
+The app applies system-bar, display-cutout, and keyboard insets at the activity
+root. Scrollable forms and content should be checked with both gesture and
+three-button navigation, as well as with the keyboard open. Home feed and
+activity lists scroll independently of the bottom navigation; Discover and
+profile grids choose their column count from the available content width.
+
+For layout checks, use emulator profiles near 320dp, 360dp, 412dp, and 600dp+
+wide, and include a short landscape profile and a larger system font setting.
+After temporarily changing an emulator's `wm size` or `wm density`, restore its
+defaults with `adb shell wm size reset` and `adb shell wm density reset`.
+
 ## Physical device networking
 
 Select the `deviceDebug` build variant. The device variant has no fallback API

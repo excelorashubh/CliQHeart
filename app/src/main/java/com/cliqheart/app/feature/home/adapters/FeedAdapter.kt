@@ -8,6 +8,7 @@ import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.R
 import com.cliqheart.app.databinding.ItemPostBinding
@@ -37,6 +38,14 @@ class FeedAdapter(
         val context = holder.itemView.context
 
         with(holder.binding) {
+            postMediaFrame.doOnLayout { frame ->
+                val desiredHeight = (frame.width * 3f / 4f).toInt()
+                if (frame.layoutParams.height != desiredHeight) {
+                    frame.layoutParams = frame.layoutParams.apply {
+                        height = desiredHeight
+                    }
+                }
+            }
             postAuthorName.text = post.authorName
             if (!post.location.isNullOrBlank()) {
                 postLocation.text = post.location

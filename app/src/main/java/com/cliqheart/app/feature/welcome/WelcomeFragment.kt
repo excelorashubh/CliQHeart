@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import com.cliqheart.app.core.ui.limitContentWidth
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
 import com.cliqheart.app.core.di.AppContainer
@@ -28,6 +29,7 @@ class WelcomeFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.limitContentWidth(480)
         binding.signupButton.setOnClickListener {
             findNavController().navigate(R.id.action_welcome_to_signup)
         }

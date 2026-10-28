@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentHomeFeedBinding
 import com.cliqheart.app.feature.home.adapters.FeedAdapter
 import com.cliqheart.app.feature.home.adapters.StoriesAdapter
@@ -27,6 +28,7 @@ class HomeFeedFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.limitContentWidth(680)
         setupStories()
         setupFeed()
 

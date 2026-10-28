@@ -7,7 +7,10 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.core.view.doOnLayout
 import com.cliqheart.app.core.security.SecureTokenStore
+import com.cliqheart.app.core.ui.adaptiveGridSpanCount
+import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentProfileBinding
 import com.cliqheart.app.feature.home.adapters.GridPostsAdapter
 import com.cliqheart.app.feature.home.models.PostModel
@@ -26,6 +29,8 @@ class ProfileFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.limitContentWidth(720)
+
         val userSession = SecureTokenStore(requireContext()).readSession()
         binding.profileUsernameTitle.text = "cliqheart_user"
         binding.profileDisplayName.text = "CliQHeart Creator"
@@ -49,8 +54,13 @@ class ProfileFragment : Fragment() {
             Toast.makeText(requireContext(), "Post: ${post.caption}", Toast.LENGTH_SHORT).show()
         }
 
-        binding.profileGridRecycler.layoutManager = GridLayoutManager(requireContext(), 3)
+        binding.profileGridRecycler.layoutManager = GridLayoutManager(requireContext(), 1)
         binding.profileGridRecycler.adapter = adapter
+        binding.profileGridRecycler.doOnLayout {
+            val recycler = binding.profileGridRecycler
+            (recycler.layoutManager as GridLayoutManager).spanCount =
+                recycler.adaptiveGridSpanCount(minCellWidthDp = 108)
+        }
 
         binding.btnEditProfile.setOnClickListener {
             Toast.makeText(requireContext(), "Edit Profile clicked", Toast.LENGTH_SHORT).show()

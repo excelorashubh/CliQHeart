@@ -7,6 +7,9 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.core.view.doOnLayout
+import com.cliqheart.app.core.ui.adaptiveGridSpanCount
+import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentDiscoverBinding
 import com.cliqheart.app.feature.home.adapters.GridPostsAdapter
 import com.cliqheart.app.feature.home.models.PostModel
@@ -25,6 +28,8 @@ class DiscoverFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.limitContentWidth(720)
+
         val sampleGridPosts = (1..12).map { index ->
             PostModel(
                 id = index.toString(),
@@ -43,8 +48,13 @@ class DiscoverFragment : Fragment() {
             Toast.makeText(requireContext(), "Discover post by @${post.authorUsername}", Toast.LENGTH_SHORT).show()
         }
 
-        binding.discoverGridRecycler.layoutManager = GridLayoutManager(requireContext(), 3)
+        binding.discoverGridRecycler.layoutManager = GridLayoutManager(requireContext(), 1)
         binding.discoverGridRecycler.adapter = adapter
+        binding.discoverGridRecycler.doOnLayout {
+            val recycler = binding.discoverGridRecycler
+            (recycler.layoutManager as GridLayoutManager).spanCount =
+                recycler.adaptiveGridSpanCount(minCellWidthDp = 108)
+        }
     }
 
     override fun onDestroyView() {

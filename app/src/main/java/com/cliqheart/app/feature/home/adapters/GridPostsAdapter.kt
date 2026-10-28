@@ -2,6 +2,7 @@ package com.cliqheart.app.feature.home.adapters
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.databinding.ItemGridPostBinding
 import com.cliqheart.app.feature.home.models.PostModel
@@ -26,6 +27,13 @@ class GridPostsAdapter(
     override fun onBindViewHolder(holder: GridPostViewHolder, position: Int) {
         val post = posts[position]
         with(holder.binding) {
+            root.doOnLayout { tile ->
+                if (tile.layoutParams.height != tile.width) {
+                    tile.layoutParams = tile.layoutParams.apply {
+                        height = tile.width
+                    }
+                }
+            }
             root.setOnClickListener {
                 onPostClick(post)
             }
