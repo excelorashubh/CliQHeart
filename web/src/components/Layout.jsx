@@ -27,7 +27,7 @@ const mobileLinks = [
 ];
 
 export function AppLayout({ children }) {
-  const { user, signOut, unreadNotificationCount, setUnreadNotificationCount } = useAuth();
+  const { user, signOut, unreadNotificationCount, setUnreadNotificationCount, unreadMessageCount } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const navigate = useNavigate();
@@ -114,7 +114,7 @@ export function AppLayout({ children }) {
                 <Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /><span>{name}</span>
               </NavLink>
           : <NavLink aria-label={name} title={name} end={to === '/'} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
-              <span className="nav-icon-wrap"><Icon size={21} strokeWidth={1.8} />{name === 'Notifications' && unreadNotificationCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</span><span>{name}</span>
+              <span className="nav-icon-wrap"><Icon size={21} strokeWidth={1.8} />{((name === 'Notifications' && unreadNotificationCount > 0) || (name === 'Messages' && unreadMessageCount > 0)) && <span className="notification-badge" aria-hidden="true">{Math.min(99, name === 'Notifications' ? unreadNotificationCount : unreadMessageCount)}{(name === 'Notifications' ? unreadNotificationCount : unreadMessageCount) > 99 ? '+' : ''}</span>}</span><span>{name}</span>
             </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
@@ -131,7 +131,7 @@ export function AppLayout({ children }) {
     <nav className="mobile-nav" aria-label="Mobile navigation">
       {mobileLinks.map(({ name, to, Icon }) =>
         <NavLink end={to === '/'} key={name} to={to} aria-label={name} className={({ isActive }) => isActive ? 'is-active' : ''}>
-          <span className="nav-icon-wrap"><Icon size={22} strokeWidth={1.9} /></span>
+          <span className="nav-icon-wrap"><Icon size={22} strokeWidth={1.9} />{name === 'Chats' && unreadMessageCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>}</span>
         </NavLink>)}
       <NavLink to="/profile" aria-label="Profile" className={({ isActive }) => `mobile-profile${isActive ? ' is-active' : ''}`}><Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /></NavLink>
     </nav>

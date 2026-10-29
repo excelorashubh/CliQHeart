@@ -6,6 +6,7 @@ import { UserModel } from '../../models/user';
 import type { AppConfig } from '../../config/env';
 import { SessionModel } from './session.model';
 import type { LoginInput, RegisterInput } from './auth.validation';
+import { disconnectSessionSockets, disconnectUserSockets } from '../messages/realtime';
 
 type UserWithPasswordHash = {
   id?: string;
@@ -119,6 +120,7 @@ export class AuthService {
       .lean();
     if (!user) {
       await SessionModel.updateOne({ _id: session._id, revokedAt: null }, { $set: { revokedAt: now } });
+      disconnectSessionSockets(String(session._id));
       throw new Error('Account is not available.');
     }
 
@@ -135,10 +137,11 @@ export class AuthService {
   async logout(refreshToken: string | undefined): Promise<void> {
     const sessionId = refreshToken?.split('.')[0];
     if (!sessionId || !/^[a-f\d]{24}$/i.test(sessionId)) return;
-    await SessionModel.updateOne(
+    const result = await SessionModel.updateOne(
       { _id: sessionId, revokedAt: null },
       { $set: { revokedAt: new Date() } },
     );
+    if (result.modifiedCount > 0) disconnectSessionSockets(sessionId);
   }
 
   async logoutAll(userId: string): Promise<void> {
@@ -146,6 +149,7 @@ export class AuthService {
       { userId, revokedAt: null },
       { $set: { revokedAt: new Date() } },
     );
+    disconnectUserSockets(userId);
   }
 
   private async createSession(user: UserWithPasswordHash): Promise<AuthSessionResult> {

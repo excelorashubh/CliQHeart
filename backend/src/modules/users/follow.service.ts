@@ -3,6 +3,8 @@ import { UserModel } from '../../models/user';
 import { NotificationModel } from '../notifications/notification.model';
 import { FollowModel } from './follow.model';
 import { recordProfessionalEvent } from '../professional/professional.service';
+import { ConversationModel } from '../messages/conversation.model';
+import { emitConversationCreated } from '../messages/realtime';
 
 export interface FollowMutationDependencies {
   startSession: () => Promise<ClientSession>;
@@ -25,6 +27,16 @@ export interface FollowMutationDependencies {
     eventType: 'follow' | 'unfollow',
     mutationKey: string,
   ) => Promise<void>;
+  ensureMutualConversation?: (
+    firstUserId: string,
+    secondUserId: string,
+    session: ClientSession,
+  ) => Promise<{ conversationId: string; created: boolean } | undefined>;
+  publishConversationCreated?: (
+    conversationId: string,
+    firstUserId: string,
+    secondUserId: string,
+  ) => void;
 }
 
 const defaultDependencies: FollowMutationDependencies = {
@@ -68,6 +80,24 @@ const defaultDependencies: FollowMutationDependencies = {
   },
   recordRelationshipEvent: (ownerId, viewerId, eventType, mutationKey) =>
     recordProfessionalEvent(ownerId, viewerId, eventType, undefined, mutationKey),
+  ensureMutualConversation: async (firstUserId, secondUserId, session) => {
+    const mutualFollow = await FollowModel.exists({
+      followerId: secondUserId,
+      followedId: firstUserId,
+    }).session(session);
+    if (!mutualFollow) return undefined;
+    const participantPair = [firstUserId, secondUserId].sort().join(':');
+    const existing = await ConversationModel.findOne({ participantPair }).select('_id').session(session);
+    if (existing) return { conversationId: String(existing._id), created: false };
+    const conversation = await ConversationModel.findOneAndUpdate(
+      { participantPair },
+      { $setOnInsert: { participantPair, participants: [firstUserId, secondUserId] } },
+      { upsert: true, new: true, session, setDefaultsOnInsert: true },
+    );
+    if (!conversation) throw new Error('Mutual-follow conversation could not be created.');
+    return { conversationId: String(conversation._id), created: true };
+  },
+  publishConversationCreated: emitConversationCreated,
 };
 
 export class FollowAccountUnavailableError extends Error {
@@ -87,6 +117,9 @@ export async function changeFollowRelationship(
   let relationshipEvent:
     | { ownerId: string; viewerId: string; eventType: 'follow' | 'unfollow'; mutationKey: string }
     | undefined;
+  let createdConversation:
+    | { conversationId: string; firstUserId: string; secondUserId: string }
+    | undefined;
   try {
     await session.withTransaction(async () => {
       const userIds = [followerId, followedId].sort();
@@ -104,6 +137,18 @@ export async function changeFollowRelationship(
             mutationKey: `follow:${result.createdId}`,
           };
         }
+        const mutualConversation = await dependencies.ensureMutualConversation?.(
+          followerId,
+          followedId,
+          session,
+        );
+        if (mutualConversation?.created) {
+          createdConversation = {
+            conversationId: mutualConversation.conversationId,
+            firstUserId: followerId,
+            secondUserId: followedId,
+          };
+        }
       } else {
         const deletedId = await dependencies.deleteFollow(followerId, followedId, session);
         if (typeof deletedId === 'string') {
@@ -116,6 +161,13 @@ export async function changeFollowRelationship(
         }
       }
     });
+    if (createdConversation) {
+      dependencies.publishConversationCreated?.(
+        createdConversation.conversationId,
+        createdConversation.firstUserId,
+        createdConversation.secondUserId,
+      );
+    }
     if (relationshipEvent && dependencies.recordRelationshipEvent) {
       try {
         await dependencies.recordRelationshipEvent(

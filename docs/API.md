@@ -292,16 +292,35 @@ public profile and latest message preview.
 Accepts `{"participantId":"<user ObjectId>"}` and creates or returns the
 one-to-one conversation for the authenticated user and an active participant.
 
-### `GET /api/v1/conversations/:conversationId/messages?limit=<n>&before=<ISO date>`
+### `GET /api/v1/conversations/:conversationId/messages?limit=<n>&before=<message ObjectId>`
 
 Returns the authorized conversation's messages in chronological order. The
-page size is 1–100 (default 30); `before` pages toward older messages.
+page size is 1–100 (default 30); `before` is the oldest message ObjectId from
+the current page and pages toward older messages.
 
 ### `POST /api/v1/conversations/:conversationId/messages`
 
-Accepts `{"text":"..."}` (1–4000 characters), persists the message, and updates
-the conversation's last-message timestamp. Only participants may read or send
-messages. Delivery is request/response; realtime push is not implemented.
+Accepts `{"text":"...","clientMessageId":"<stable retry key>"}` (text is
+1–4000 characters). `clientMessageId` is optional and makes retries
+idempotent for that sender and conversation. The endpoint persists the message,
+updates conversation metadata and the recipient's unread count, and returns the
+saved message. Only participants may read or send messages.
+
+`PATCH /api/v1/conversations/:conversationId/read` marks received messages as
+read. `GET /api/v1/messages/unread-count` returns the authenticated user's
+aggregate unread count.
+
+The authenticated Socket.IO endpoint runs on the API origin at `/socket.io`
+and accepts the access token in the handshake auth payload. Participants may
+join only conversations they belong to. It broadcasts `conversation:created`,
+`conversation:updated`, `message:new`, `message:sent`, `message:delivered`,
+`message:read`, `typing:start`, `typing:stop`, and `unread:update` events.
+Sockets are disconnected when their access token expires or their session is
+revoked; clients refresh the session before reconnecting. Redis pub/sub via
+`REDIS_URL` is required when running multiple backend instances; without it,
+real-time events are local to a single backend instance.
+Presence is not exposed: the account privacy model has no online-visibility
+setting, so the API does not publish online status.
 
 Conversation, message, follow, media, post, story, and reel collections are
 created by Mongoose when the backend connects to MongoDB. Existing user

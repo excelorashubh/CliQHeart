@@ -21,11 +21,23 @@ const messageSchema = new Schema(
       minlength: 1,
       maxlength: 4000,
     },
+    clientMessageId: { type: String, minlength: 8, maxlength: 100 },
+    deliveredAt: { type: Date, default: null },
+    readAt: { type: Date, default: null },
   },
   { timestamps: true, strict: 'throw' },
 );
 
 messageSchema.index({ conversationId: 1, createdAt: -1 });
+messageSchema.index({ conversationId: 1, _id: -1 });
+messageSchema.index(
+  { conversationId: 1, senderId: 1, clientMessageId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientMessageId: { $type: 'string' } },
+    name: 'message_idempotency_unique',
+  },
+);
 
 export type Message = InferSchemaType<typeof messageSchema>;
 export const MessageModel = model<Message>('Message', messageSchema);

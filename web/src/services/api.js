@@ -7,6 +7,10 @@ export function setAccessToken(token) {
   accessToken = token || null;
 }
 
+export function getAccessToken() {
+  return accessToken;
+}
+
 export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler;
 }
@@ -172,6 +176,17 @@ function refreshAccessToken() {
   return refreshInFlight;
 }
 
+export async function renewAccessToken() {
+  const session = await refreshAccessToken();
+  if (typeof session?.accessToken !== 'string' || !session.accessToken ||
+      typeof session?.user?.id !== 'string') {
+    throw new ApiError('The API returned an incomplete refreshed session.', 502);
+  }
+  setAccessToken(session.accessToken);
+  sessionRestoredHandler(session.user);
+  return session;
+}
+
 const cookieTransportHeaders = { 'X-Session-Transport': 'cookie' };
 
 export const authApi = {
@@ -313,5 +328,10 @@ export const messageApi = {
     if (options.limit) params.set('limit', String(options.limit));
     return apiRequest(`conversations/${encodeURIComponent(id)}/messages?${params}`, { signal: options.signal });
   },
-  send: (id, text) => apiRequest(`conversations/${encodeURIComponent(id)}/messages`, { method: 'POST', body: { text } }),
+  send: (id, text, clientMessageId) => apiRequest(`conversations/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    body: { text, clientMessageId },
+  }),
+  markRead: (id) => apiRequest(`conversations/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
+  unreadCount: (options) => apiRequest('messages/unread-count', options),
 };

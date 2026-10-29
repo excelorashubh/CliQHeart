@@ -119,6 +119,16 @@ API and website may be on different sites. Browser privacy settings can block th
 for reliable production login persistence, deploy the API on a same-site custom
 domain or reverse proxy it under the website origin.
 
+Messaging uses an authenticated Socket.IO connection on the configured API
+origin in addition to the authenticated REST API. It renews the short-lived
+access token using the existing HttpOnly refresh cookie when the socket token
+expires; logout, logout-all, and account deletion disconnect affected sockets.
+Configure `REDIS_URL` (`redis://` or `rediss://`) when the backend runs multiple
+instances so message, read, and conversation events reach clients connected to
+other instances. Without Redis, keep the backend to one instance for realtime
+delivery. Persisted messages and unread/read state remain available through REST
+after a reconnect.
+
 Registration now creates the active account and session in one onboarding flow;
 the browser and Android navigate into the app only after session creation
 returns a valid access token and user profile. Production Terms of Service and
@@ -144,6 +154,7 @@ The website reuses:
 - `GET /users/:userId/followers` and `/following`
 - `GET` and `POST /conversations`
 - `GET` and `POST /conversations/:conversationId/messages`
+- `PATCH /conversations/:conversationId/read`, `GET /messages/unread-count`
 - `POST /media/signature`, `POST /media/:mediaId/confirm`, and `DELETE /media/:mediaId`
 - post, story, and Reel publishing and feed endpoints
 

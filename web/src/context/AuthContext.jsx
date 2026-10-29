@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
 import {
-  ApiError, authApi, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
+  ApiError, authApi, getAccessToken, messageApi, renewAccessToken, setAccessToken,
+  setSessionRestoredHandler, setUnauthorizedHandler,
 } from '../services/api.js';
 
 const AuthContext = createContext(null);
@@ -53,6 +55,9 @@ function getSessionErrorMessage(error) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [realtimeSocket, setRealtimeSocket] = useState(null);
+  const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
   const [authRetryAfterSeconds, setAuthRetryAfterSeconds] = useState(0);
@@ -74,6 +79,7 @@ export function AuthProvider({ children }) {
     setAccessToken(null);
     setUser(null);
     setUnreadNotificationCount(0);
+    setUnreadMessageCount(0);
     setAuthRetryAfterSeconds(0);
     authRetryAt.current = 0;
   }, []);
@@ -139,6 +145,90 @@ export function AuthProvider({ children }) {
     restoreInFlight.current = operation;
     return operation;
   }, [clearSession]);
+
+  useEffect(() => {
+    if (!user?.id || import.meta.env.MODE === 'test') {
+      setRealtimeSocket(null);
+      setRealtimeStatus('disconnected');
+      return undefined;
+    }
+    const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(apiBaseUrl)) {
+      setRealtimeStatus('disconnected');
+      return undefined;
+    }
+    const socket = io(new URL(apiBaseUrl).origin, {
+      autoConnect: false,
+      withCredentials: true,
+      auth: (callback) => callback({ token: getAccessToken() }),
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+    });
+    let renewingSocketAuth = false;
+    let lastSocketRefreshAt = 0;
+    let socketRefreshTimer = null;
+    const refreshSocketAuth = () => {
+      if (socketRefreshTimer) window.clearTimeout(socketRefreshTimer);
+      socketRefreshTimer = null;
+      if (renewingSocketAuth || Date.now() - lastSocketRefreshAt < 10000) return;
+      renewingSocketAuth = true;
+      lastSocketRefreshAt = Date.now();
+      renewAccessToken()
+        .then(() => socket.connect())
+        .catch((error) => {
+          if (isConfirmedInvalidSession(error)) {
+            setAccessToken(null);
+            clearSession();
+            setAuthError('');
+          } else {
+            console.error('Could not renew the real-time connection.', error);
+            socketRefreshTimer = window.setTimeout(refreshSocketAuth, 10000);
+          }
+        })
+        .finally(() => { renewingSocketAuth = false; });
+    };
+    const updateUnreadCount = (payload) => {
+      if (Number.isFinite(payload?.count)) setUnreadMessageCount(Math.max(0, payload.count));
+    };
+    const refreshUnreadCount = () => {
+      messageApi.unreadCount().then((result) => {
+        if (Number.isFinite(result?.unreadCount)) setUnreadMessageCount(Math.max(0, result.unreadCount));
+      }).catch((error) => {
+        if (error?.status !== 401) console.error('Could not refresh message unread count.', error);
+      });
+    };
+    const onConnect = () => {
+      setRealtimeStatus('connected');
+      refreshUnreadCount();
+    };
+    const onDisconnect = (reason) => {
+      setRealtimeStatus('reconnecting');
+      if (reason === 'io server disconnect') refreshSocketAuth();
+    };
+    const onConnectError = (error) => {
+      setRealtimeStatus('reconnecting');
+      if (/authentication required|invalid token|expired/i.test(error?.message || '')) refreshSocketAuth();
+    };
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+    socket.on('unread:update', updateUnreadCount);
+    setRealtimeSocket(socket);
+    setRealtimeStatus('connecting');
+    socket.connect();
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
+      socket.off('unread:update', updateUnreadCount);
+      if (socketRefreshTimer) window.clearTimeout(socketRefreshTimer);
+      socket.disconnect();
+      setRealtimeSocket(null);
+      setRealtimeStatus('disconnected');
+    };
+  }, [user?.id]);
 
   const establishSession = useCallback((result) => {
     if (typeof result?.accessToken !== 'string' || !result.accessToken.trim() || !isCompleteUser(result.user)) {
@@ -222,7 +312,11 @@ export function AuthProvider({ children }) {
     setUser,
     unreadNotificationCount,
     setUnreadNotificationCount,
-  }), [user, loading, authError, authRetryAfterSeconds, signIn, signUp, signOut, refreshSession, updateUser, unreadNotificationCount]);
+    unreadMessageCount,
+    setUnreadMessageCount,
+    realtimeSocket,
+    realtimeStatus,
+  }), [user, loading, authError, authRetryAfterSeconds, signIn, signUp, signOut, refreshSession, updateUser, unreadNotificationCount, unreadMessageCount, realtimeSocket, realtimeStatus]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

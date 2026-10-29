@@ -19,6 +19,17 @@ const conversationSchema = new Schema(
       },
     },
     lastMessageAt: { type: Date, default: Date.now, required: true },
+    lastMessage: {
+      id: { type: Schema.Types.ObjectId, ref: 'Message' },
+      text: { type: String, maxlength: 4000 },
+      senderId: { type: Schema.Types.ObjectId, ref: 'User' },
+      createdAt: { type: Date },
+    },
+    unreadCounts: {
+      type: Map,
+      of: { type: Number, min: 0 },
+      default: () => new Map(),
+    },
   },
   { timestamps: true, strict: 'throw' },
 );

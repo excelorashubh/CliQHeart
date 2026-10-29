@@ -2,10 +2,12 @@ import { createServer, type Server } from 'node:http';
 import { createApp } from './app';
 import { loadConfig } from './config/env';
 import { closeDatabase, connectDatabase } from './db/mongoose';
+import { attachRealtimeServer, closeRealtimeDependencies } from './modules/messages/realtime';
 
 async function start(): Promise<void> {
   const config = loadConfig();
   const server = createServer(createApp({ config }));
+  await attachRealtimeServer(server, config);
 
   const shutdown = createShutdownHandler(server);
   process.once('SIGINT', shutdown);
@@ -14,7 +16,7 @@ async function start(): Promise<void> {
   server.once('error', () => {
     console.error('CliQHeart API server failed to start.');
     process.exitCode = 1;
-    void closeDatabase().catch(() => {
+    void Promise.all([closeDatabase(), closeRealtimeDependencies()]).catch(() => {
       process.exitCode = 1;
     });
   });
@@ -53,7 +55,7 @@ function createShutdownHandler(server: Server): () => void {
     shuttingDown = true;
 
     server.close((serverError) => {
-      void closeDatabase()
+      void Promise.all([closeDatabase(), closeRealtimeDependencies()])
         .catch(() => {
           process.exitCode = 1;
         })
@@ -67,7 +69,7 @@ function createShutdownHandler(server: Server): () => void {
 }
 
 void start().catch(async () => {
-  await closeDatabase().catch(() => undefined);
+  await Promise.all([closeDatabase(), closeRealtimeDependencies()]).catch(() => undefined);
   console.error('CliQHeart API startup failed. Check configuration and database availability.');
   process.exitCode = 1;
 });

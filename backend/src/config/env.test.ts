@@ -64,6 +64,19 @@ test('uses safe defaults for optional configuration', () => {
   assert.equal(config.CLOUDINARY_API_SECRET, undefined);
 });
 
+test('accepts Redis TLS and rejects non-Redis URLs', () => {
+  const config = loadConfig({
+    ...baseEnvironment,
+    REDIS_URL: 'rediss://cache.example.test:6380',
+  });
+  assert.equal(config.REDIS_URL, 'rediss://cache.example.test:6380');
+
+  assert.throws(
+    () => loadConfig({ ...baseEnvironment, REDIS_URL: 'https://cache.example.test' }),
+    /REDIS_URL must use the redis:\/\/ or rediss:\/\/ protocol/,
+  );
+});
+
 test('uses the requested frontend and allowed-origins environment variables', () => {
   const config = loadConfig({
     NODE_ENV: 'test',

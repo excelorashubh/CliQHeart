@@ -4,6 +4,7 @@ import { NotificationModel } from '../notifications/notification.model';
 import { SessionModel } from '../auth/session.model';
 import { FollowModel } from './follow.model';
 import { ProfessionalCampaignModel, ProfessionalEventModel } from '../professional/professional.model';
+import { disconnectUserSockets } from '../messages/realtime';
 
 export interface AccountDeletionDependencies {
   startSession: () => Promise<ClientSession>;
@@ -85,6 +86,7 @@ export async function deleteAccount(
       await dependencies.deleteNotifications(userId, session);
       await dependencies.deleteProfessionalData?.(userId, session);
     });
+    disconnectUserSockets(userId);
   } catch (error) {
     if (transactionsUnavailable(error)) {
       try {
@@ -93,6 +95,7 @@ export async function deleteAccount(
         await dependencies.deleteProfessionalData?.(userId);
         await dependencies.revokeSessions(userId, new Date());
         await dependencies.markDeleted(userId);
+        disconnectUserSockets(userId);
         return;
       } catch (cleanupError) {
         console.error(JSON.stringify({

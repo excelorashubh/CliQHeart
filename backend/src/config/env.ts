@@ -72,6 +72,13 @@ const environmentSchema = z
         'MONGODB_URI must be a MongoDB connection URI',
       ),
     MONGODB_DB_NAME: z.string().trim().min(1).default('cliqheart'),
+    REDIS_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().url().refine(
+        (value) => value.startsWith('redis://') || value.startsWith('rediss://'),
+        'REDIS_URL must use the redis:// or rediss:// protocol',
+      ).optional(),
+    ),
     ANDROID_DEV_ORIGIN: optionalOriginSchema,
     FRONTEND_URL: optionalOriginSchema.default(productionFrontendOrigin),
     ALLOWED_ORIGINS: originListSchema,
@@ -130,6 +137,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     APP_VERSION: environment.APP_VERSION,
     MONGODB_URI: environment.MONGODB_URI,
     MONGODB_DB_NAME: environment.MONGODB_DB_NAME,
+    REDIS_URL: environment.REDIS_URL,
     ANDROID_DEV_ORIGIN: environment.ANDROID_DEV_ORIGIN,
     FRONTEND_URL: environment.FRONTEND_URL,
     ALLOWED_ORIGINS: environment.ALLOWED_ORIGINS ?? environment.CORS_ORIGINS,
