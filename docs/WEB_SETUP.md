@@ -155,7 +155,7 @@ The backend implements authenticated Cloudinary media signing, asset
 confirmation and owner deletion, profile-photo uploads, post and story
 publishing, and Reels. Supported images are JPEG, PNG, and WebP; videos are MP4
 and MOV. Upload limits are enforced again against Cloudinary's resource
-metadata: 10 MiB for profile photos, 100 MiB for posts and stories, and 250
+metadata: 5 MiB for profile photos, 100 MiB for posts and stories, and 250
 MiB for Reels. Reels are limited to 180 seconds, and stories expire after 24
 hours. Unattached uploads can be deleted from the upload UI; content-attached
 media cannot be deleted independently.

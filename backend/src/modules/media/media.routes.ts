@@ -18,7 +18,7 @@ const signatureRequestSchema = z.object({
 }).strict();
 
 export const uploadRules = {
-  profile: { resourceTypes: ['image'], formats: ['jpg', 'jpeg', 'png', 'webp'], maxBytes: 10 * 1024 * 1024 },
+  profile: { resourceTypes: ['image'], formats: ['jpg', 'jpeg', 'png', 'webp'], maxBytes: 5 * 1024 * 1024 },
   post: { resourceTypes: ['image', 'video'], formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'], maxBytes: 100 * 1024 * 1024 },
   story: { resourceTypes: ['image', 'video'], formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'], maxBytes: 100 * 1024 * 1024 },
   reel: { resourceTypes: ['video'], formats: ['mp4', 'mov'], maxBytes: 250 * 1024 * 1024 },
@@ -66,7 +66,9 @@ export function createMediaRouter(
         throw error;
       }
       const id = randomUUID();
-      const folder = `cliqheart/${purpose}/${ownerId}`;
+      const folder = purpose === 'profile'
+        ? `cliqheart/profiles/${ownerId}`
+        : `cliqheart/${purpose}/${ownerId}`;
       const publicId = `${folder}/${id}`;
       const timestamp = Math.floor(Date.now() / 1000);
       const signatureParameters = {
@@ -150,11 +152,24 @@ export function createMediaRouter(
       try {
         resource = await provider.resource(media.publicId, media.resourceType);
       } catch (error) {
-        if (cloudinaryStatus(error) === 404) {
+        const failure = cloudinaryFailure(error);
+        if (failure.status === 404) {
           response.status(409).json({ error: 'The upload is not available to confirm yet.' });
           return;
         }
-        response.status(502).json({ error: 'Could not verify the uploaded asset with Cloudinary.' });
+        console.warn(JSON.stringify({
+          event: 'cloudinary_asset_verification_failed',
+          providerStatus: failure.status ?? null,
+          providerCode: failure.code ?? null,
+        }));
+        response.status(502).json({
+          error: 'Could not verify the uploaded asset with Cloudinary.',
+          provider: {
+            status: failure.status ?? null,
+            code: failure.code ?? null,
+            message: cloudinaryFailureMessage(failure.status),
+          },
+        });
         return;
       }
       const verified = parseCloudinaryResource(resource);
@@ -308,6 +323,7 @@ function mediaPayload(media: {
   _id: unknown;
   purpose: string;
   resourceType: string;
+  publicId: string;
   secureUrl?: string | null;
   format?: string | null;
   bytes?: number | null;
@@ -321,6 +337,7 @@ function mediaPayload(media: {
     id: String(media._id),
     purpose: media.purpose,
     resourceType: media.resourceType,
+    publicId: media.publicId,
     secureUrl: media.secureUrl,
     format: media.format,
     bytes: media.bytes,
@@ -390,12 +407,29 @@ function createThumbnailUrl(
 }
 
 function cloudinaryStatus(error: unknown): number | undefined {
-  if (typeof error !== 'object' || error === null || !('error' in error)) return undefined;
+  return cloudinaryFailure(error).status;
+}
+
+function cloudinaryFailure(error: unknown): { status?: number; code?: string } {
+  if (typeof error !== 'object' || error === null || !('error' in error)) return {};
   const nested = error.error;
-  return typeof nested === 'object' && nested !== null && 'http_code' in nested &&
-    typeof nested.http_code === 'number'
+  if (typeof nested !== 'object' || nested === null) return {};
+  const status = 'http_code' in nested && typeof nested.http_code === 'number'
     ? nested.http_code
     : undefined;
+  const code = 'code' in nested && typeof nested.code === 'string' &&
+    /^[a-zA-Z0-9_-]{1,64}$/.test(nested.code)
+    ? nested.code
+    : undefined;
+  return { ...(status !== undefined ? { status } : {}), ...(code ? { code } : {}) };
+}
+
+function cloudinaryFailureMessage(status?: number): string {
+  if (status === 400) return 'Cloudinary rejected the asset request.';
+  if (status === 401) return 'Cloudinary rejected the configured API credentials.';
+  if (status === 403) return 'Cloudinary denied this API operation because of account or API key permissions.';
+  if (status === 413) return 'The Cloudinary asset exceeds the allowed size.';
+  return 'Cloudinary did not complete the asset verification request.';
 }
 
 function isDeletedCloudinaryResult(value: unknown): boolean {

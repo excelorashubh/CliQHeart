@@ -2,27 +2,31 @@ const chunkSize = 20 * 1024 * 1024;
 const chunkedThreshold = 20 * 1024 * 1024;
 
 export class CloudinaryUploadError extends Error {
-  constructor(status, message) {
-    super(cloudinaryStatusMessage(status, message));
+  constructor(status, code) {
+    super(cloudinaryStatusMessage(status));
     this.name = 'CloudinaryUploadError';
     this.status = status;
+    this.code = typeof code === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(code)
+      ? code
+      : undefined;
   }
 }
 
-export function cloudinaryStatusMessage(status, providerMessage) {
+export function cloudinaryStatusMessage(status) {
+  if (status === 400) return 'Cloudinary rejected the upload parameters or image format. Choose a JPEG, PNG, or WebP image and retry.';
   if (status === 401) return 'Cloudinary rejected the upload signature. Retry to request a fresh signature.';
   if (status === 403) {
-    return 'Cloudinary denied the upload. Check that the backend API key has asset create/upload permission for this cloud.';
+    return 'Cloudinary denied this signed upload (HTTP 403). Check the API key permissions and account upload restrictions for this cloud.';
   }
   if (status === 413) return 'This file is too large for Cloudinary. Choose a smaller file and try again.';
-  return providerMessage || `Cloudinary upload failed (${status}).`;
+  return `Cloudinary rejected the upload (HTTP ${status}). Retry or contact support if it continues.`;
 }
 
 export async function validateMediaFile(file, purpose) {
   if (!file) throw new Error('Choose a file to upload.');
   const isVideo = purpose === 'reel' || (purpose !== 'profile' && file.type.startsWith('video/'));
   const maximum = purpose === 'profile'
-    ? 10 * 1024 * 1024
+    ? 5 * 1024 * 1024
     : purpose === 'reel'
       ? 250 * 1024 * 1024
       : 100 * 1024 * 1024;
@@ -33,13 +37,18 @@ export async function validateMediaFile(file, purpose) {
   const ext = file.name.split('.').pop()?.toLowerCase();
   const imageFormat = identifyImageFormat(header);
   const videoFormat = identifyVideoFormat(header);
+  const imageMimeMatches = imageFormat === 'jpeg'
+    ? file.type === 'image/jpeg'
+    : imageFormat === 'png'
+      ? file.type === 'image/png'
+      : imageFormat === 'webp' && file.type === 'image/webp';
   const valid = isVideo
-    ? Boolean(videoFormat && ['mp4', 'mov'].includes(ext))
-    : Boolean(imageFormat && ['jpg', 'jpeg', 'png', 'webp'].includes(ext));
+    ? Boolean(file.type.startsWith('video/') && videoFormat && ['mp4', 'mov'].includes(ext))
+    : Boolean(imageFormat && imageMimeMatches && ['jpg', 'jpeg', 'png', 'webp'].includes(ext));
   if (!valid) {
     throw new Error(isVideo
       ? 'Choose a valid MP4 or MOV video file.'
-      : 'Choose a valid JPEG, PNG, or WebP image file.');
+      : 'Choose a valid JPEG, PNG, or WebP image file with a matching file type.');
   }
   return { resourceType: isVideo ? 'video' : 'image' };
 }

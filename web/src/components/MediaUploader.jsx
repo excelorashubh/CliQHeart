@@ -41,20 +41,41 @@ export function MediaUploader({ purpose, onReady, disabled = false }) {
       mediaId = signed.media?.id;
       if (
         !mediaId ||
+        !signed.upload?.apiKey ||
+        !signed.upload?.cloudName ||
+        !Number.isInteger(signed.upload?.timestamp) ||
         !signed.upload?.signature ||
         !signed.upload?.uploadUrl ||
+        !signed.upload?.publicId ||
+        !Array.isArray(signed.upload?.allowedFormats) ||
         signed.upload.resourceType !== resourceType ||
         !Number.isInteger(signed.upload.maxBytes)
       ) {
         throw new Error('The API returned an incomplete upload signature.');
       }
+      const uploadUrl = new URL(signed.upload.uploadUrl);
+      if (
+        uploadUrl.protocol !== 'https:' ||
+        uploadUrl.hostname !== 'api.cloudinary.com' ||
+        uploadUrl.pathname !== `/v1_1/${signed.upload.cloudName}/${resourceType}/upload`
+      ) {
+        throw new Error('The API returned an invalid Cloudinary upload endpoint.');
+      }
       if (uploadFile.size > signed.upload.maxBytes) {
         throw new Error(`This file exceeds the ${Math.round(signed.upload.maxBytes / 1024 / 1024)} MB upload limit.`);
       }
-      await uploadFileToCloudinary(signed.upload, uploadFile, {
+      const uploaded = await uploadFileToCloudinary(signed.upload, uploadFile, {
         signal: abortController.signal,
         onProgress: setProgress,
       });
+      if (
+        uploaded?.public_id !== signed.upload.publicId ||
+        uploaded?.resource_type !== resourceType ||
+        typeof uploaded?.secure_url !== 'string' ||
+        !uploaded.secure_url.startsWith(`https://res.cloudinary.com/${signed.upload.cloudName}/`)
+      ) {
+        throw new Error('Cloudinary returned an asset that did not match the signed upload.');
+      }
       const confirmed = await mediaApi.confirm(mediaId);
       if (confirmed.media?.status !== 'ready') {
         throw new Error('The API did not confirm the uploaded media.');
@@ -72,7 +93,10 @@ export function MediaUploader({ purpose, onReady, disabled = false }) {
           return;
         }
       }
-      if (reason?.name !== 'AbortError') setError(reason.message || 'Media upload failed.');
+      if (reason?.name !== 'AbortError') {
+        const code = reason?.code ? ` (${reason.code})` : '';
+        setError(`${reason.message || 'Media upload failed.'}${code}`);
+      }
     } finally {
       setBusy(false);
       controller.current = null;

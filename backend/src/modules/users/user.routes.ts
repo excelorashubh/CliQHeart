@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import type { AppConfig } from '../../config/env';
 import { UserModel } from '../../models/user';
 import { MediaModel } from '../media/media.model';
+import { CloudinaryUnavailableError, createCloudinaryClient } from '../media/cloudinary';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { PostModel } from '../content/post.model';
 import { ReelModel } from '../content/reel.model';
@@ -97,10 +98,7 @@ export function createUserRouter(config: AppConfig): Router {
       profileUpdated = true;
       const oldAvatarMediaId = currentUser.avatarMediaId;
       if (oldAvatarMediaId && String(oldAvatarMediaId) !== String(claimedMediaId ?? '')) {
-        await MediaModel.updateOne(
-          { _id: oldAvatarMediaId, attachedTo: 'profile', attachedId: currentUser._id },
-          { $unset: { attachedTo: 1, attachedId: 1 } },
-        );
+        await removeReplacedProfileMedia(config, ownerId, currentUser._id, oldAvatarMediaId);
       }
       response.json({
         user: await profilePayload(user, (request as AuthenticatedRequest).authenticatedUserId!),
@@ -365,6 +363,85 @@ async function profilePayload(user: { _id: unknown; [key: string]: unknown }, vi
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function removeReplacedProfileMedia(
+  config: AppConfig,
+  ownerId: string,
+  attachedId: unknown,
+  mediaId: unknown,
+): Promise<void> {
+  let media;
+  try {
+    media = await MediaModel.findOneAndUpdate(
+      {
+        _id: mediaId,
+        ownerId,
+        purpose: 'profile',
+        resourceType: 'image',
+        status: 'ready',
+        attachedTo: 'profile',
+        attachedId,
+        $or: [
+          { publicId: { $regex: `^cliqheart/profiles/${ownerId}/` } },
+          { publicId: { $regex: `^cliqheart/profile/${ownerId}/` } },
+        ],
+      },
+      {
+        $set: { status: 'deleting' },
+        $unset: { attachedTo: 1, attachedId: 1 },
+      },
+      { new: false },
+    );
+    if (!media) return;
+
+    const cloudinary = createCloudinaryClient(config);
+    const result = await cloudinary.destroy(media.publicId, 'image');
+    if (!isCloudinaryDeletionConfirmed(result)) {
+      await restoreDetachedProfileMedia(media._id);
+      console.warn(JSON.stringify({ event: 'replaced_profile_media_cleanup_unconfirmed' }));
+      return;
+    }
+    await MediaModel.updateOne(
+      { _id: media._id, ownerId, status: 'deleting' },
+      { $set: { status: 'deleted' } },
+    );
+  } catch (error) {
+    if (media) {
+      try {
+        await restoreDetachedProfileMedia(media._id);
+      } catch {
+        console.error(JSON.stringify({ event: 'replaced_profile_media_state_restore_failed' }));
+      }
+    }
+    const providerStatus = cloudinaryHttpStatus(error);
+    console.warn(JSON.stringify({
+      event: 'replaced_profile_media_cleanup_failed',
+      providerStatus: providerStatus ?? null,
+      cloudinaryUnavailable: error instanceof CloudinaryUnavailableError,
+    }));
+  }
+}
+
+async function restoreDetachedProfileMedia(mediaId: unknown): Promise<void> {
+  await MediaModel.updateOne(
+    { _id: mediaId, status: 'deleting' },
+    { $set: { status: 'ready' } },
+  );
+}
+
+function isCloudinaryDeletionConfirmed(value: unknown): boolean {
+  return typeof value === 'object' && value !== null &&
+    'result' in value && (value.result === 'ok' || value.result === 'not found');
+}
+
+function cloudinaryHttpStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null || !('error' in error)) return undefined;
+  const providerError = error.error;
+  return typeof providerError === 'object' && providerError !== null &&
+    'http_code' in providerError && typeof providerError.http_code === 'number'
+    ? providerError.http_code
+    : undefined;
 }
 
 function isDuplicateKeyError(error: unknown): boolean {

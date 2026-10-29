@@ -168,7 +168,7 @@ same Cloudinary cloud; restricted keys without this permission receive an
 upload denial. The backend API secret is never returned.
 
 Accepted image formats are JPEG, PNG, and WebP. Video formats are MP4 and MOV.
-Maximum sizes are 10 MiB for profile photos, 100 MiB for post/story uploads,
+Maximum sizes are 5 MiB for profile photos, 100 MiB for post/story uploads,
 and 250 MiB for Reels. Reels must be no longer than 180 seconds.
 
 - `POST /api/v1/posts` publishes an owned verified image or video with an
@@ -189,7 +189,8 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
 The Cloudinary API key is a public identifier returned with approved direct
 upload signatures. `CLOUDINARY_API_SECRET` must be configured on the backend
 and never in Vite environment variables, Android resources, or API responses.
-Upload settings are documented in `backend/.env.example`.
+Upload settings are documented in `docs/WEB_SETUP.md`; configure them in the
+ignored local `backend/.env` file and in the backend deployment environment.
 
 ## Messaging endpoints
 

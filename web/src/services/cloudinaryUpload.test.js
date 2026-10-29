@@ -10,13 +10,27 @@ describe('validateMediaFile', () => {
     await expect(validateMediaFile(file, 'profile')).resolves.toEqual({ resourceType: 'image' });
   });
 
-  describe('Cloudinary upload errors', () => {
-    it('explains permission, signature, and size failures without hiding their status', () => {
-      expect(cloudinaryStatusMessage(401)).toMatch(/signature/i);
-      expect(cloudinaryStatusMessage(403)).toMatch(/create\/upload permission/i);
-      expect(cloudinaryStatusMessage(413)).toMatch(/too large/i);
-      expect(cloudinaryStatusMessage(500, 'Provider error')).toBe('Provider error');
-    });
+  it('accepts PNG images and enforces the five-megabyte profile limit', async () => {
+    const png = new File([
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    ], 'portrait.png', { type: 'image/png' });
+    await expect(validateMediaFile(png, 'profile')).resolves.toEqual({ resourceType: 'image' });
+
+    const oversized = {
+      name: 'portrait.jpg',
+      type: 'image/jpeg',
+      size: 5 * 1024 * 1024 + 1,
+      slice: () => { throw new Error('Oversized file must be rejected before reading.'); },
+    };
+    await expect(validateMediaFile(oversized, 'profile')).rejects.toThrow('smaller than 5 MB');
+  });
+
+  it('rejects a mismatched declared image MIME type', async () => {
+    const jpeg = new File([
+      new Uint8Array([0xff, 0xd8, 0xff, 0xe0]),
+    ], 'portrait.jpg', { type: 'image/png' });
+
+    await expect(validateMediaFile(jpeg, 'profile')).rejects.toThrow('matching file type');
   });
 
   it('accepts an MP4 video only for video-enabled content', async () => {
@@ -35,9 +49,19 @@ describe('validateMediaFile', () => {
     const oversized = {
       name: 'portrait.jpg',
       type: 'image/jpeg',
-      size: 10 * 1024 * 1024 + 1,
+      size: 5 * 1024 * 1024 + 1,
       slice: () => { throw new Error('Oversized file must be rejected before reading.'); },
     };
-    await expect(validateMediaFile(oversized, 'profile')).rejects.toThrow('smaller than 10 MB');
+    await expect(validateMediaFile(oversized, 'profile')).rejects.toThrow('smaller than 5 MB');
+  });
+});
+
+describe('Cloudinary upload errors', () => {
+  it('distinguishes parameter, signature, permission, and size failures', () => {
+    expect(cloudinaryStatusMessage(400)).toMatch(/parameters or image format/i);
+    expect(cloudinaryStatusMessage(401)).toMatch(/signature/i);
+    expect(cloudinaryStatusMessage(403)).toMatch(/permission.*account upload restrictions/i);
+    expect(cloudinaryStatusMessage(413)).toMatch(/too large/i);
+    expect(cloudinaryStatusMessage(500)).toMatch(/HTTP 500/);
   });
 });
