@@ -2,14 +2,29 @@ const chunkSize = 20 * 1024 * 1024;
 const chunkedThreshold = 20 * 1024 * 1024;
 
 export class CloudinaryUploadError extends Error {
-  constructor(status, code) {
-    super(cloudinaryStatusMessage(status));
+  constructor(status, code, providerMessage) {
+    const safeProviderMessage = sanitizeProviderMessage(providerMessage);
+    super([
+      cloudinaryStatusMessage(status),
+      safeProviderMessage && `Provider detail: ${safeProviderMessage}`,
+    ].filter(Boolean).join(' '));
     this.name = 'CloudinaryUploadError';
     this.status = status;
     this.code = typeof code === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(code)
       ? code
       : undefined;
+    this.providerMessage = safeProviderMessage;
   }
+}
+
+function sanitizeProviderMessage(message) {
+  if (typeof message !== 'string') return undefined;
+  const safeMessage = message
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\b(api[_ -]?key|api[_ -]?secret|signature|authorization)\b\s*[:=]\s*[^,;\s]+/gi, '$1=[redacted]')
+    .trim()
+    .slice(0, 240);
+  return safeMessage || undefined;
 }
 
 export function cloudinaryStatusMessage(status) {
@@ -130,7 +145,11 @@ function sendChunk(url, form, { signal, uploadId, contentRange, onProgress }) {
         return;
       }
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new CloudinaryUploadError(xhr.status, result?.error?.message));
+        reject(new CloudinaryUploadError(
+          xhr.status,
+          result?.error?.code,
+          result?.error?.message,
+        ));
         return;
       }
       resolve(result);

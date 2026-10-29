@@ -9,7 +9,7 @@ const acceptByPurpose = {
   reel: 'video/mp4,video/quicktime',
 };
 
-export function MediaUploader({ purpose, onReady, disabled = false }) {
+export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled = false }) {
   const [file, setFile] = useState(null);
   const [media, setMedia] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -146,6 +146,8 @@ export function MediaUploader({ purpose, onReady, disabled = false }) {
       await mediaApi.remove(media.id);
       setMedia(null);
       setFile(null);
+      setProgress(0);
+      setCropZoom(1);
       onReady?.(null);
       if (fileInput.current) fileInput.current.value = '';
     } catch (reason) {
@@ -153,6 +155,14 @@ export function MediaUploader({ purpose, onReady, disabled = false }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function cancelPhotoChange() {
+    setFile(null);
+    setProgress(0);
+    setCropZoom(1);
+    setError('');
+    if (fileInput.current) fileInput.current.value = '';
   }
 
   return <div className="media-uploader">
@@ -171,6 +181,8 @@ export function MediaUploader({ purpose, onReady, disabled = false }) {
           ? <img src={media.thumbnailUrl || media.secureUrl} alt="Selected media preview" />
           : purpose === 'profile' && preview
             ? <div className="profile-crop-preview"><img src={preview} alt="Cropped profile photo preview" style={{ transform: `scale(${cropZoom})` }} /></div>
+            : purpose === 'profile' && currentImageUrl
+              ? <img src={currentImageUrl} alt="Current profile photo" />
             : preview
               ? <img src={preview} alt="Selected media preview" />
               : <p>{purpose === 'reel' ? 'Choose an MP4 or MOV video' : 'Choose a JPEG, PNG, or WebP image'}</p>}
@@ -186,6 +198,7 @@ export function MediaUploader({ purpose, onReady, disabled = false }) {
       {busy && <button type="button" className="text-link" onClick={cancel}>Cancel upload</button>}
       {purpose !== 'profile' && file && !busy && !media && <button type="button" className="text-link" onClick={() => upload()}>Retry</button>}
       {purpose === 'profile' && file && !busy && !media && <button type="button" className="button button--primary" onClick={() => upload()}>Upload photo</button>}
+      {purpose === 'profile' && file && !busy && !media && <button type="button" className="text-link" onClick={cancelPhotoChange}>Cancel photo change</button>}
       {media && !busy && <button type="button" className="text-link" onClick={removeUpload}>Remove upload</button>}
       {busy && <span role="status">Uploading… {progress}%</span>}
     </div>

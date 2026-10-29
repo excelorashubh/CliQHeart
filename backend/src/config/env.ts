@@ -82,7 +82,10 @@ const environmentSchema = z
     JWT_AUDIENCE: z.string().trim().min(1).default('cliqheart-mobile'),
     ACCESS_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('15m'),
     REFRESH_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('365d'),
-    CLOUDINARY_CLOUD_NAME: z.string().trim().min(1).default('dlfvdqs3'),
+    CLOUDINARY_CLOUD_NAME: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().trim().min(1).optional(),
+    ),
     CLOUDINARY_API_KEY: z.string().trim().min(1).optional(),
     CLOUDINARY_API_SECRET: z.string().trim().min(1).optional(),
   })

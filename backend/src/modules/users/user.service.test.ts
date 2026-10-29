@@ -53,4 +53,16 @@ test('profile updates accept only a MongoDB media identifier for uploaded avatar
     { avatarMediaId: '507f1f77bcf86cd799439011' },
   );
   assert.throws(() => userProfileUpdateSchema.parse({ avatarMediaId: 'https://example.test/photo.jpg' }));
+  assert.throws(() => userProfileUpdateSchema.parse({ avatarUrl: 'https://example.test/photo.jpg' }));
+});
+
+test('profile text updates do not require a replacement avatar', () => {
+  assert.deepEqual(
+    userProfileUpdateSchema.parse({ bio: 'A new biography' }),
+    { bio: 'A new biography' },
+  );
+  assert.deepEqual(
+    userProfileUpdateSchema.parse({ displayName: 'New name' }),
+    { displayName: 'New name' },
+  );
 });

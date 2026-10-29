@@ -38,7 +38,9 @@ export function createUserRouter(config: AppConfig): Router {
     try {
       const update = userProfileUpdateSchema.parse(request.body);
       const ownerId = (request as AuthenticatedRequest).authenticatedUserId!;
-      const currentUser = await UserModel.findById(ownerId).select('avatarMediaId');
+      const currentUser = await UserModel.findById(ownerId)
+        .select(`${publicProfileFields} avatarMediaId`)
+        .lean();
       if (!currentUser) {
         response.status(404).json({ error: 'User not found.' });
         return;
@@ -46,32 +48,34 @@ export function createUserRouter(config: AppConfig): Router {
 
       const set: Record<string, unknown> = {};
       const unset: Record<string, 1> = {};
+      let profilePhotoChanged = false;
       if (update.avatarMediaId) {
-        const media = await MediaModel.findOneAndUpdate(
-          {
-            _id: update.avatarMediaId,
-            ownerId,
-            purpose: 'profile',
-            resourceType: 'image',
-            status: 'ready',
-            attachedTo: { $exists: false },
-          },
-          { $set: { attachedTo: 'profile', attachedId: currentUser._id } },
-          { new: true },
-        );
-        if (!media?.secureUrl) {
-          response.status(409).json({ error: 'Choose a verified profile image owned by your account.' });
-          return;
+        if (String(currentUser.avatarMediaId ?? '') !== update.avatarMediaId) {
+          const media = await MediaModel.findOneAndUpdate(
+            {
+              _id: update.avatarMediaId,
+              ownerId,
+              purpose: 'profile',
+              resourceType: 'image',
+              status: 'ready',
+              attachedTo: { $exists: false },
+            },
+            { $set: { attachedTo: 'profile', attachedId: currentUser._id } },
+            { new: true },
+          );
+          if (!media?.secureUrl) {
+            response.status(409).json({ error: 'Choose a verified profile image owned by your account.' });
+            return;
+          }
+          claimedMediaId = String(media._id);
+          profilePhotoChanged = true;
+          set.avatarMediaId = media._id;
+          set.avatarUrl = media.secureUrl;
         }
-        claimedMediaId = String(media._id);
-        set.avatarMediaId = media._id;
-        set.avatarUrl = media.secureUrl;
       } else if (update.avatarMediaId === null) {
+        profilePhotoChanged = true;
         unset.avatarMediaId = 1;
         unset.avatarUrl = 1;
-      } else if (update.avatarUrl !== undefined) {
-        set.avatarUrl = update.avatarUrl;
-        unset.avatarMediaId = 1;
       }
       if (update.username !== undefined) set.username = update.username;
       if (update.displayName !== undefined) set.displayName = update.displayName;
@@ -80,6 +84,10 @@ export function createUserRouter(config: AppConfig): Router {
         ...(Object.keys(set).length ? { $set: set } : {}),
         ...(Object.keys(unset).length ? { $unset: unset } : {}),
       };
+      if (!Object.keys(updateOperation).length) {
+        response.json({ user: await profilePayload(currentUser, ownerId) });
+        return;
+      }
       const user = await UserModel.findByIdAndUpdate(
         ownerId,
         updateOperation,
@@ -97,7 +105,11 @@ export function createUserRouter(config: AppConfig): Router {
       }
       profileUpdated = true;
       const oldAvatarMediaId = currentUser.avatarMediaId;
-      if (oldAvatarMediaId && String(oldAvatarMediaId) !== String(claimedMediaId ?? '')) {
+      if (
+        profilePhotoChanged &&
+        oldAvatarMediaId &&
+        String(oldAvatarMediaId) !== String(claimedMediaId ?? '')
+      ) {
         await removeReplacedProfileMedia(config, ownerId, currentUser._id, oldAvatarMediaId);
       }
       response.json({

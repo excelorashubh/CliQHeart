@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { cloudinaryStatusMessage, validateMediaFile } from './cloudinaryUpload.js';
+import {
+  CloudinaryUploadError,
+  cloudinaryStatusMessage,
+  validateMediaFile,
+} from './cloudinaryUpload.js';
 
 describe('validateMediaFile', () => {
   it('accepts supported image content based on its file signature', async () => {
@@ -63,5 +67,19 @@ describe('Cloudinary upload errors', () => {
     expect(cloudinaryStatusMessage(403)).toMatch(/permission.*account upload restrictions/i);
     expect(cloudinaryStatusMessage(413)).toMatch(/too large/i);
     expect(cloudinaryStatusMessage(500)).toMatch(/HTTP 500/);
+  });
+
+  it('preserves safe provider diagnostics without exposing signed values', () => {
+    const error = new CloudinaryUploadError(
+      403,
+      'permission_denied',
+      'Create denied; api_secret=private-value; signature: sensitive-value',
+    );
+
+    expect(error.status).toBe(403);
+    expect(error.code).toBe('permission_denied');
+    expect(error.providerMessage).toContain('Create denied');
+    expect(error.message).not.toContain('private-value');
+    expect(error.message).not.toContain('sensitive-value');
   });
 });

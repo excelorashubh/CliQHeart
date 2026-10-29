@@ -60,6 +60,12 @@ they are configured. The key must belong to the configured cloud and permit
 asset creation/uploads for signed browser uploads; keep its permissions scoped
 to the minimum required and do not grant account-administration access.
 
+For the Render backend, set `CLOUDINARY_CLOUD_NAME=dapomdxat`,
+`CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the service's Environment
+settings using credentials from the same Cloudinary account. Save the changes
+and redeploy or restart the backend. Keep the API secret in Render's backend
+environment only; do not put credentials in the frontend or deployment logs.
+
 ## Build and static deployment
 
 From `web\`:

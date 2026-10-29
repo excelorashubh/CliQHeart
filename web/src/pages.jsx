@@ -506,7 +506,10 @@ export function ProfilePage({ editOnOpen = false }) {
   }, [loadProfile]);
   const isOwn = Boolean(profile && signedInUser && profile.id === signedInUser.id);
   useEffect(() => {
-    if (editOnOpen && isOwn) setEditOpen(true);
+    if (editOnOpen && isOwn) {
+      setEditError('');
+      setEditOpen(true);
+    }
   }, [editOnOpen, isOwn]);
 
   async function toggleFollow() {
@@ -541,12 +544,30 @@ export function ProfilePage({ editOnOpen = false }) {
       if (!result.user) throw new Error('The API returned an incomplete profile update.');
       setProfile((current) => ({ ...current, ...result.user }));
       setUser(result.user);
+      setForm({
+        username: result.user.username || '',
+        displayName: result.user.displayName || '',
+        bio: result.user.bio || '',
+        avatarMediaId: '',
+      });
       setEditOpen(false);
     } catch (reason) {
       setEditError(reason.message || 'Could not save your profile.');
     } finally {
       setBusy(false);
     }
+  }
+
+  function openEditProfile() {
+    if (!profile) return;
+    setEditError('');
+    setForm({
+      username: profile.username || '',
+      displayName: profile.displayName || '',
+      bio: profile.bio || '',
+      avatarMediaId: '',
+    });
+    setEditOpen(true);
   }
 
   async function openList(relation) {
@@ -626,7 +647,7 @@ export function ProfilePage({ editOnOpen = false }) {
       <Avatar name={profile.displayName} src={profile.avatarUrl} size="profile" />
       <div className="profile-info">
         <div className="profile-title"><h1>{profile.username}</h1>{isOwn
-          ? <><button className="button button--outline" onClick={() => setEditOpen(true)}>Edit profile</button><button className="button button--outline" onClick={() => setEditOpen(true)}>Edit photo</button></>
+          ? <><button className="button button--outline" onClick={openEditProfile}>Edit profile</button><button className="button button--outline" onClick={openEditProfile}>Edit photo</button></>
           : <><button className={`button ${profile.isFollowing ? 'button--outline' : 'button--primary'}`} onClick={toggleFollow} disabled={busy}>{profile.isFollowing ? 'Following' : 'Follow'}</button><button className="button button--outline" onClick={messageUser}>Message</button></>}
           <button className="button button--outline profile-share-button" onClick={shareProfile} aria-label="Share profile"><Share2 size={15} /><span>Share</span></button>
         </div>
@@ -675,7 +696,12 @@ export function ProfilePage({ editOnOpen = false }) {
           <label>Bio<textarea maxLength="500" rows="3" value={form.bio} onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))} /><small>{form.bio.length}/500 characters</small></label>
           <label>Profile photo</label>
           {profile.avatarUrl && form.avatarMediaId !== null && <button type="button" className="text-link" onClick={() => setForm((current) => ({ ...current, avatarMediaId: null }))}>Remove current photo</button>}
-          <MediaUploader purpose="profile" onReady={(media) => setForm((current) => ({ ...current, avatarMediaId: media?.id || '' }))} />
+          {form.avatarMediaId === null && <button type="button" className="text-link" onClick={() => setForm((current) => ({ ...current, avatarMediaId: '' }))}>Keep current photo</button>}
+          <MediaUploader
+            purpose="profile"
+            currentImageUrl={form.avatarMediaId === null ? '' : profile.avatarUrl || ''}
+            onReady={(media) => setForm((current) => ({ ...current, avatarMediaId: media?.id || '' }))}
+          />
           {editError && <p className="form-error" role="alert">{editError}</p>}
           <button className="button button--primary button--wide" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
         </form>

@@ -40,7 +40,6 @@ export const userProfileUpdateSchema = z
     username: userProfileInputSchema.shape.username.optional(),
     displayName: userProfileInputSchema.shape.displayName.optional(),
     bio: z.string().trim().max(500).optional(),
-    avatarUrl: userProfileInputSchema.shape.avatarUrl,
     avatarMediaId: z.string().regex(/^[a-f\d]{24}$/i).nullable().optional(),
   })
   .strict()

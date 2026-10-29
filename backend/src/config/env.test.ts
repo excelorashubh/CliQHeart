@@ -59,6 +59,9 @@ test('uses safe defaults for optional configuration', () => {
     'https://cliqhearts.onrender.com',
   ]);
   assert.equal(config.LOG_LEVEL, 'info');
+  assert.equal(config.CLOUDINARY_CLOUD_NAME, undefined);
+  assert.equal(config.CLOUDINARY_API_KEY, undefined);
+  assert.equal(config.CLOUDINARY_API_SECRET, undefined);
 });
 
 test('uses the requested frontend and allowed-origins environment variables', () => {

@@ -54,6 +54,12 @@ export function createMediaRouter(
         response.status(400).json({ error: 'That media type is not allowed for this upload.' });
         return;
       }
+      const cloudName = config.CLOUDINARY_CLOUD_NAME;
+      const apiKey = config.CLOUDINARY_API_KEY;
+      if (!cloudName || !apiKey || !config.CLOUDINARY_API_SECRET) {
+        response.status(503).json({ error: 'Media uploads are not configured.' });
+        return;
+      }
 
       let provider: CloudinaryMediaClient;
       try {
@@ -92,10 +98,10 @@ export function createMediaRouter(
       response.status(201).json({
         media: { id: String(media._id), status: media.status },
         upload: {
-          apiKey: config.CLOUDINARY_API_KEY,
-          cloudName: config.CLOUDINARY_CLOUD_NAME,
+          apiKey,
+          cloudName,
           resourceType,
-          uploadUrl: `https://api.cloudinary.com/v1_1/${config.CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`,
+          uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
           timestamp,
           signature,
           publicId,
@@ -135,6 +141,11 @@ export function createMediaRouter(
       }
       if (media.status !== 'uploading' || media.signatureExpiresAt.getTime() < Date.now()) {
         response.status(410).json({ error: 'This upload signature has expired.' });
+        return;
+      }
+      const cloudName = config.CLOUDINARY_CLOUD_NAME;
+      if (!cloudName) {
+        response.status(503).json({ error: 'Media uploads are not configured.' });
         return;
       }
 
@@ -181,14 +192,14 @@ export function createMediaRouter(
         !(rules.formats as readonly string[]).includes(verified.format) ||
         verified.bytes < 1 ||
         verified.bytes > rules.maxBytes ||
-        !isCloudinaryHttpsUrl(verified.secureUrl, config.CLOUDINARY_CLOUD_NAME)
+        !isCloudinaryHttpsUrl(verified.secureUrl, cloudName)
       ) {
         response.status(422).json({ error: 'The uploaded asset did not pass validation.' });
         return;
       }
 
       const thumbnailUrl = createThumbnailUrl(
-        config.CLOUDINARY_CLOUD_NAME,
+        cloudName,
         media.resourceType,
         media.publicId,
       );

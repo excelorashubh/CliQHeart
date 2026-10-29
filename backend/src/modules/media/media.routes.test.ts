@@ -54,12 +54,13 @@ test('profile signatures are authenticated, scoped to the profile folder, and si
     NODE_ENV: 'test',
     MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
     JWT_ACCESS_SECRET: accessSecret,
-    CLOUDINARY_CLOUD_NAME: 'dlfvdqs3',
+    CLOUDINARY_CLOUD_NAME: 'dapomdxat',
     CLOUDINARY_API_KEY: 'test-cloudinary-api-key',
     CLOUDINARY_API_SECRET: apiSecret,
   });
   const ownerId = '0123456789abcdef01234567';
   const mediaId = 'abcdefabcdefabcdefabcdef';
+  const timestampBeforeRequest = Math.floor(Date.now() / 1000);
   const sign = t.mock.fn((parameters: Record<string, string | number | boolean>) => {
     const publicId = parameters.public_id;
     assert.equal(typeof publicId, 'string');
@@ -70,6 +71,8 @@ test('profile signatures are authenticated, scoped to the profile folder, and si
       public_id: `cliqheart/profiles/${ownerId}/${publicId.split('/').pop()}`,
       timestamp: parameters.timestamp,
     });
+    assert.equal(typeof parameters.timestamp, 'number');
+    assert.ok(Number.isInteger(parameters.timestamp));
     return 'test-signature';
   });
   const provider = {
@@ -107,9 +110,11 @@ test('profile signatures are authenticated, scoped to the profile folder, and si
   assert.equal(response.status, 201);
   assert.equal(sign.mock.calls.length, 1);
   assert.equal(response.body.upload.apiKey, 'test-cloudinary-api-key');
-  assert.equal(response.body.upload.cloudName, 'dlfvdqs3');
+  assert.equal(response.body.upload.cloudName, 'dapomdxat');
   assert.equal(response.body.upload.resourceType, 'image');
   assert.equal(response.body.upload.maxBytes, 5 * 1024 * 1024);
-  assert.match(response.body.upload.uploadUrl, /dlfvdqs3\/image\/upload$/);
+  assert.ok(response.body.upload.timestamp >= timestampBeforeRequest);
+  assert.ok(response.body.upload.timestamp <= Math.floor(Date.now() / 1000));
+  assert.match(response.body.upload.uploadUrl, /dapomdxat\/image\/upload$/);
   assert.ok(!JSON.stringify(response.body).includes(apiSecret));
 });
