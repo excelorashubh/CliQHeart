@@ -6,6 +6,7 @@ import { UserModel } from '../../models/user';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { FollowModel } from '../users/follow.model';
 import { MediaModel } from '../media/media.model';
+import { isVerifiedDurationSeconds } from '../media/duration';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
 import { StoryModel } from './story.model';
@@ -445,8 +446,17 @@ export function createContentRouter(config: AppConfig): Router {
       const ownerId = authenticatedUserId(request);
       const reelId = new Types.ObjectId();
       const media = await claimMedia(mediaId, ownerId, 'reel', ['video'], reelId);
-      if (!media || !media.duration || media.duration > 180) {
-        if (media) await releaseMedia(media._id, reelId, 'reel');
+      if (!media) {
+        response.status(409).json({ error: 'Choose a verified video to publish this Reel.' });
+        return;
+      }
+      if (!isVerifiedDurationSeconds(media.duration)) {
+        await releaseMedia(media._id, reelId, 'reel');
+        response.status(409).json({ error: 'Could not verify this video\'s duration. Choose another video or retry the upload.' });
+        return;
+      }
+      if (media.duration > 180) {
+        await releaseMedia(media._id, reelId, 'reel');
         response.status(409).json({ error: 'Choose a verified video no longer than 180 seconds.' });
         return;
       }

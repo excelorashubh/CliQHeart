@@ -4,12 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CreatePage } from './pages.jsx';
 import { contentApi, mediaApi } from './services/api.js';
 
+const { reelDuration } = vi.hoisted(() => ({ reelDuration: { value: 35 } }));
+
 vi.mock('./components/MediaUploader.jsx', () => ({
   MediaUploader: ({ purpose, onReady }) => <button
     type="button"
     onClick={() => onReady({
       id: `media-${purpose}`,
       resourceType: purpose === 'reel' ? 'video' : 'image',
+      ...(purpose === 'reel' ? { duration: reelDuration.value } : {}),
       secureUrl: 'https://media.example/upload.jpg',
     })}
   >Use verified upload</button>,
@@ -21,6 +24,7 @@ vi.mock('./context/AuthContext.jsx', () => ({
 
 describe('CreatePage', () => {
   beforeEach(() => {
+    reelDuration.value = 35;
     vi.spyOn(mediaApi, 'remove').mockResolvedValue(null);
     vi.spyOn(contentApi, 'createPost').mockResolvedValue({ post: { id: 'post-id' } });
     vi.spyOn(contentApi, 'createStory').mockResolvedValue({ story: { id: 'story-id' } });
@@ -95,6 +99,41 @@ describe('CreatePage', () => {
       location: 'Studio',
       aiDisclosure: true,
     }));
+  });
+
+  it.each([0.001, 35, 179.9, 180])('accepts a verified Reel duration of %s seconds', async (duration) => {
+    reelDuration.value = duration;
+    render(<MemoryRouter><CreatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use verified upload' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+
+    await waitFor(() => expect(contentApi.createReel).toHaveBeenCalledWith({
+      mediaId: 'media-reel',
+      caption: '',
+    }));
+  });
+
+  it.each([180.1, 200])('rejects a verified Reel duration of %s seconds', async (duration) => {
+    reelDuration.value = duration;
+    render(<MemoryRouter><CreatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use verified upload' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('exceeds the 180-second Reel limit');
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    expect(contentApi.createReel).not.toHaveBeenCalled();
+  });
+
+  it('requires a verified Reel duration before publishing', async () => {
+    reelDuration.value = undefined;
+    render(<MemoryRouter><CreatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use verified upload' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("couldn't verify this video's duration");
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    expect(contentApi.createReel).not.toHaveBeenCalled();
   });
 
   it('prevents a rapid duplicate publish submission', async () => {

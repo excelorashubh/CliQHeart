@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bookmark, Heart, Play } from 'lucide-react';
 import { Avatar } from './Brand.jsx';
@@ -363,8 +363,44 @@ function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, on
         : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.altText || item.caption || 'Shared CliQHeart media'} loading="lazy" />}
       {isVideo && <span className="content-video-badge"><Play size={14} fill="currentColor" /> {kind === 'reels' ? 'Reel' : 'Video'}</span>}
     </div>
-    {item.caption && <p className="content-card-caption"><strong>@{item.owner?.username}</strong> {item.caption}</p>}
+    {item.caption && <ContentCaption
+      username={item.owner?.username || 'member'}
+      caption={item.caption}
+      postId={item.id}
+    />}
     {item.location && <p className="content-card-location">{item.location}</p>}
     {bookmarkError && <p className="inline-error" role="alert">{bookmarkError}</p>}
   </article>;
+}
+
+export function ContentCaption({ username, caption, postId }) {
+  const captionRef = useRef(null);
+  const [isLong, setIsLong] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = captionRef.current;
+    if (!element || isExpanded) return undefined;
+    const measure = () => {
+      setIsLong(element.scrollHeight > element.clientHeight + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [caption, isExpanded, postId]);
+
+  return <div className="content-card-caption-block" data-post-id={postId}>
+    <p ref={captionRef} className={`content-card-caption${!isExpanded ? ' is-collapsed' : ''}`}>
+      <strong>@{username}</strong> {caption}
+    </p>
+    {isLong && <button
+      type="button"
+      className="content-caption-toggle"
+      aria-expanded={isExpanded}
+      aria-label={`${isExpanded ? 'Show less' : 'Read more'} for post by @${username}`}
+      onClick={() => setIsExpanded((current) => !current)}
+    >{isExpanded ? 'Show less' : 'Read more'}</button>}
+  </div>;
 }

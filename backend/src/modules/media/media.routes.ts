@@ -10,6 +10,7 @@ import { PostModel } from '../content/post.model';
 import { ReelModel } from '../content/reel.model';
 import { StoryModel } from '../content/story.model';
 import { CloudinaryUnavailableError, createCloudinaryClient, type CloudinaryMediaClient } from './cloudinary';
+import { normalizeDurationSeconds } from './duration';
 import { MediaModel } from './media.model';
 
 const signatureRequestSchema = z.object({
@@ -381,6 +382,7 @@ function parseCloudinaryResource(value: unknown): {
     typeof asset.format !== 'string' ||
     typeof asset.bytes !== 'number'
   ) return null;
+  const duration = normalizeDurationSeconds(asset.duration, 'seconds');
   return {
     publicId: asset.public_id,
     assetId: asset.asset_id,
@@ -390,7 +392,7 @@ function parseCloudinaryResource(value: unknown): {
     bytes: asset.bytes,
     ...(typeof asset.width === 'number' ? { width: asset.width } : {}),
     ...(typeof asset.height === 'number' ? { height: asset.height } : {}),
-    ...(typeof asset.duration === 'number' ? { duration: asset.duration } : {}),
+    ...(duration !== null ? { duration } : {}),
   };
 }
 

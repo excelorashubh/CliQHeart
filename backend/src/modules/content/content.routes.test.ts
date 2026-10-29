@@ -144,6 +144,56 @@ test('Reel publishing requires verified video media and accepts its supported me
   assert.equal(response.body.reel.aiDisclosure, true);
 });
 
+test('Reel publishing accepts durations up to 180 seconds and rejects longer or unverified durations', async (t) => {
+  const reelMedia = {
+    _id: new Types.ObjectId(mediaIds.reel),
+    resourceType: 'video',
+    secureUrl: 'https://res.cloudinary.com/test/video/upload/reel.mp4',
+    thumbnailUrl: 'https://res.cloudinary.com/test/video/upload/reel.jpg',
+    format: 'mp4',
+    bytes: 2048,
+    width: 720,
+    height: 1280,
+    duration: 35 as number | null,
+  };
+  const { app, token } = buildApp(t, reelMedia);
+  const createReel = t.mock.method(ReelModel, 'create', async (fields: Record<string, unknown>) => ({
+    ...fields,
+    createdAt: new Date(),
+  }));
+  t.mock.method(MediaModel, 'updateOne', async () => ({ modifiedCount: 1 }));
+
+  for (const duration of [0.001, 35, 179.9, 180]) {
+    reelMedia.duration = duration;
+    const response = await request(app)
+      .post('/api/v1/reels')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mediaId: mediaIds.reel, caption: '' });
+    assert.equal(response.status, 201, `${duration} seconds should be accepted`);
+  }
+
+  for (const duration of [180.1, 200]) {
+    reelMedia.duration = duration;
+    const response = await request(app)
+      .post('/api/v1/reels')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mediaId: mediaIds.reel, caption: '' });
+    assert.equal(response.status, 409, `${duration} seconds should be rejected`);
+    assert.match(response.body.error, /no longer than 180 seconds/i);
+  }
+
+  for (const duration of [null, Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+    reelMedia.duration = duration;
+    const response = await request(app)
+      .post('/api/v1/reels')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mediaId: mediaIds.reel, caption: '' });
+    assert.equal(response.status, 409);
+    assert.match(response.body.error, /could not verify.*duration/i);
+  }
+  assert.equal(createReel.mock.calls.length, 4);
+});
+
 test('story publishing accepts its JSON contract and returns its server expiration', async (t) => {
   const { app, token } = createContentApp(t);
   const createStory = t.mock.method(StoryModel, 'create', async (fields: Record<string, unknown>) => ({

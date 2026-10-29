@@ -1433,7 +1433,10 @@ export function CreatePage() {
   const [published, setPublished] = useState(null);
   const [uploaderKey, setUploaderKey] = useState(0);
   const submitting = useRef(false);
-  const reelTooLong = kind === 'reel' && media?.duration > 180;
+  const verifiedReelDuration = typeof media?.duration === 'number' &&
+    Number.isFinite(media.duration) && media.duration > 0;
+  const reelDurationUnverified = kind === 'reel' && Boolean(media?.id) && !verifiedReelDuration;
+  const reelTooLong = kind === 'reel' && verifiedReelDuration && media.duration > 180;
   const hasUnsavedChanges = Boolean(
     media?.id || caption.trim() || locationName.trim() || altText.trim() || aiDisclosure,
   );
@@ -1470,7 +1473,7 @@ export function CreatePage() {
 
   async function publish(event) {
     event.preventDefault();
-    if (!media?.id || busy || submitting.current || reelTooLong) return;
+    if (!media?.id || busy || submitting.current || reelTooLong || reelDurationUnverified) return;
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -1570,9 +1573,10 @@ export function CreatePage() {
         </div>}
         {kind !== 'reel' && <p className="create-unavailable"><strong>Draft saving unavailable:</strong> drafts are not stored by the backend, so this composer publishes only after you choose Share or Publish.</p>}
         {kind === 'reel' && <p className="create-unavailable"><strong>Captions unavailable:</strong> automatic transcription and subtitle generation are not implemented.</p>}
-        {reelTooLong && <p className="form-error" role="alert">This video is longer than the 180-second Reel limit.</p>}
+        {reelDurationUnverified && <p className="form-error" role="alert">We couldn't verify this video's duration. Choose another video or retry the upload.</p>}
+        {reelTooLong && <p className="form-error" role="alert">This video exceeds the 180-second Reel limit. Choose a shorter video.</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="button button--primary button--wide create-publish" disabled={busy || !media?.id || reelTooLong}>{busy ? 'Publishing…' : kind === 'story' ? 'Share story' : 'Publish'}</button>
+        <button className="button button--primary button--wide create-publish" disabled={busy || !media?.id || reelTooLong || reelDurationUnverified}>{busy ? 'Publishing…' : kind === 'story' ? 'Share story' : 'Publish'}</button>
       </section>
       <aside className={`create-preview${kind === 'story' ? ' create-preview--story' : kind === 'reel' ? ' create-preview--reel' : ''}`} aria-label="Content preview">
         <div className="create-section-heading"><div><p className="eyebrow">STEP 2 · PREVIEW</p><h2>Preview</h2></div></div>
