@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
-  Bell, Heart, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
+  Bell, Compass, Heart, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
   Settings, Video, Menu, X,
 } from 'lucide-react';
 import { Brand, Avatar } from './Brand.jsx';
@@ -11,10 +11,11 @@ import { notificationApi } from '../services/api.js';
 const links = [
   { name: 'Home', to: '/', Icon: Home },
   { name: 'Search', to: '/search', Icon: Search },
+  { name: 'Explore', to: '/explore/people/', Icon: Compass },
   { name: 'Reels', to: '/reels', Icon: Video },
   { name: 'Messages', to: '/messages', Icon: MessageCircle },
   { name: 'Notifications', to: '/notifications', Icon: Bell },
-  { name: 'Create post', to: '/create', Icon: PlusSquare },
+  { name: 'Create', to: '/create', Icon: PlusSquare },
   { name: 'Profile', to: '/profile', Icon: UserRound, profile: true },
 ];
 
@@ -74,21 +75,21 @@ export function AppLayout({ children }) {
       <Link to="/" className="sidebar-brand" onClick={() => setMenuOpen(false)}><Brand /></Link>
       <nav className="nav-list" aria-label="Main navigation">
         {links.map(({ name, to, Icon, disabled, profile }) => disabled
-          ? <Link className="nav-link nav-link--disabled" title={`${name} isn't supported by the current API`} to={to} key={name}>
+          ? <Link className="nav-link nav-link--disabled" aria-label={name} title={`${name} isn't supported by the current API`} to={to} key={name}>
               <Icon size={21} strokeWidth={1.8} /><span>{name}</span><small>Coming soon</small>
             </Link>
           : profile
-            ? <NavLink className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
+            ? <NavLink aria-label={name} title={name} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
                 <Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /><span>{name}</span>
               </NavLink>
-          : <NavLink end={to === '/'} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
+          : <NavLink aria-label={name} title={name} end={to === '/'} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
               <span className="nav-icon-wrap"><Icon size={21} strokeWidth={1.8} />{name === 'Notifications' && unreadNotificationCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</span><span>{name}</span>
             </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
-        <NavLink className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to="/settings" onClick={() => setMenuOpen(false)}><Settings size={21} /><span>Settings</span></NavLink>
-        <button className="nav-link logout-link" onClick={logout} disabled={logoutBusy}><LogOut size={21} /><span>{logoutBusy ? 'Logging out…' : 'Log out'}</span></button>
-        {user && <Link to="/profile" className="account-shortcut">
+        <NavLink aria-label="More" title="More" className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to="/settings" onClick={() => setMenuOpen(false)}><Settings size={21} /><span>More</span></NavLink>
+        <button className="nav-link logout-link" aria-label="Log out" title="Log out" onClick={logout} disabled={logoutBusy}><LogOut size={21} /><span>{logoutBusy ? 'Logging out…' : 'Log out'}</span></button>
+        {user && <Link to="/profile" className="account-shortcut" aria-label={`${user.displayName} @${user.username}`} title={`${user.displayName} @${user.username}`}>
           <Avatar name={user.displayName} src={user.avatarUrl} size="small" />
           <span><strong>{user.displayName}</strong><small>@{user.username}</small></span>
         </Link>}
@@ -97,7 +98,7 @@ export function AppLayout({ children }) {
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <main className="main-column">{children}</main>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {links.filter(({ name }) => ['Home', 'Search', 'Reels', 'Create post', 'Messages', 'Notifications'].includes(name)).map(({ name, to, Icon }) =>
+      {links.filter(({ name }) => ['Home', 'Search', 'Reels', 'Create', 'Messages', 'Notifications'].includes(name)).map(({ name, to, Icon }) =>
         <NavLink end={to === '/'} key={name} to={to} aria-label={name} className={({ isActive }) => isActive ? 'is-active' : ''}>
           <span className="nav-icon-wrap"><Icon size={22} />{name === 'Notifications' && unreadNotificationCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</span>
         </NavLink>)}

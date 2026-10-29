@@ -1,19 +1,36 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import argon2 from 'argon2';
 import { ZodError } from 'zod';
+import { z } from 'zod';
 import type { AppConfig } from '../../config/env';
 import { UserModel } from '../../models/user';
 import { MediaModel } from '../media/media.model';
-import { CloudinaryUnavailableError, createCloudinaryClient } from '../media/cloudinary';
+import {
+  CloudinaryUnavailableError,
+  createCloudinaryClient,
+  type CloudinaryMediaClient,
+} from '../media/cloudinary';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { PostModel } from '../content/post.model';
 import { ReelModel } from '../content/reel.model';
-import { createNotificationSafely } from '../notifications/notification.service';
 import { FollowModel } from './follow.model';
 import { userProfileUpdateSchema } from './user.validation';
+import { changeFollowRelationship, FollowAccountUnavailableError } from './follow.service';
+import {
+  AccountDeletionUnavailableError,
+  deleteAccount,
+} from './account-deletion.service';
 
 const publicProfileFields = 'username displayName bio avatarUrl';
+const accountDeletionSchema = z.object({
+  password: z.string().min(1).max(128),
+}).strict();
 
-export function createUserRouter(config: AppConfig): Router {
+export function createUserRouter(
+  config: AppConfig,
+  cloudinaryClient?: CloudinaryMediaClient,
+  deleteAccountHandler: (userId: string) => Promise<void> = deleteAccount,
+): Router {
   const router = Router();
   const authenticate = requireAccessToken(config);
 
@@ -28,6 +45,34 @@ export function createUserRouter(config: AppConfig): Router {
       }
       response.json({ user: await profilePayload(user, (request as AuthenticatedRequest).authenticatedUserId!) });
     } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/users/me', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const { password } = accountDeletionSchema.parse(request.body);
+      const ownerId = (request as AuthenticatedRequest).authenticatedUserId!;
+      const user = await UserModel.findById(ownerId).select('+passwordHash');
+      if (!user || typeof user.passwordHash !== 'string') {
+        response.status(404).json({ error: 'User not found.' });
+        return;
+      }
+      if (!await argon2.verify(user.passwordHash, password)) {
+        response.status(401).json({ error: 'Password confirmation failed.' });
+        return;
+      }
+      await deleteAccountHandler(ownerId);
+      response.status(204).end();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Enter your current password to confirm account deletion.' });
+        return;
+      }
+      if (error instanceof AccountDeletionUnavailableError) {
+        response.status(503).json({ error: error.message });
+        return;
+      }
       next(error);
     }
   });
@@ -105,15 +150,25 @@ export function createUserRouter(config: AppConfig): Router {
       }
       profileUpdated = true;
       const oldAvatarMediaId = currentUser.avatarMediaId;
+      let photoCleanupWarning = false;
       if (
         profilePhotoChanged &&
         oldAvatarMediaId &&
         String(oldAvatarMediaId) !== String(claimedMediaId ?? '')
       ) {
-        await removeReplacedProfileMedia(config, ownerId, currentUser._id, oldAvatarMediaId);
+        photoCleanupWarning = !await removeReplacedProfileMedia(
+          config,
+          ownerId,
+          currentUser._id,
+          oldAvatarMediaId,
+          cloudinaryClient,
+        );
       }
       response.json({
         user: await profilePayload(user, (request as AuthenticatedRequest).authenticatedUserId!),
+        ...(photoCleanupWarning ? {
+          photoCleanupWarning: 'Your profile photo was removed, but its stored image could not be deleted. Contact support if it remains visible in storage.',
+        } : {}),
       });
     } catch (error) {
       if (claimedMediaId && !profileUpdated) {
@@ -203,6 +258,74 @@ export function createUserRouter(config: AppConfig): Router {
     }
   });
 
+  router.get('/users/suggestions', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const limitValue = request.query.limit === undefined ? 5 : Number(request.query.limit);
+      const after = typeof request.query.after === 'string' ? request.query.after.toLowerCase() : undefined;
+      if (
+        !Number.isInteger(limitValue) ||
+        limitValue < 1 ||
+        limitValue > 50 ||
+        (after !== undefined && !/^[a-z0-9._]{3,30}$/.test(after))
+      ) {
+        response.status(400).json({ error: 'Invalid suggestion page size.' });
+        return;
+      }
+      const viewerId = (request as AuthenticatedRequest).authenticatedUserId!;
+      const followed = await FollowModel.find({ followerId: viewerId }).select('followedId').lean();
+      const excludedIds = [viewerId, ...followed.map((edge) => String(edge.followedId))];
+      const users = await UserModel.find({
+        accountStatus: 'active',
+        _id: { $nin: excludedIds },
+        ...(after ? { username: { $gt: after } } : {}),
+      })
+        .select(publicProfileFields)
+        .sort({ username: 1 })
+        .limit(limitValue + 1)
+        .lean();
+      const hasMore = users.length > limitValue;
+      const page = hasMore ? users.slice(0, limitValue) : users;
+      const candidateIds = page.map((user) => user._id);
+      const mutualEdges = followed.length && candidateIds.length
+        ? await FollowModel.find({
+          followerId: { $in: followed.map((edge) => edge.followedId) },
+          followedId: { $in: candidateIds },
+        }).select('followerId followedId').lean()
+        : [];
+      const mutualFollowerIds = [...new Set(mutualEdges.map((edge) => String(edge.followerId)))];
+      const mutualFollowers: Array<{ _id: unknown; username: string }> = mutualFollowerIds.length
+        ? await UserModel.find({ _id: { $in: mutualFollowerIds }, accountStatus: 'active' })
+          .select('username')
+          .lean<{ _id: unknown; username: string }[]>()
+        : [];
+      const usernameById = new Map(mutualFollowers.map((user) => [String(user._id), user.username]));
+      const mutualsByUser = new Map<string, string[]>();
+      for (const edge of mutualEdges) {
+        const usernames = mutualsByUser.get(String(edge.followedId)) ?? [];
+        const username = usernameById.get(String(edge.followerId));
+        if (username) usernames.push(username);
+        mutualsByUser.set(String(edge.followedId), usernames);
+      }
+      response.json({
+        users: page.map((user) => {
+          const mutualUsernames = mutualsByUser.get(String(user._id)) ?? [];
+          return {
+          id: String(user._id),
+          username: user.username,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
+          isFollowing: false,
+            mutualCount: mutualUsernames.length,
+            mutualUsernames: mutualUsernames.slice(0, 2),
+          };
+        }),
+        nextCursor: hasMore ? page.at(-1)?.username ?? null : null,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/users/by-username/:username', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const username = request.params.username?.toLowerCase();
@@ -261,26 +384,13 @@ export function createUserRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid follow request.' });
         return;
       }
-      const target = await UserModel.findOne({ _id: userId, accountStatus: 'active' }).select('_id');
-      if (!target) {
+      await changeFollowRelationship(followerId, userId, true);
+      response.json({ following: true });
+    } catch (error) {
+      if (error instanceof FollowAccountUnavailableError) {
         response.status(404).json({ error: 'User not found.' });
         return;
       }
-      const followResult = await FollowModel.updateOne(
-        { followerId, followedId: userId },
-        { $setOnInsert: { followerId, followedId: userId } },
-        { upsert: true },
-      );
-      if (followResult.upsertedCount > 0) {
-        await createNotificationSafely({
-          recipientId: userId,
-          actorId: followerId,
-          type: 'follow',
-          deduplicationKey: `follow:${followResult.upsertedId}`,
-        });
-      }
-      response.json({ following: true });
-    } catch (error) {
       next(error);
     }
   });
@@ -292,12 +402,13 @@ export function createUserRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid user ID.' });
         return;
       }
-      await FollowModel.deleteOne({
-        followerId: (request as AuthenticatedRequest).authenticatedUserId,
-        followedId: userId,
-      });
+      await changeFollowRelationship((request as AuthenticatedRequest).authenticatedUserId!, userId, false);
       response.json({ following: false });
     } catch (error) {
+      if (error instanceof FollowAccountUnavailableError) {
+        response.status(404).json({ error: 'User not found.' });
+        return;
+      }
       next(error);
     }
   });
@@ -382,7 +493,8 @@ async function removeReplacedProfileMedia(
   ownerId: string,
   attachedId: unknown,
   mediaId: unknown,
-): Promise<void> {
+  cloudinaryClient?: CloudinaryMediaClient,
+): Promise<boolean> {
   let media;
   try {
     media = await MediaModel.findOneAndUpdate(
@@ -405,19 +517,20 @@ async function removeReplacedProfileMedia(
       },
       { new: false },
     );
-    if (!media) return;
+    if (!media) return false;
 
-    const cloudinary = createCloudinaryClient(config);
+    const cloudinary = cloudinaryClient ?? createCloudinaryClient(config);
     const result = await cloudinary.destroy(media.publicId, 'image');
     if (!isCloudinaryDeletionConfirmed(result)) {
       await restoreDetachedProfileMedia(media._id);
       console.warn(JSON.stringify({ event: 'replaced_profile_media_cleanup_unconfirmed' }));
-      return;
+      return false;
     }
     await MediaModel.updateOne(
       { _id: media._id, ownerId, status: 'deleting' },
       { $set: { status: 'deleted' } },
     );
+    return true;
   } catch (error) {
     if (media) {
       try {
@@ -432,6 +545,7 @@ async function removeReplacedProfileMedia(
       providerStatus: providerStatus ?? null,
       cloudinaryUnavailable: error instanceof CloudinaryUnavailableError,
     }));
+    return false;
   }
 }
 

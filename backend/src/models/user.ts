@@ -66,6 +66,11 @@ const userSchema = new Schema(
       default: 'active',
       required: true,
     },
+    relationshipRevision: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
     passwordHash: {
       type: String,
       select: false,

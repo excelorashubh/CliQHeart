@@ -97,13 +97,33 @@ following counts. Email and account internals are not returned by this endpoint.
 
 ### `PATCH /api/v1/users/me`
 
-Updates one or more of `username`, `displayName`, `bio`, and `avatarUrl`.
-Unknown fields are rejected. Username conflicts return `409`; invalid profile
-data returns `400`. `avatarUrl` accepts an HTTP(S) URL. To use a verified
-Cloudinary profile image, send its owned `avatarMediaId`; the API resolves the
-URL from verified media metadata and prevents reusing another account's upload.
-Send `avatarMediaId: null` to remove the current profile photo.
+Updates one or more of `username`, `displayName`, `bio`, and `avatarMediaId`.
+Omitting `avatarMediaId` leaves the current photo unchanged. Unknown fields,
+including client-supplied `avatarUrl`, are rejected. Username conflicts return
+`409`; invalid profile data returns `400`. To replace a Cloudinary profile
+photo, send the ID from the authenticated user's verified profile upload; the
+API resolves its URL from owned media metadata. Send `avatarMediaId: null` to
+intentionally remove the current profile photo. The API removes the saved
+profile reference and deletes the previous Cloudinary asset only when its
+stored ownership and managed-profile metadata match. A `photoCleanupWarning`
+in the successful response means the profile photo was removed, but Cloudinary
+asset cleanup could not be confirmed.
 
+### `DELETE /api/v1/users/me`
+
+Permanently deactivates the authenticated account after verifying the current
+password. No account ID is accepted from the client. The API removes incoming
+and outgoing follow records, revokes all refresh sessions, and removes
+notifications where the account is the actor or recipient. Follower and
+following counts are calculated from follow records, so removing these records
+immediately updates surviving users' counts without counter arithmetic. The
+user record is retained with `accountStatus: deleted`; unrelated posts,
+messages, and media are not deleted. The endpoint returns `204` on success.
+On MongoDB deployments with transaction support, cleanup and deactivation are
+atomic. On standalone deployments, cleanup uses idempotent edge/notification
+deletes before soft deletion, so a failed attempt can be retried while the
+account remains active. Follow mutations also use transactions and lock both
+active user records so they cannot race past account deletion.
 ### `GET /api/v1/users/search?q=<text>&limit=<n>&after=<username>`
 
 Searches active users by escaped username or display name, excluding the
@@ -111,6 +131,16 @@ authenticated user. Query text must contain 2–80 characters; page size is
 1–50 (default 30). Results are ordered by username and include `nextCursor`
 when another page is available. Each result includes `isFollowing` for the
 authenticated viewer. Private email and account status are excluded.
+
+### `GET /api/v1/users/suggestions?limit=<n>&after=<username>`
+
+Returns 1–50 active accounts (default 5), excluding the authenticated user and
+accounts they already follow. Results are ordered by username; pass the
+returned `nextCursor` as `after` to fetch the next page. Public profile fields
+include `id`, `username`, `displayName`, `avatarUrl`, and a `mutualCount` with
+up to two `mutualUsernames` for recommendation labels. Email and account
+internals are excluded. Suggestions are not an advertising or paid placement
+source.
 
 ### `GET /api/v1/users/:userId`
 
@@ -172,7 +202,9 @@ Maximum sizes are 5 MiB for profile photos, 100 MiB for post/story uploads,
 and 250 MiB for Reels. Reels must be no longer than 180 seconds.
 
 - `POST /api/v1/posts` publishes an owned verified image or video with an
-  optional caption. `GET /api/v1/posts` returns the authenticated feed;
+  optional caption. `GET /api/v1/posts?limit=<n>&after=<postId>` returns a
+  cursor-paginated authenticated feed and includes `isFollowing` per author so
+  the web feed can label non-followed authors accurately;
   `GET /api/v1/posts/:postId` returns a post detail;
   `GET /api/v1/users/:userId/posts` returns a user's posts; the owner can
   remove a post with `DELETE /api/v1/posts/:postId`.
@@ -181,7 +213,8 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
   to the authenticated user and accounts they follow. Owners can remove their
   own stories with `DELETE /api/v1/stories/:storyId`.
 - `POST /api/v1/reels` publishes a verified video of up to 180 seconds.
-  `GET /api/v1/reels` returns the authenticated feed;
+  `GET /api/v1/reels?limit=<n>&after=<reelId>` returns the authenticated,
+  cursor-paginated Reel feed with `isFollowing` per author;
   `GET /api/v1/reels/:reelId` returns a Reel detail;
   `GET /api/v1/users/:userId/reels` returns a user's Reels; owners can remove
   their own Reels with `DELETE /api/v1/reels/:reelId`.

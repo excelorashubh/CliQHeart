@@ -60,8 +60,46 @@ export function createContentRouter(config: AppConfig): Router {
   router.get('/posts', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const limit = pageSizeSchema.parse(request.query.limit ?? 30);
-      const posts = await PostModel.find().sort({ createdAt: -1 }).limit(limit).lean();
-      response.json({ posts: await contentListPayload(posts, authenticatedUserId(request)) });
+      const after = typeof request.query.after === 'string' ? request.query.after : undefined;
+      if (request.query.after !== undefined && (!after || !Types.ObjectId.isValid(after))) {
+        response.status(400).json({ error: 'Invalid post cursor.' });
+        return;
+      }
+      const cursor = after ? await PostModel.findById(after).select('createdAt').lean() : null;
+      if (after && !cursor) {
+        response.status(400).json({ error: 'Invalid post cursor.' });
+        return;
+      }
+      const posts = await PostModel.find(cursor
+        ? {
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, _id: { $lt: cursor._id } },
+          ],
+        }
+        : {})
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(limit + 1)
+        .lean();
+      const hasMore = posts.length > limit;
+      const page = hasMore ? posts.slice(0, limit) : posts;
+      const viewerId = authenticatedUserId(request);
+      const items = await contentListPayload(page, viewerId);
+      const followedOwnerIds = new Set(
+        items.length
+          ? (await FollowModel.find({
+            followerId: viewerId,
+            followedId: { $in: items.map((item) => item.owner.id) },
+          }).select('followedId').lean()).map((edge) => String(edge.followedId))
+          : [],
+      );
+      response.json({
+        posts: items.map((item) => ({
+          ...item,
+          isFollowing: item.owner.id === viewerId || followedOwnerIds.has(item.owner.id),
+        })),
+        nextCursor: hasMore ? String(page.at(-1)?._id) : null,
+      });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });
@@ -409,8 +447,46 @@ export function createContentRouter(config: AppConfig): Router {
   router.get('/reels', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const limit = pageSizeSchema.parse(request.query.limit ?? 30);
-      const reels = await ReelModel.find().sort({ createdAt: -1 }).limit(limit).lean();
-      response.json({ reels: await contentListPayload(reels) });
+      const after = typeof request.query.after === 'string' ? request.query.after : undefined;
+      if (request.query.after !== undefined && (!after || !Types.ObjectId.isValid(after))) {
+        response.status(400).json({ error: 'Invalid Reel cursor.' });
+        return;
+      }
+      const cursor = after ? await ReelModel.findById(after).select('createdAt').lean() : null;
+      if (after && !cursor) {
+        response.status(400).json({ error: 'Invalid Reel cursor.' });
+        return;
+      }
+      const reels = await ReelModel.find(cursor
+        ? {
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, _id: { $lt: cursor._id } },
+          ],
+        }
+        : {})
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(limit + 1)
+        .lean();
+      const hasMore = reels.length > limit;
+      const page = hasMore ? reels.slice(0, limit) : reels;
+      const viewerId = authenticatedUserId(request);
+      const items = await contentListPayload(page);
+      const followedOwnerIds = new Set(
+        items.length
+          ? (await FollowModel.find({
+            followerId: viewerId,
+            followedId: { $in: items.map((item) => item.owner.id) },
+          }).select('followedId').lean()).map((edge) => String(edge.followedId))
+          : [],
+      );
+      response.json({
+        reels: items.map((item) => ({
+          ...item,
+          isFollowing: item.owner.id === viewerId || followedOwnerIds.has(item.owner.id),
+        })),
+        nextCursor: hasMore ? String(page.at(-1)?._id) : null,
+      });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });

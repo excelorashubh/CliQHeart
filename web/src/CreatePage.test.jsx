@@ -44,6 +44,11 @@ describe('CreatePage', () => {
     }));
   });
 
+  it('opens the story composer when linked from the home story row', () => {
+    render(<MemoryRouter initialEntries={['/create?kind=story']}><CreatePage /></MemoryRouter>);
+    expect(screen.getByRole('tab', { name: 'Story' })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('publishes the video selection through the Reel endpoint', async () => {
     render(<MemoryRouter><CreatePage /></MemoryRouter>);
     fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));

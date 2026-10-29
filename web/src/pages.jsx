@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Bell, Bookmark, CheckCircle2, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart,
-  LockKeyhole, MessageCircle, Search, ShieldCheck, Sparkles, UserRound,
+  ArrowLeft, ArrowRight, ArrowUpRight, Bell, Bookmark, Camera, CheckCircle2, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart, PlusSquare,
+  LockKeyhole, MessageCircle, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound,
   Share2, XCircle,
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
@@ -18,6 +19,14 @@ function isValidRegisterUsername(username) {
   return username.length >= 3 && username.length <= 30 &&
     /^[a-z0-9._]+$/.test(username) && !username.startsWith('.') &&
     !username.endsWith('.') && !username.includes('..');
+}
+
+function suggestionReasonLabel(person) {
+  const names = person.mutualUsernames || [];
+  if (!person.mutualCount || names.length === 0) return 'Suggested for you';
+  return person.mutualCount === 1
+    ? `Followed by ${names[0]}`
+    : `Followed by ${names[0]} and others`;
 }
 
 export function LandingPage() {
@@ -285,23 +294,98 @@ function AuthLayout({ children, register = false }) {
 
 export function HomePage() {
   const { user } = useAuth();
-  return <div className="page-content home-page">
-    <header className="page-heading home-heading"><div><p className="eyebrow">YOUR COMMUNITY, YOUR WAY</p><h1>Good to see you, {user?.displayName?.split(' ')[0]} <span className="wave">✦</span></h1><p className="heading-subtitle">A little more connection goes a long way.</p></div><Avatar name={user?.displayName} src={user?.avatarUrl} size="large" /></header>
-    <section className="welcome-card"><div className="welcome-copy">
-      <span className="welcome-kicker"><Sparkles size={15} /> A fresh start</span><h2>Your corner of CliQHeart is ready.</h2>
-      <p>Find people you know, shape your profile, and start a conversation. Your account is shared with the CliQHeart Android app.</p>
-      <Link to="/search" className="button button--light">Find your people <ArrowRight size={16} /></Link>
-    </div><div className="welcome-art" aria-hidden="true"><span className="art-orbit orbit-one" /><span className="art-orbit orbit-two" /><span className="art-heart"><Heart size={78} fill="currentColor" strokeWidth={1.2} /></span><span className="art-spark spark-one">✦</span><span className="art-spark spark-two">✧</span></div></section>
-    <section className="section-heading"><div><p className="eyebrow">MAKE IT YOURS</p><h2>Start with a connection</h2></div></section>
-    <div className="action-grid">
-      <Link to="/profile" className="action-card"><span className="action-icon action-icon--rose"><Heart size={20} /></span><span><strong>Set up your profile</strong><small>Share a little about yourself.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
-      <Link to="/search" className="action-card"><span className="action-icon action-icon--lavender"><Compass size={20} /></span><span><strong>Search and explore</strong><small>Find people and explore CliQHeart.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
-      <Link to="/messages" className="action-card"><span className="action-icon action-icon--peach"><MessageCircle size={20} /></span><span><strong>Say hello</strong><small>Pick up a conversation.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
-      <Link to="/create" className="action-card"><span className="action-icon action-icon--rose"><Heart size={20} /></span><span><strong>Share a moment</strong><small>Post a photo, story, or video.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
+  return <div className="page-content home-page home-feed-page">
+    <div className="home-feed-layout">
+      <main className="home-content-column">
+        <header className="home-feed-heading">
+          <div><p className="eyebrow">YOUR COMMUNITY</p><h1>Home</h1></div>
+          <div className="home-feed-actions">
+            <Link className="home-discover-link" to="/explore/people/"><Compass size={16} /> Discover people</Link>
+            <Link className="button button--primary home-create-button" to="/create"><PlusSquare size={16} /> Create</Link>
+          </div>
+        </header>
+        <StoryFeed />
+        <section className="home-posts-section" aria-label="Latest posts">
+          <div className="home-section-heading"><h2>For you</h2><span>Latest posts from CliQHeart</span></div>
+          <ContentFeed showSuggestedLabels includeReels />
+        </section>
+      </main>
+      <HomeSuggestions user={user} />
     </div>
-    <section className="content-section"><div className="section-heading"><div><p className="eyebrow">YOUR PEOPLE</p><h2>Stories</h2></div></div><StoryFeed /></section>
-    <section className="content-section"><div className="section-heading"><div><p className="eyebrow">SHARED MOMENTS</p><h2>Latest posts</h2></div><Link className="text-link" to="/create">Create a post</Link></div><ContentFeed /></section>
   </div>;
+}
+
+function HomeSuggestions({ user }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [followBusy, setFollowBusy] = useState({});
+  const [followError, setFollowError] = useState('');
+
+  const loadSuggestions = useCallback(async (signal) => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await userApi.suggestions({ limit: 5, signal });
+      if (!signal?.aborted) setUsers(result.users || []);
+    } catch (reason) {
+      if (!signal?.aborted && reason.name !== 'AbortError') {
+        setError(reason.message || 'Could not load suggestions.');
+      }
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadSuggestions(controller.signal);
+    return () => controller.abort();
+  }, [loadSuggestions]);
+
+  async function followSuggestion(suggestion) {
+    if (followBusy[suggestion.id]) return;
+    setFollowBusy((current) => ({ ...current, [suggestion.id]: true }));
+    setFollowError('');
+    try {
+      await userApi.follow(suggestion.id);
+      setUsers((current) => current.filter((entry) => entry.id !== suggestion.id));
+    } catch (reason) {
+      setFollowError(reason.message || 'Could not follow this person.');
+    } finally {
+      setFollowBusy((current) => ({ ...current, [suggestion.id]: false }));
+    }
+  }
+
+  return <aside className="home-right-rail" aria-label="Account suggestions">
+    <div className="home-viewer-card">
+      <Link to="/profile" className="home-viewer-profile">
+        <Avatar name={user?.displayName} src={user?.avatarUrl} size="large" />
+        <span><strong>@{user?.username}</strong><small>{user?.displayName}</small></span>
+      </Link>
+      <Link className="home-view-profile" to="/profile">View profile</Link>
+    </div>
+    <section className="home-suggestions">
+      <header><h2>Suggested for you</h2><Link to="/explore/people/">See all</Link></header>
+      {loading && <div className="home-suggestion-loading"><Skeleton rows={3} /></div>}
+      {!loading && error && <div className="home-suggestion-error" role="alert">{error}<button type="button" className="text-link" onClick={() => loadSuggestions()}>Try again</button></div>}
+      {!loading && !error && users.length === 0 && <p className="home-suggestion-empty">You're all caught up. Search for more people to follow.</p>}
+      {!loading && !error && users.map((suggestion) => <article className="home-suggestion" key={suggestion.id}>
+        <Link to={`/profile/${suggestion.id}`} className="home-suggestion-person">
+          <Avatar name={suggestion.displayName} src={suggestion.avatarUrl} size="medium" />
+          <span><strong>@{suggestion.username}</strong><small>{suggestionReasonLabel(suggestion)}</small></span>
+        </Link>
+        <button type="button" className="home-follow-button" disabled={followBusy[suggestion.id]} onClick={() => followSuggestion(suggestion)}>
+          {followBusy[suggestion.id] ? '...' : 'Follow'}
+        </button>
+      </article>)}
+      {followError && <p className="home-suggestion-error" role="alert">{followError}</p>}
+    </section>
+    <footer className="home-rail-footer">
+      <Link to="/settings">Settings</Link><span>·</span><Link to="/notifications">Notifications</Link>
+      <p>© {new Date().getFullYear()} CliQHeart</p>
+    </footer>
+  </aside>;
 }
 
 export function SearchPage() {
@@ -445,6 +529,332 @@ export function SearchPage() {
   </div>;
 }
 
+export function ExplorePeoplePage() {
+  const [people, setPeople] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [moreError, setMoreError] = useState('');
+  const [nextCursor, setNextCursor] = useState(null);
+  const [followError, setFollowError] = useState('');
+  const [followBusy, setFollowBusy] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [previewProfile, setPreviewProfile] = useState(null);
+  const [previewPosts, setPreviewPosts] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  const closeTimer = useRef(null);
+  const pageRequest = useRef(null);
+  const busyIds = useRef(new Set());
+  const previewCache = useRef(new Map());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    pageRequest.current?.abort();
+    pageRequest.current = controller;
+    setLoading(true);
+    setError('');
+    setNextCursor(null);
+    setPeople([]);
+    userApi.suggestions({ limit: 20, signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setPeople(result.users || []);
+          setNextCursor(result.nextCursor || null);
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted && reason.name !== 'AbortError') {
+          setError(reason.message || 'Could not load suggested people.');
+        }
+      })
+      .finally(() => {
+        if (pageRequest.current === controller) pageRequest.current = null;
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => {
+      controller.abort();
+      if (pageRequest.current === controller) pageRequest.current = null;
+    };
+  }, [reloadKey]);
+
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+  useEffect(() => {
+    if (!preview) return undefined;
+    const cached = previewCache.current.get(preview.id);
+    if (cached && cached.expiresAt > Date.now()) {
+      setPreviewProfile(cached.profile);
+      setPreviewPosts(cached.posts);
+      setPreviewLoading(false);
+      setPreviewError('');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setPreviewProfile(null);
+    setPreviewPosts([]);
+    setPreviewLoading(true);
+    setPreviewError('');
+    Promise.all([
+      userApi.profile(preview.id, { signal: controller.signal }),
+      contentApi.userPosts(preview.id, 3, { signal: controller.signal }),
+    ]).then(([profileResult, postsResult]) => {
+      if (controller.signal.aborted) return;
+      const profileData = profileResult.user;
+      const posts = (postsResult.posts || []).filter((post) =>
+        post.media?.resourceType === 'image' && post.media.secureUrl,
+      ).slice(0, 3);
+      previewCache.current.set(preview.id, {
+        profile: profileData,
+        posts,
+        expiresAt: Date.now() + 30_000,
+      });
+      setPreviewProfile(profileData);
+      setPreviewPosts(posts);
+    }).catch((reason) => {
+      if (!controller.signal.aborted && reason.name !== 'AbortError') {
+        setPreviewError(reason.message || 'Could not load this profile preview.');
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) setPreviewLoading(false);
+    });
+    return () => controller.abort();
+  }, [preview?.id]);
+
+  useEffect(() => {
+    if (!preview) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setPreview(null);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [preview]);
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore || pageRequest.current) return;
+    const controller = new AbortController();
+    pageRequest.current = controller;
+    setLoadingMore(true);
+    setMoreError('');
+    try {
+      const result = await userApi.suggestions({
+        limit: 20,
+        after: nextCursor,
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) {
+        setPeople((current) => {
+          const known = new Set(current.map((person) => person.id));
+          return [...current, ...(result.users || []).filter((person) => !known.has(person.id))];
+        });
+        setNextCursor(result.nextCursor || null);
+      }
+    } catch (reason) {
+      if (!controller.signal.aborted && reason.name !== 'AbortError') {
+        setMoreError(reason.message || 'Could not load more people.');
+      }
+    } finally {
+      if (pageRequest.current === controller) pageRequest.current = null;
+      if (!controller.signal.aborted) setLoadingMore(false);
+    }
+  }
+
+  async function toggleFollow(person, following = person.isFollowing) {
+    if (busyIds.current.has(person.id)) return;
+    busyIds.current.add(person.id);
+    setFollowBusy((current) => ({ ...current, [person.id]: true }));
+    setFollowError('');
+    try {
+      const result = following
+        ? await userApi.unfollow(person.id)
+        : await userApi.follow(person.id);
+      const cached = previewCache.current.get(person.id);
+      const wasFollowing = cached?.profile.isFollowing ?? following;
+      const followerCountDelta = result.following === wasFollowing
+        ? 0
+        : result.following ? 1 : -1;
+      setPeople((current) => current.map((item) =>
+        item.id === person.id ? { ...item, isFollowing: result.following } : item,
+      ));
+      setPreviewProfile((current) => current?.id === person.id
+        ? {
+          ...current,
+          isFollowing: result.following,
+          followersCount: Math.max(0, (current.followersCount || 0) + followerCountDelta),
+        }
+        : current,
+      );
+      if (cached) {
+        cached.profile = {
+          ...cached.profile,
+          isFollowing: result.following,
+          followersCount: Math.max(
+            0,
+            (cached.profile.followersCount || 0) + followerCountDelta,
+          ),
+        };
+      }
+      if (cached || preview?.id === person.id) {
+        try {
+          const refreshed = await userApi.profile(person.id);
+          if (!refreshed.user) throw new Error('The API returned an incomplete profile.');
+          previewCache.current.set(person.id, {
+            profile: refreshed.user,
+            posts: cached?.posts || [],
+            expiresAt: Date.now() + 30_000,
+          });
+          setPreviewProfile((current) => current?.id === person.id ? refreshed.user : current);
+        } catch (reason) {
+          setFollowError(`Follow status was saved, but the latest profile counts could not be refreshed. ${reason.message || ''}`.trim());
+        }
+      }
+    } catch (reason) {
+      setFollowError(reason.message || 'Could not update this follow.');
+    } finally {
+      busyIds.current.delete(person.id);
+      setFollowBusy((current) => ({ ...current, [person.id]: false }));
+    }
+  }
+
+  function showPreview(person, target) {
+    window.clearTimeout(closeTimer.current);
+    const bounds = target.getBoundingClientRect();
+    const width = 330;
+    const height = 370;
+    const gap = 12;
+    let left = bounds.right + gap;
+    if (left + width > window.innerWidth - 12) left = bounds.left - width - gap;
+    left = Math.max(12, Math.min(left, window.innerWidth - width - 12));
+    const top = Math.max(12, Math.min(bounds.top - 22, window.innerHeight - height - 12));
+    setPreview({ id: person.id, person, left, top });
+  }
+
+  function scheduleClosePreview() {
+    window.clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => setPreview(null), 160);
+  }
+
+  function keepPreviewOpen() {
+    window.clearTimeout(closeTimer.current);
+  }
+
+  function previewFromPointer(person, event) {
+    if (event.pointerType && event.pointerType !== 'mouse') return;
+    window.clearTimeout(closeTimer.current);
+    const target = event.currentTarget;
+    closeTimer.current = window.setTimeout(() => showPreview(person, target), 400);
+  }
+
+  const previewCard = preview && createPortal(
+    <aside
+      className="people-preview-card"
+      role="dialog"
+      aria-label={`Profile preview for @${preview.person.username}`}
+      style={{ left: preview.left, top: preview.top }}
+      onPointerEnter={keepPreviewOpen}
+      onPointerLeave={scheduleClosePreview}
+    >
+      {previewLoading && <div className="people-preview-loading"><Skeleton rows={3} /></div>}
+      {previewError && <p className="people-preview-error" role="alert">{previewError}</p>}
+      {!previewLoading && previewProfile && <>
+        <div className="people-preview-header">
+          <Link to={`/profile/${previewProfile.id}`} onClick={() => setPreview(null)}>
+            <Avatar name={previewProfile.displayName} src={previewProfile.avatarUrl} size="large" />
+          </Link>
+          <div className="people-preview-names">
+            <Link to={`/profile/${previewProfile.id}`} onClick={() => setPreview(null)}>
+              <strong>@{previewProfile.username}</strong>
+            </Link>
+            <span>{previewProfile.displayName}</span>
+          </div>
+        </div>
+        <div className="people-preview-counts">
+          <span><b>{previewProfile.postsCount || 0}</b> posts</span>
+          <span><b>{previewProfile.followersCount || 0}</b> followers</span>
+          <span><b>{previewProfile.followingCount || 0}</b> following</span>
+        </div>
+        {previewProfile.bio && <p className="people-preview-bio">{previewProfile.bio}</p>}
+        {previewPosts.length > 0 && <div className="people-preview-posts" aria-label="Recent posts">
+          {previewPosts.map((post) => <Link
+            key={post.id}
+            to={`/post/${post.id}`}
+            aria-label={`Open post by @${previewProfile.username}`}
+            onClick={() => setPreview(null)}
+          >
+            <img src={post.media.secureUrl} alt="" />
+          </Link>)}
+        </div>}
+        <div className="people-preview-actions">
+          <Link className="button button--outline" to={`/profile/${previewProfile.id}`} onClick={() => setPreview(null)}>View profile</Link>
+          <button
+            type="button"
+            className={`button ${previewProfile.isFollowing ? 'button--outline' : 'button--primary'}`}
+            disabled={Boolean(followBusy[previewProfile.id])}
+            onClick={() => void toggleFollow(preview.person, previewProfile.isFollowing)}
+          >
+            {followBusy[previewProfile.id] ? '…' : previewProfile.isFollowing ? 'Following' : 'Follow'}
+          </button>
+        </div>
+      </>}
+    </aside>,
+    document.body,
+  );
+
+  return <div className="page-content explore-people-page">
+    <header className="page-heading explore-people-heading">
+      <div><p className="eyebrow">FIND YOUR PEOPLE</p><h1>Discover people</h1><p className="heading-subtitle">Find people to connect with on CliQHeart.</p></div>
+      <Sparkles className="explore-people-mark" size={27} aria-hidden="true" />
+    </header>
+    {followError && <p className="inline-error" role="alert">{followError}</p>}
+    {loading && <div className="people-list-loading" aria-label="Loading suggested people"><Skeleton rows={7} /></div>}
+    {!loading && error && <ErrorState error={error} onRetry={() => setReloadKey((value) => value + 1)} />}
+    {!loading && !error && people.length === 0 && <EmptyState title="No suggestions right now" description="Try searching for people by name or username." icon={Compass} />}
+    {!loading && !error && people.length > 0 && <section className="people-list" aria-label="Suggested people">
+      {people.map((person) => <article className="people-row" key={person.id}>
+        <div className="people-row-main">
+          <Link
+            to={`/profile/${person.id}`}
+            className="people-row-avatar"
+            aria-label={`View @${person.username}'s profile`}
+            onPointerEnter={(event) => previewFromPointer(person, event)}
+            onPointerLeave={scheduleClosePreview}
+            onFocus={(event) => showPreview(person, event.currentTarget)}
+            onBlur={scheduleClosePreview}
+          >
+            <Avatar name={person.displayName} src={person.avatarUrl} size="large" />
+          </Link>
+          <div className="people-row-copy">
+            <Link
+              to={`/profile/${person.id}`}
+              className="people-row-username"
+              onPointerEnter={(event) => previewFromPointer(person, event)}
+              onPointerLeave={scheduleClosePreview}
+              onFocus={(event) => showPreview(person, event.currentTarget)}
+              onBlur={scheduleClosePreview}
+            >@{person.username}</Link>
+            <span className="people-row-name">{person.displayName}</span>
+            <span className="people-row-reason">{suggestionReasonLabel(person)}</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          className={`button ${person.isFollowing ? 'button--outline' : 'button--primary'} people-follow-button`}
+          disabled={Boolean(followBusy[person.id])}
+          onClick={() => void toggleFollow(person)}
+        >
+          {followBusy[person.id] ? '…' : person.isFollowing ? 'Following' : 'Follow'}
+        </button>
+      </article>)}
+    </section>}
+    {moreError && <p className="inline-error" role="alert">{moreError} <button className="text-link" type="button" onClick={() => void loadMore()}>Try again</button></p>}
+    {!loading && !error && nextCursor && <button className="button button--outline people-load-more" onClick={loadMore} disabled={loadingMore}>
+      {loadingMore ? 'Loading…' : 'Load more people'}
+    </button>}
+    {previewCard}
+  </div>;
+}
+
 export function ProfilePage({ editOnOpen = false }) {
   const { userId } = useParams();
   const { user: signedInUser, setUser } = useAuth();
@@ -454,6 +864,15 @@ export function ProfilePage({ editOnOpen = false }) {
   const [busy, setBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editError, setEditError] = useState('');
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [photoChangeOpen, setPhotoChangeOpen] = useState(false);
+  const [deletePhotoOpen, setDeletePhotoOpen] = useState(false);
+  const [selectedProfileMedia, setSelectedProfileMedia] = useState(null);
+  const [photoActionBusy, setPhotoActionBusy] = useState(false);
+  const [photoActionError, setPhotoActionError] = useState('');
+  const [photoActionNotice, setPhotoActionNotice] = useState('');
+  const photoMenuRef = useRef(null);
+  const cameraButtonRef = useRef(null);
   const [listType, setListType] = useState('');
   const [people, setPeople] = useState([]);
   const [listLoading, setListLoading] = useState(false);
@@ -506,6 +925,34 @@ export function ProfilePage({ editOnOpen = false }) {
   }, [loadProfile]);
   const isOwn = Boolean(profile && signedInUser && profile.id === signedInUser.id);
   useEffect(() => {
+    if (!photoMenuOpen) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!photoMenuRef.current?.contains(event.target)) setPhotoMenuOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setPhotoMenuOpen(false);
+        cameraButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [photoMenuOpen]);
+  useEffect(() => {
+    if (!photoChangeOpen && !deletePhotoOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape' || photoActionBusy) return;
+      if (photoChangeOpen) closePhotoChange();
+      if (deletePhotoOpen) setDeletePhotoOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [photoActionBusy, photoChangeOpen, deletePhotoOpen]);
+  useEffect(() => {
     if (editOnOpen && isOwn) {
       setEditError('');
       setEditOpen(true);
@@ -542,8 +989,11 @@ export function ProfilePage({ editOnOpen = false }) {
     try {
       const result = await userApi.updateMe(payload);
       if (!result.user) throw new Error('The API returned an incomplete profile update.');
-      setProfile((current) => ({ ...current, ...result.user }));
-      setUser(result.user);
+      const updatedUser = form.avatarMediaId === null
+        ? { ...result.user, avatarUrl: result.user.avatarUrl ?? null }
+        : result.user;
+      setProfile((current) => ({ ...current, ...updatedUser }));
+      setUser(updatedUser);
       setForm({
         username: result.user.username || '',
         displayName: result.user.displayName || '',
@@ -551,6 +1001,7 @@ export function ProfilePage({ editOnOpen = false }) {
         avatarMediaId: '',
       });
       setEditOpen(false);
+      if (result.photoCleanupWarning) setPhotoActionNotice(result.photoCleanupWarning);
     } catch (reason) {
       setEditError(reason.message || 'Could not save your profile.');
     } finally {
@@ -568,6 +1019,72 @@ export function ProfilePage({ editOnOpen = false }) {
       avatarMediaId: '',
     });
     setEditOpen(true);
+  }
+
+  function openPhotoChange() {
+    setPhotoMenuOpen(false);
+    setPhotoActionError('');
+    setSelectedProfileMedia(null);
+    setPhotoChangeOpen(true);
+  }
+
+  async function closePhotoChange() {
+    if (photoActionBusy) return;
+    if (selectedProfileMedia?.id) {
+      try {
+        await mediaApi.remove(selectedProfileMedia.id);
+      } catch (reason) {
+        setPhotoActionError(reason.message || 'Could not discard the uploaded photo.');
+        return;
+      }
+    }
+    setSelectedProfileMedia(null);
+    setPhotoChangeOpen(false);
+    setPhotoActionError('');
+  }
+
+  async function saveProfilePhoto() {
+    if (!selectedProfileMedia?.id || photoActionBusy) return;
+    setPhotoActionBusy(true);
+    setPhotoActionError('');
+    setPhotoActionNotice('');
+    try {
+      const result = await userApi.updateMe({ avatarMediaId: selectedProfileMedia.id });
+      if (!result.user) throw new Error('The API returned an incomplete profile update.');
+      setProfile((current) => ({ ...current, ...result.user }));
+      setUser(result.user);
+      setSelectedProfileMedia(null);
+      setPhotoChangeOpen(false);
+      if (result.photoCleanupWarning) setPhotoActionNotice(result.photoCleanupWarning);
+    } catch (reason) {
+      setPhotoActionError(reason.message || 'Could not update your profile photo.');
+    } finally {
+      setPhotoActionBusy(false);
+    }
+  }
+
+  async function deleteProfilePhoto() {
+    if (!profile.avatarUrl || photoActionBusy) return;
+    setPhotoActionBusy(true);
+    setPhotoActionError('');
+    setPhotoActionNotice('');
+    try {
+      const result = await userApi.deleteProfilePhoto();
+      if (!result.user) throw new Error('The API returned an incomplete profile update.');
+      setProfile((current) => ({
+        ...current,
+        ...result.user,
+        avatarUrl: result.user.avatarUrl ?? null,
+      }));
+      setUser({ ...result.user, avatarUrl: result.user.avatarUrl ?? null });
+      setDeletePhotoOpen(false);
+      setPhotoMenuOpen(false);
+      if (result.photoCleanupWarning) setPhotoActionNotice(result.photoCleanupWarning);
+    } catch (reason) {
+      setPhotoActionError(reason.message || 'Could not remove your profile photo.');
+    } finally {
+      setPhotoActionBusy(false);
+    }
   }
 
   async function openList(relation) {
@@ -644,10 +1161,43 @@ export function ProfilePage({ editOnOpen = false }) {
 
   return <div className="page-content profile-page">
     <header className="profile-header">
-      <Avatar name={profile.displayName} src={profile.avatarUrl} size="profile" />
+      <div className="profile-photo-wrap">
+        <Avatar name={profile.displayName} src={profile.avatarUrl} size="profile" />
+        {isOwn && <div className="profile-photo-controls" ref={photoMenuRef}>
+          <button
+            ref={cameraButtonRef}
+            className="profile-photo-camera"
+            type="button"
+            aria-label="Change profile photo"
+            aria-haspopup="menu"
+            aria-expanded={photoMenuOpen}
+            title="Change profile photo"
+            onClick={() => setPhotoMenuOpen((open) => !open)}
+          >
+            <Camera size={17} aria-hidden="true" />
+          </button>
+          {photoMenuOpen && <div className="profile-photo-menu" role="menu" aria-label="Profile photo actions">
+            <button type="button" role="menuitem" onClick={openPhotoChange}>
+              <Upload size={16} aria-hidden="true" /> Change profile photo
+            </button>
+            {profile.avatarUrl && <button
+              type="button"
+              role="menuitem"
+              className="profile-photo-delete-action"
+              onClick={() => {
+                setPhotoMenuOpen(false);
+                setPhotoActionError('');
+                setDeletePhotoOpen(true);
+              }}
+            >
+              <Trash2 size={16} aria-hidden="true" /> Delete profile photo
+            </button>}
+          </div>}
+        </div>}
+      </div>
       <div className="profile-info">
         <div className="profile-title"><h1>{profile.username}</h1>{isOwn
-          ? <><button className="button button--outline" onClick={openEditProfile}>Edit profile</button><button className="button button--outline" onClick={openEditProfile}>Edit photo</button></>
+          ? <button className="button button--outline" onClick={openEditProfile}>Edit profile</button>
           : <><button className={`button ${profile.isFollowing ? 'button--outline' : 'button--primary'}`} onClick={toggleFollow} disabled={busy}>{profile.isFollowing ? 'Following' : 'Follow'}</button><button className="button button--outline" onClick={messageUser}>Message</button></>}
           <button className="button button--outline profile-share-button" onClick={shareProfile} aria-label="Share profile"><Share2 size={15} /><span>Share</span></button>
         </div>
@@ -661,6 +1211,7 @@ export function ProfilePage({ editOnOpen = false }) {
     </header>
     {error && <p className="inline-error">{error}</p>}
     {shareMessage && <p className="profile-share-status" role="status">{shareMessage}</p>}
+    {photoActionNotice && <p className="profile-share-status" role="status">{photoActionNotice}</p>}
     <div className="profile-content">
       <div className="profile-tabs" role="tablist" aria-label="Profile content" onKeyDown={handleContentTabKey}>
         {availableTabs.map((tab) => <button
@@ -687,6 +1238,52 @@ export function ProfilePage({ editOnOpen = false }) {
               : <ContentFeed key={`${profile.id}-tagged`} kind="tagged" userId={profile.id} layout="grid" />}
       </div>
     </div>
+    {photoChangeOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) closePhotoChange();
+    }}>
+      <section className="modal-card profile-photo-modal" role="dialog" aria-modal="true" aria-labelledby="change-photo-title">
+        <header className="modal-header">
+          <h2 id="change-photo-title">Change profile photo</h2>
+          <button type="button" className="icon-button" onClick={closePhotoChange} aria-label="Cancel photo change">×</button>
+        </header>
+        <MediaUploader
+          purpose="profile"
+          currentImageUrl={profile.avatarUrl || ''}
+          disabled={photoActionBusy}
+          onReady={setSelectedProfileMedia}
+        />
+        {photoActionError && <p className="form-error" role="alert">{photoActionError}</p>}
+        <div className="profile-photo-modal-actions">
+          <button type="button" className="button button--outline" disabled={photoActionBusy} onClick={closePhotoChange}>Cancel</button>
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={!selectedProfileMedia?.id || photoActionBusy}
+            onClick={saveProfilePhoto}
+          >
+            {photoActionBusy ? 'Saving…' : 'Save photo'}
+          </button>
+        </div>
+      </section>
+    </div>}
+    {deletePhotoOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !photoActionBusy) setDeletePhotoOpen(false);
+    }}>
+      <section className="modal-card photo-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-photo-title" aria-describedby="delete-photo-description">
+        <header className="modal-header">
+          <h2 id="delete-photo-title">Remove your profile photo?</h2>
+          <button type="button" className="icon-button" onClick={() => setDeletePhotoOpen(false)} aria-label="Cancel photo deletion" disabled={photoActionBusy}>×</button>
+        </header>
+        <p id="delete-photo-description">Your profile will show its default avatar. This cannot be undone.</p>
+        {photoActionError && <p className="form-error" role="alert">{photoActionError}</p>}
+        <div className="profile-photo-modal-actions">
+          <button type="button" className="button button--outline" disabled={photoActionBusy} onClick={() => setDeletePhotoOpen(false)}>Cancel</button>
+          <button type="button" className="button button--danger" disabled={photoActionBusy} onClick={deleteProfilePhoto}>
+            <Trash2 size={16} aria-hidden="true" /> {photoActionBusy ? 'Deleting…' : 'Delete photo'}
+          </button>
+        </div>
+      </section>
+    </div>}
     {editOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditOpen(false); }}>
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title">
         <header className="modal-header"><h2 id="edit-profile-title">Edit profile</h2><button className="icon-button" onClick={() => setEditOpen(false)} aria-label="Close">×</button></header>
@@ -726,6 +1323,10 @@ export function SettingsPage() {
   const { signOut, user } = useAuth();
   const navigate = useNavigate();
   const [theme, setTheme] = useState(() => localStorage.getItem('cliqheart-theme') || 'light');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -738,12 +1339,37 @@ export function SettingsPage() {
     signOut();
     navigate('/login', { replace: true });
   }
+  async function deleteAccount(event) {
+    event.preventDefault();
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await userApi.deleteAccount({ password: deletePassword });
+      await signOut();
+      navigate('/', { replace: true });
+    } catch (error) {
+      setDeleteError(error.message || 'Account deletion failed. Please try again.');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
   return <div className="page-content settings-page">
     <header className="page-heading"><div><p className="eyebrow">YOUR ACCOUNT</p><h1>Settings</h1><p className="heading-subtitle">Manage the CliQHeart experience.</p></div></header>
     <section className="settings-card"><div className="settings-account"><Avatar name={user?.displayName} src={user?.avatarUrl} size="large" /><span><b>{user?.displayName}</b><small>@{user?.username}</small></span><Link to="/profile" className="text-link">View profile</Link></div></section>
     <section className="settings-card"><div className="settings-section-head"><div><h2>Appearance</h2><p>Choose how CliQHeart looks on this device.</p></div></div><div className="theme-options"><button className={theme === 'light' ? 'is-selected' : ''} onClick={() => changeTheme('light')}>Light</button><button className={theme === 'dark' ? 'is-selected' : ''} onClick={() => changeTheme('dark')}>Dark</button></div></section>
     <section className="settings-card"><div className="settings-section-head"><div><h2>Account session</h2><p>Sign out of this browser session.</p></div><button className="button button--outline" onClick={logout}>Log out</button></div><p className="security-note"><ShieldCheck size={16} /> Access token remains in memory only and is cleared when you sign out or close the page.</p></section>
     <section className="settings-card"><div className="settings-section-head"><div><h2>Privacy & account</h2><p>Account controls are enforced by the shared CliQHeart API.</p></div></div><p className="helper-text">Email, phone number, and account status are not displayed in public profile screens.</p></section>
+    <section className="settings-card settings-danger-zone"><div className="settings-section-head"><div><h2>Delete account</h2><p>Permanently deactivate your account and remove its follow relationships.</p></div><button className="button button--danger" onClick={() => { setDeleteError(''); setDeletePassword(''); setDeleteDialogOpen(true); }}>Delete account</button></div></section>
+    {deleteDialogOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleteBusy) setDeleteDialogOpen(false); }}>
+      <form className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" onSubmit={deleteAccount}>
+        <h2 id="delete-account-title">Delete your account?</h2>
+        <p>This will deactivate your account, revoke its sessions, remove its follower/following relationships, and remove notifications involving it. This action cannot be undone.</p>
+        <label className="form-field"><span>Current password</span><input autoComplete="current-password" type="password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} required /></label>
+        {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
+        <div className="modal-actions"><button type="button" className="button button--outline" disabled={deleteBusy} onClick={() => setDeleteDialogOpen(false)}>Cancel</button><button type="submit" className="button button--danger" disabled={deleteBusy || !deletePassword}>{deleteBusy ? 'Deleting...' : 'Permanently delete account'}</button></div>
+      </form>
+    </div>}
   </div>;
 }
 
@@ -752,7 +1378,9 @@ export function CapabilityPage({ title, feature }) {
 }
 
 export function CreatePage() {
-  const [kind, setKind] = useState('post');
+  const location = useLocation();
+  const requestedKind = new URLSearchParams(location.search).get('kind');
+  const [kind, setKind] = useState(['post', 'story', 'reel'].includes(requestedKind) ? requestedKind : 'post');
   const [media, setMedia] = useState(null);
   const [caption, setCaption] = useState('');
   const [busy, setBusy] = useState(false);

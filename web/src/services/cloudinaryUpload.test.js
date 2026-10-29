@@ -29,6 +29,14 @@ describe('validateMediaFile', () => {
     await expect(validateMediaFile(oversized, 'profile')).rejects.toThrow('smaller than 5 MB');
   });
 
+  it('accepts WebP image content for profile photos', async () => {
+    const webp = new File([
+      new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50]),
+    ], 'portrait.webp', { type: 'image/webp' });
+
+    await expect(validateMediaFile(webp, 'profile')).resolves.toEqual({ resourceType: 'image' });
+  });
+
   it('rejects a mismatched declared image MIME type', async () => {
     const jpeg = new File([
       new Uint8Array([0xff, 0xd8, 0xff, 0xe0]),

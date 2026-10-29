@@ -147,6 +147,11 @@ export const authApi = {
 export const userApi = {
   me: (options) => apiRequest('users/me', options),
   updateMe: (body) => apiRequest('users/me', { method: 'PATCH', body }),
+  deleteAccount: (body) => apiRequest('users/me', { method: 'DELETE', body }),
+  deleteProfilePhoto: () => apiRequest('users/me', {
+    method: 'PATCH',
+    body: { avatarMediaId: null },
+  }),
   profile: (id, options) => apiRequest(`users/${encodeURIComponent(id)}`, options),
   profileByUsername: (username, options) => apiRequest(
     `users/by-username/${encodeURIComponent(username)}`,
@@ -156,6 +161,14 @@ export const userApi = {
     const params = new URLSearchParams({ q: query });
     if (after) params.set('after', after);
     return apiRequest(`users/search?${params}`, { signal });
+  },
+  suggestions: ({ limit = 5, after, signal } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (after) params.set('after', after);
+    return apiRequest(
+      `users/suggestions?${params}`,
+      { signal },
+    );
   },
   follow: (id) => apiRequest(`users/${encodeURIComponent(id)}/follow`, { method: 'POST' }),
   unfollow: (id) => apiRequest(`users/${encodeURIComponent(id)}/follow`, { method: 'DELETE' }),
@@ -190,7 +203,11 @@ export const mediaApi = {
 };
 
 export const contentApi = {
-  posts: (limit = 30, options = {}) => apiRequest(`posts?${new URLSearchParams({ limit: String(limit) })}`, options),
+  posts: (limit = 30, { after, ...options } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (after) params.set('after', after);
+    return apiRequest(`posts?${params}`, options);
+  },
   userPosts: (id, limit = 30, options = {}) => apiRequest(
     `users/${encodeURIComponent(id)}/posts?${new URLSearchParams({ limit: String(limit) })}`,
     options,
@@ -206,10 +223,11 @@ export const contentApi = {
   stories: (options = {}) => apiRequest('stories', options),
   createStory: (body) => apiRequest('stories', { method: 'POST', body }),
   deleteStory: (id) => apiRequest(`stories/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  reels: (limit = 30, options = {}) => apiRequest(
-    `reels?${new URLSearchParams({ limit: String(limit) })}`,
-    options,
-  ),
+  reels: (limit = 30, { after, ...options } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (after) params.set('after', after);
+    return apiRequest(`reels?${params}`, options);
+  },
   createReel: (body) => apiRequest('reels', { method: 'POST', body }),
   deleteReel: (id) => apiRequest(`reels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   savePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}/save`, { method: 'POST' }),

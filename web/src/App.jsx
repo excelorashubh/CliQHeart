@@ -3,7 +3,7 @@ import { useAuth } from './context/AuthContext.jsx';
 import { AppLayout } from './components/Layout.jsx';
 import { ErrorState, PageSpinner } from './components/Feedback.jsx';
 import {
-  HomePage, LoginPage, RegisterPage, SearchPage, ProfilePage, MessagesPage,
+  HomePage, LoginPage, RegisterPage, SearchPage, ExplorePeoplePage, ProfilePage, MessagesPage,
   SettingsPage, CapabilityPage, CreatePage, ReelsPage, NotFoundPage, LandingPage, ContentDetailPage, NotificationsPage,
 } from './pages.jsx';
 
@@ -40,6 +40,7 @@ export default function App() {
     <Route path="/register" element={<GuestOnly><RegisterPage /></GuestOnly>} />
     <Route path="/signup" element={<GuestOnly><RegisterPage /></GuestOnly>} />
     <Route path="/search" element={<Protected><SearchPage /></Protected>} />
+    <Route path="/explore/people/" element={<Protected><ExplorePeoplePage /></Protected>} />
     <Route path="/discover" element={<Navigate to="/search" replace />} />
     <Route path="/explore" element={<Navigate to="/search" replace />} />
     <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
