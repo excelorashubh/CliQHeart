@@ -212,6 +212,10 @@ describe('route handling', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(refreshRejectedResponse())
       .mockResolvedValueOnce(new Response(JSON.stringify({
+        available: true,
+        message: 'Username available',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
         message: 'Registration successful.',
         accessToken: 'access-token',
         user: { id: 'new-user-id', username: 'new_user' },
@@ -233,10 +237,11 @@ describe('route handling', () => {
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     expect(await screen.findByRole('heading', { name: /good to see you, new/i })).toBeInTheDocument();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
-    expect(fetchMock.mock.calls[1][0]).toContain('/auth/register');
-    expect(fetchMock.mock.calls[2][0]).toContain('/users/me');
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7));
+    expect(fetchMock.mock.calls[1][0]).toContain('/auth/username-availability?username=new_user');
+    expect(fetchMock.mock.calls[2][0]).toContain('/auth/register');
+    expect(fetchMock.mock.calls[3][0]).toContain('/users/me');
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
       displayName: 'New User',
       username: 'new_user',
       email: 'new@example.com',
@@ -244,6 +249,54 @@ describe('route handling', () => {
       confirmPassword: 'Password123!',
       agreeToTerms: true,
     });
+  });
+
+  it('shows availability only after the backend confirms and blocks a taken username', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(refreshRejectedResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        available: false,
+        message: 'Username already exists',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    renderApp('/signup');
+    const username = await screen.findByLabelText(/username/i);
+    fireEvent.change(username, { target: { value: 'existing_user' } });
+
+    expect(await screen.findByText('Username already exists')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/username-availability'))).toBe(true);
+
+    fireEvent.change(await screen.findByLabelText('Display name'), { target: { value: 'New User' } });
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password', { selector: 'input' }), { target: { value: 'Password123!' } });
+    fireEvent.change(screen.getByLabelText('Confirm password', { selector: 'input' }), { target: { value: 'Password123!' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /terms of service/i }));
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+    expect(await screen.findByText('Username already exists')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/register'))).toBe(false);
+  });
+
+  it('does not request invalid usernames and shows retryable availability errors', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(refreshRejectedResponse())
+      .mockRejectedValueOnce(new TypeError('Network unavailable'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        available: true,
+        message: 'Username available',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    renderApp('/signup');
+    const username = await screen.findByLabelText(/username/i);
+
+    fireEvent.change(username, { target: { value: 'bad name' } });
+    expect(await screen.findByText('Username format is invalid')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/username-availability'))).toBe(false);
+
+    fireEvent.change(username, { target: { value: 'valid_name' } });
+    expect(await screen.findByText('Unable to check username. Please try again.')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/auth/username-availability'))).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/register'))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry username availability check' }));
+    expect(await screen.findByText('Username available')).toBeInTheDocument();
   });
 
   it('blocks reserved usernames before sending a registration request', async () => {

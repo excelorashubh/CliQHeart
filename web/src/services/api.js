@@ -16,11 +16,12 @@ export function setSessionRestoredHandler(handler) {
 }
 
 export class ApiError extends Error {
-  constructor(message, status, details) {
+  constructor(message, status, details, field) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.details = details;
+    this.field = field;
   }
 }
 
@@ -112,7 +113,7 @@ export async function apiRequest(path, options = {}) {
         : response.status >= 500
           ? 'CliQHeart is temporarily unavailable. Please try again shortly.'
           : `Request failed (${response.status}).`;
-    throw new ApiError(message, response.status, data?.details);
+    throw new ApiError(message, response.status, data?.details, data?.field);
   }
   if (response.status === 204) return null;
   if (!contentType.includes('application/json')) {
@@ -135,6 +136,10 @@ const cookieTransportHeaders = { 'X-Session-Transport': 'cookie' };
 export const authApi = {
   login: (credentials) => apiRequest('auth/login', { method: 'POST', body: credentials, headers: cookieTransportHeaders }),
   register: (details) => apiRequest('auth/register', { method: 'POST', body: details, headers: cookieTransportHeaders }),
+  usernameAvailability: (username, { signal } = {}) => apiRequest(
+    `auth/username-availability?${new URLSearchParams({ username })}`,
+    { signal, retryAuth: false },
+  ),
   refresh: () => apiRequest('auth/refresh', { method: 'POST', headers: cookieTransportHeaders, retryAuth: false }),
   logout: () => apiRequest('auth/logout', { method: 'POST', headers: cookieTransportHeaders, retryAuth: false }),
 };

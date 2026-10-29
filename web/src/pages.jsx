@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Bell, Bookmark, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart,
+  ArrowLeft, ArrowRight, ArrowUpRight, Bell, Bookmark, CheckCircle2, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart,
   LockKeyhole, MessageCircle, Search, ShieldCheck, Sparkles, UserRound,
-  Share2,
+  Share2, XCircle,
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import { Avatar, Brand } from './components/Brand.jsx';
 import { EmptyState, ErrorState, Skeleton } from './components/Feedback.jsx';
 import { ContentFeed, StoryFeed } from './components/Content.jsx';
 import { MediaUploader } from './components/MediaUploader.jsx';
-import { contentApi, mediaApi, messageApi, notificationApi, userApi } from './services/api.js';
+import { authApi, contentApi, mediaApi, messageApi, notificationApi, userApi } from './services/api.js';
 import { MessageWorkspace } from './components/Messages.jsx';
+
+const reservedRegisterUsernames = new Set(['admin', 'root', 'support', 'staff', 'system', 'cliqheart']);
+function isValidRegisterUsername(username) {
+  return username.length >= 3 && username.length <= 30 &&
+    /^[a-z0-9._]+$/.test(username) && !username.startsWith('.') &&
+    !username.endsWith('.') && !username.includes('..');
+}
 
 export function LandingPage() {
   return <main className="landing">
@@ -88,22 +95,92 @@ export function RegisterPage() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [usernameAvailability, setUsernameAvailability] = useState({ username: '', status: 'empty' });
+  const usernameInputRef = useRef(null);
+  const usernameTimerRef = useRef(null);
+  const usernameRequestRef = useRef(null);
+  const usernameSequenceRef = useRef(0);
+  const usernameResultRef = useRef(null);
   const change = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const normalizedUsername = form.username.trim().toLowerCase();
+
+  const checkUsername = useCallback(async (username) => {
+    clearTimeout(usernameTimerRef.current);
+    if (!isValidRegisterUsername(username) || reservedRegisterUsernames.has(username)) {
+      const status = username ? 'invalid' : 'empty';
+      setUsernameAvailability({ username, status });
+      return { available: false, status };
+    }
+    if (usernameResultRef.current?.username === username &&
+        usernameResultRef.current.result.status !== 'error') {
+      return usernameResultRef.current.result;
+    }
+    usernameRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    const requestId = ++usernameSequenceRef.current;
+    usernameRequestRef.current = { controller, requestId };
+    setUsernameAvailability({ username, status: 'checking' });
+    const result = await authApi.usernameAvailability(username, { signal: controller.signal })
+      .then((response) => ({ available: response.available, status: response.available ? 'available' : 'taken' }))
+      .catch((reason) => {
+        if (reason?.name === 'AbortError') return { available: false, status: 'stale' };
+        return { available: false, status: 'error' };
+      });
+    if (requestId === usernameSequenceRef.current && !controller.signal.aborted) {
+      if (result.status !== 'error') usernameResultRef.current = { username, result };
+      setUsernameAvailability({ username, status: result.status });
+    }
+    return result;
+  }, []);
+
+  useEffect(() => {
+    usernameResultRef.current = null;
+    if (!normalizedUsername) {
+      setUsernameAvailability({ username: '', status: 'empty' });
+      return undefined;
+    }
+    if (!isValidRegisterUsername(normalizedUsername) || reservedRegisterUsernames.has(normalizedUsername)) {
+      setUsernameAvailability({ username: normalizedUsername, status: 'invalid' });
+      return undefined;
+    }
+    setUsernameAvailability({ username: normalizedUsername, status: 'checking' });
+    usernameTimerRef.current = setTimeout(() => {
+      void checkUsername(normalizedUsername);
+    }, 450);
+    return () => {
+      clearTimeout(usernameTimerRef.current);
+      if (usernameRequestRef.current) {
+        usernameRequestRef.current.controller.abort();
+        usernameSequenceRef.current += 1;
+      }
+    };
+  }, [normalizedUsername, checkUsername]);
+
+  useEffect(() => () => {
+    clearTimeout(usernameTimerRef.current);
+    usernameRequestRef.current?.controller.abort();
+  }, []);
+
+  function changeUsername(event) {
+    usernameResultRef.current = null;
+    setFieldErrors((current) => ({ ...current, username: undefined }));
+    setError('');
+    setForm((current) => ({ ...current, username: event.target.value }));
+  }
+
   async function submit(event) {
     event.preventDefault();
+    if (busy) return;
     setError('');
     const validation = {};
-    const username = form.username.trim().toLowerCase();
-    const validUsername = username.length >= 3 && username.length <= 30 &&
-      /^[a-z0-9._]+$/.test(username) && !username.startsWith('.') &&
-      !username.endsWith('.') && !username.includes('..');
-    const reservedUsernames = new Set(['admin', 'root', 'support', 'staff', 'system', 'cliqheart']);
+    const username = normalizedUsername;
+    const validUsername = isValidRegisterUsername(username);
     if (!form.displayName.trim() || form.displayName.trim().length > 80) {
       validation.displayName = 'Enter a display name of up to 80 characters.';
     }
     if (!validUsername) {
       validation.username = 'Use 3–30 letters, numbers, periods, or underscores. Do not start/end with a period or repeat periods.';
-    } else if (reservedUsernames.has(username)) {
+    } else if (reservedRegisterUsernames.has(username)) {
       validation.username = 'This username is reserved.';
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) || form.email.trim().length > 254) {
@@ -120,9 +197,23 @@ export function RegisterPage() {
     setFieldErrors(validation);
     if (Object.keys(validation).length > 0) {
       setError('Please correct the highlighted fields.');
+      if (validation.username) usernameInputRef.current?.focus();
       return;
     }
     setBusy(true);
+    const availability = await checkUsername(username);
+    if (availability.status !== 'available' || !availability.available) {
+      const message = availability.status === 'taken'
+        ? 'Username already exists'
+        : availability.status === 'error'
+          ? 'Unable to check username. Please try again.'
+          : 'Checking username availability...';
+      setUsernameAvailability({ username, status: availability.status });
+      setFieldErrors((current) => ({ ...current, username: message }));
+      usernameInputRef.current?.focus();
+      setBusy(false);
+      return;
+    }
     try {
       await signUp({
         ...form,
@@ -133,7 +224,14 @@ export function RegisterPage() {
       });
       navigate(location.state?.from || '/', { replace: true });
     } catch (reason) {
-      setError(reason.message || 'Could not create your account.');
+      if (reason.field === 'username' || reason.message === 'Username already exists') {
+        usernameResultRef.current = { username, result: { available: false, status: 'taken' } };
+        setUsernameAvailability({ username, status: 'taken' });
+        setFieldErrors((current) => ({ ...current, username: 'Username already exists' }));
+        usernameInputRef.current?.focus();
+      } else {
+        setError(reason.message || 'Could not create your account.');
+      }
       if (Array.isArray(reason.details)) {
         setFieldErrors(Object.fromEntries(reason.details
           .filter((item) => typeof item.field === 'string' && typeof item.message === 'string')
@@ -148,7 +246,17 @@ export function RegisterPage() {
     <p className="auth-description">Create an account to connect across CliQHeart.</p>
     <form className="form-stack form-stack--register" onSubmit={submit}>
       <label>Display name<input autoComplete="name" maxLength="80" value={form.displayName} onChange={change('displayName')} required />{fieldErrors.displayName && <small className="field-error">{fieldErrors.displayName}</small>}</label>
-      <label>Username<input autoComplete="username" minLength="3" maxLength="30" value={form.username} onChange={change('username')} required aria-invalid={Boolean(fieldErrors.username)} />{fieldErrors.username ? <small className="field-error">{fieldErrors.username}</small> : <small>3–30 letters, numbers, periods, or underscores.</small>}</label>
+      <label>Username<input ref={usernameInputRef} autoComplete="username" minLength="3" maxLength="30" value={form.username} onChange={changeUsername} required aria-invalid={Boolean(fieldErrors.username) || usernameAvailability.status === 'taken' || usernameAvailability.status === 'invalid'} aria-describedby="username-status" />
+        <small id="username-status" className={`username-status username-status--${usernameAvailability.status}`} aria-live="polite">
+          {usernameAvailability.status === 'empty' && 'Enter a username'}
+          {usernameAvailability.status === 'checking' && 'Checking username availability...'}
+          {usernameAvailability.status === 'available' && <><CheckCircle2 size={14} aria-hidden="true" /> Username available</>}
+          {usernameAvailability.status === 'taken' && <><XCircle size={14} aria-hidden="true" /> Username already exists</>}
+          {usernameAvailability.status === 'invalid' && 'Username format is invalid'}
+          {usernameAvailability.status === 'error' && <>Unable to check username. Please try again. <button className="username-retry" type="button" aria-label="Retry username availability check" disabled={busy} onClick={() => void checkUsername(normalizedUsername)}>Retry</button></>}
+        </small>
+        {fieldErrors.username && fieldErrors.username !== 'Username already exists' && fieldErrors.username !== 'Unable to check username. Please try again.' && <small className="field-error">{fieldErrors.username}</small>}
+      </label>
       <label>Email<input type="email" autoComplete="email" maxLength="254" value={form.email} onChange={change('email')} required aria-invalid={Boolean(fieldErrors.email)} />{fieldErrors.email && <small className="field-error">{fieldErrors.email}</small>}</label>
       <div className="form-two-columns">
         <label>Password<span className="password-field"><input aria-label="Password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength="8" maxLength="128" value={form.password} onChange={change('password')} required aria-invalid={Boolean(fieldErrors.password)} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span>{fieldErrors.password ? <small className="field-error">{fieldErrors.password}</small> : <small>At least 8 characters, including a letter and number.</small>}</label>

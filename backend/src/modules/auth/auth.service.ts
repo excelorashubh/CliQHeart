@@ -30,7 +30,8 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new Error('User already exists.');
+      if (existingUser.username === username) throw new Error('Username already exists.');
+      throw new Error('Email already exists.');
     }
 
     const passwordHash = await argon2.hash(input.password);
@@ -45,7 +46,9 @@ export class AuthService {
       });
     } catch (error) {
       if (isDuplicateKeyError(error)) {
-        throw new Error('User already exists.');
+        throw new Error(duplicateKeyField(error) === 'username'
+          ? 'Username already exists.'
+          : 'Email already exists.');
       }
       throw error;
     }
@@ -212,4 +215,12 @@ function getSessionLifetimeMs(configuredTtl: string): number {
 
 function isDuplicateKeyError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
+}
+
+function duplicateKeyField(error: unknown): 'username' | 'email' {
+  if (typeof error === 'object' && error !== null && 'keyPattern' in error &&
+      typeof error.keyPattern === 'object' && error.keyPattern !== null && 'username' in error.keyPattern) {
+    return 'username';
+  }
+  return 'email';
 }

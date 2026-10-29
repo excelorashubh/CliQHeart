@@ -4,6 +4,7 @@ import request from 'supertest';
 import { loadConfig } from '../../config/env';
 import { createApp } from '../../app';
 import { registerSchema, loginSchema } from './auth.validation';
+import { UserModel } from '../../models/user';
 
 const config = loadConfig({
   NODE_ENV: 'test',
@@ -35,9 +36,56 @@ test('login validation requires identifier and password', () => {
     identifier: 'test@example.com',
     password: 'Password123!',
   });
-
   assert.equal(result.identifier, 'test@example.com');
   assert.equal(result.password, 'Password123!');
+});
+
+test('username availability validates input and returns only availability status', async (t) => {
+  const app = createApp({ config, databaseStatus: () => false });
+  t.mock.method(UserModel, 'exists', async (filter: { username: string }) =>
+    filter.username === 'existing_user' ? { _id: 'private-id' } : null,
+  );
+
+  const available = await request(app)
+    .get('/api/v1/auth/username-availability?username=New_User')
+    .set('Origin', 'http://localhost:5173');
+  const taken = await request(app)
+    .get('/api/v1/auth/username-availability?username=Existing_User')
+    .set('Origin', 'https://cliqhearts.onrender.com');
+  const invalid = await request(app)
+    .get('/api/v1/auth/username-availability?username=bad%20name')
+    .set('Origin', 'http://127.0.0.1:5173');
+
+  assert.equal(available.status, 200);
+  assert.deepEqual(available.body, { available: true, message: 'Username available' });
+  assert.equal(taken.status, 200);
+  assert.deepEqual(taken.body, { available: false, message: 'Username already exists' });
+  assert.equal(invalid.status, 400);
+  assert.deepEqual(invalid.body, { available: false, message: 'Username format is invalid' });
+});
+
+test('allowed origins can preflight registration without authentication', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  for (const origin of [
+    'https://cliqhearts.onrender.com',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ]) {
+    const response = await request(app)
+      .options('/api/v1/auth/register')
+      .set('Origin', origin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type,authorization,x-csrf-token');
+
+    assert.equal(response.status, 204);
+    assert.equal(response.headers['access-control-allow-origin'], origin);
+    assert.match(response.headers['access-control-allow-methods'] ?? '', /POST/);
+    const allowedHeaders = response.headers['access-control-allow-headers'] ?? '';
+    assert.match(allowedHeaders, /content-type/i);
+    assert.match(allowedHeaders, /authorization/i);
+    assert.match(allowedHeaders, /x-csrf-token/i);
+    assert.equal(response.headers['access-control-allow-credentials'], 'true');
+  }
 });
 
 test('registration validation normalizes identifiers and rejects reserved usernames', () => {

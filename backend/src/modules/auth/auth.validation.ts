@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 const usernamePattern = /^(?!\.)(?!.*\.\.)[a-z0-9._]{3,30}(?<!\.)$/i;
 const reservedUsernames = new Set(['admin', 'root', 'support', 'staff', 'system', 'cliqheart']);
+export const isValidUsername = (username: string): boolean =>
+  usernamePattern.test(username) && !reservedUsernames.has(username.trim().toLowerCase());
 
 export const registerSchema = z
   .object({

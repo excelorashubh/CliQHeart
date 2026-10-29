@@ -47,6 +47,14 @@ the refresh token is then set only in an HttpOnly cookie and omitted from JSON.
 New registrations are explicitly active; pending, suspended, deleted, and
 unknown-status accounts cannot authenticate.
 
+### `GET /api/v1/auth/username-availability?username=<username>`
+
+Public signup helper that validates a normalized username and returns only
+`{"available":true,"message":"Username available"}` or
+`{"available":false,"message":"Username already exists"}`. Invalid usernames
+return `400`; checks are rate limited. This result is advisory only: registration
+still enforces the unique username index to prevent concurrent duplicates.
+
 ### `POST /api/v1/auth/refresh`
 
 Rotates the session refresh token and issues a new access token. Native clients

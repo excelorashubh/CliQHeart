@@ -3,8 +3,10 @@ import { ZodError } from 'zod';
 import type { AppConfig } from '../../config/env';
 import { requireAccessToken, type AuthenticatedRequest } from './require-access-token';
 import { AuthService } from './auth.service';
-import { loginSchema, refreshSchema, registerSchema } from './auth.validation';
+import { isValidUsername, loginSchema, refreshSchema, registerSchema } from './auth.validation';
 import type { AuthSessionResult } from './auth.service';
+import { UserModel } from '../../models/user';
+import { rateLimit } from 'express-rate-limit';
 
 const refreshCookieName = 'cliqheart_refresh';
 const refreshCookiePath = '/api/v1/auth';
@@ -13,6 +15,38 @@ export function createAuthRouter(config: AppConfig): Router {
   const router = Router();
   const service = new AuthService(config);
   const authenticate = requireAccessToken(config);
+
+  router.use('/auth/username-availability', rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many username availability checks. Please try again later.' },
+  }));
+
+  router.get('/auth/username-availability', async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      response.setHeader('Cache-Control', 'no-store');
+      const rawUsername = typeof request.query.username === 'string'
+        ? request.query.username
+        : '';
+      const username = rawUsername.trim().toLowerCase();
+      if (!isValidUsername(username)) {
+        response.status(400).json({
+          available: false,
+          message: 'Username format is invalid',
+        });
+        return;
+      }
+      const exists = await UserModel.exists({ username });
+      response.status(200).json({
+        available: !exists,
+        message: exists ? 'Username already exists' : 'Username available',
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   router.post('/auth/register', async (request: Request, response: Response, next: NextFunction) => {
     try {
@@ -35,8 +69,21 @@ export function createAuthRouter(config: AppConfig): Router {
         return;
       }
 
-      if (error instanceof Error && error.message === 'User already exists.') {
-        response.status(409).json({ error: 'Username or email is already in use.' });
+      if (error instanceof Error && error.message === 'Username already exists.') {
+        response.status(409).json({ error: 'Username already exists', field: 'username' });
+        return;
+      }
+
+      if (error instanceof Error && error.message === 'Email already exists.') {
+        response.status(409).json({ error: 'Email is already in use.', field: 'email' });
+        return;
+      }
+
+      if (isDuplicateKeyError(error)) {
+        const duplicateField = duplicateKeyField(error);
+        response.status(409).json(duplicateField === 'username'
+          ? { error: 'Username already exists', field: 'username' }
+          : { error: 'Email is already in use.', field: 'email' });
         return;
       }
 
@@ -205,4 +252,12 @@ function clearRefreshCookie(response: Response): void {
 
 function isSessionError(error: unknown): boolean {
   return error instanceof Error && error.message === 'Invalid refresh session.';
+}
+
+function isDuplicateKeyError(error: unknown): error is { code: number; keyPattern?: Record<string, number> } {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
+}
+
+function duplicateKeyField(error: { keyPattern?: Record<string, number> }): 'username' | 'email' {
+  return error.keyPattern?.username ? 'username' : 'email';
 }

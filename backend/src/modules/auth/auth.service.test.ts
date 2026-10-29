@@ -255,14 +255,28 @@ test('pending, suspended, and deleted accounts are blocked after password valida
   }
 });
 
-test('duplicate username or email is rejected before hashing or creating another user', async (t) => {
-  t.mock.method(mockUserModel(), 'findOne', () => ({ id: 'existing-user' }));
+test('duplicate usernames are rejected before hashing or creating another user', async (t) => {
+  t.mock.method(mockUserModel(), 'findOne', () => ({ id: 'existing-user', username: validInput.username }));
   let created = false;
   t.mock.method(mockUserModel(), 'create', async () => {
     created = true;
     return {};
   });
 
-  await assert.rejects(new AuthService(config).register(validInput), { message: 'User already exists.' });
+  await assert.rejects(new AuthService(config).register(validInput), { message: 'Username already exists.' });
   assert.equal(created, false);
+});
+
+test('duplicate username index races return a username-specific registration error', async (t) => {
+  t.mock.method(mockUserModel(), 'findOne', () => null);
+  t.mock.method(mockUserModel(), 'create', async () => {
+    throw Object.assign(new Error('Duplicate key'), {
+      code: 11000,
+      keyPattern: { username: 1 },
+    });
+  });
+
+  await assert.rejects(new AuthService(config).register(validInput), {
+    message: 'Username already exists.',
+  });
 });
