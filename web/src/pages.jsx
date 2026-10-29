@@ -553,8 +553,8 @@ export function SearchPage() {
       {showingResults && nextCursor && <button className="button button--outline load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more people'}</button>}
     </> : <section className="explore-section" aria-labelledby="explore-heading">
       <div className="explore-heading"><div><p className="eyebrow">A LITTLE INSPIRATION</p><h2 id="explore-heading">Explore</h2></div></div>
-      <div className="explore-content" aria-label="Explore posts">
-        <ContentFeed />
+      <div className="explore-content explore-media-content" aria-label="Explore media">
+        <ContentFeed includeReels layout="explore" />
       </div>
     </section>}
   </div>;

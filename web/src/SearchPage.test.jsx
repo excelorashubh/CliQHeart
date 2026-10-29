@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { SearchPage } from './pages.jsx';
 import { contentApi, userApi } from './services/api.js';
 
+vi.mock('./context/AuthContext.jsx', () => ({
+  useAuth: () => ({ user: { id: 'viewer-1', username: 'viewer' } }),
+}));
+
 function renderSearchPage() {
   return render(<MemoryRouter><SearchPage /></MemoryRouter>);
 }
@@ -12,13 +16,56 @@ describe('SearchPage', () => {
   it('loads real posts in Explore instead of showing sample content', async () => {
     const search = vi.spyOn(userApi, 'search');
     const posts = vi.spyOn(contentApi, 'posts').mockResolvedValue({ posts: [] });
+    const reels = vi.spyOn(contentApi, 'reels').mockResolvedValue({ reels: [] });
     renderSearchPage();
 
     expect(screen.getByRole('heading', { name: 'Search' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Explore' })).toBeInTheDocument();
-    expect(await screen.findByText('No posts to show yet')).toBeInTheDocument();
+    expect(await screen.findByText('No media to explore yet')).toBeInTheDocument();
     expect(search).not.toHaveBeenCalled();
     expect(posts).toHaveBeenCalledOnce();
+    expect(reels).toHaveBeenCalledOnce();
+  });
+
+  it('renders actual posts and Reels as a thumbnail-only Explore grid', async () => {
+    vi.spyOn(contentApi, 'posts').mockResolvedValue({
+      posts: [{
+        id: 'post-123',
+        caption: 'Private caption text',
+        owner: { username: 'private_creator' },
+        media: { resourceType: 'image', thumbnailUrl: 'https://cdn.example/post.jpg' },
+      }, {
+        id: 'video-789',
+        caption: 'Video post caption',
+        owner: { username: 'video_creator' },
+        media: { resourceType: 'video', thumbnailUrl: 'https://cdn.example/video.jpg' },
+      }],
+      nextCursor: null,
+    });
+    vi.spyOn(contentApi, 'reels').mockResolvedValue({
+      reels: [{
+        id: 'reel-456',
+        caption: 'Reel caption text',
+        owner: { username: 'reel_creator' },
+        media: { resourceType: 'video', thumbnailUrl: 'https://cdn.example/reel.jpg' },
+      }],
+      nextCursor: null,
+    });
+    renderSearchPage();
+
+    const grid = await screen.findByRole('link', { name: 'Open post' }).then((link) => link.parentElement.parentElement);
+    expect(grid).toHaveClass('content-feed--explore-grid');
+    expect(grid).toHaveClass('content-feed--grid');
+    expect(screen.getByRole('link', { name: 'Open post' })).toHaveAttribute('href', '/post/post-123');
+    expect(screen.getByRole('link', { name: 'Open Reel' })).toHaveAttribute('href', '/reels/reel-456');
+    expect(screen.getByRole('link', { name: 'Open video post' }).querySelector('.content-grid-video')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Reel' }).querySelector('.content-grid-video')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Reel' }).querySelector('img')).toHaveAttribute('src', 'https://cdn.example/reel.jpg');
+    expect(screen.queryByText('Private caption text')).not.toBeInTheDocument();
+    expect(screen.queryByText('Reel caption text')).not.toBeInTheDocument();
+    expect(screen.queryByText('private_creator')).not.toBeInTheDocument();
+    expect(screen.queryByText('reel_creator')).not.toBeInTheDocument();
+    expect(screen.queryByText('Video post caption')).not.toBeInTheDocument();
   });
 
   it('debounces user search and reflects follow status from the API', async () => {

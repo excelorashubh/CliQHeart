@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bookmark, Heart, Play } from 'lucide-react';
+import {
+  BadgeCheck, Bookmark, Clapperboard, Heart, MessageCircle, MoreHorizontal, Play, Repeat2, Share2, Volume2, VolumeX,
+} from 'lucide-react';
 import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './Feedback.jsx';
 import { contentApi, userApi } from '../services/api.js';
@@ -21,6 +23,22 @@ export function ContentFeed({
   const [nextCursor, setNextCursor] = useState(null);
   const [nextReelCursor, setNextReelCursor] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const activeVideoRef = useRef(null);
+  const claimActiveVideo = useCallback((video) => {
+    const activeVideo = activeVideoRef.current;
+    if (activeVideo && activeVideo !== video) activeVideo.pause();
+    activeVideoRef.current = video;
+  }, []);
+  const playActiveVideo = useCallback((video) => {
+    claimActiveVideo(video);
+    return video.play();
+  }, [claimActiveVideo]);
+  const pauseActiveVideo = useCallback((video) => {
+    if (activeVideoRef.current === video) {
+      video.pause();
+      activeVideoRef.current = null;
+    }
+  }, []);
   const load = useCallback(async (signal) => {
     setLoading(true);
     setError('');
@@ -124,12 +142,19 @@ export function ContentFeed({
     return () => controller.abort();
   }, [load]);
 
+  if (loading && layout === 'explore') return <div className="content-feed content-feed--explore-grid" aria-label="Loading Explore media" aria-busy="true">
+    {Array.from({ length: 9 }, (_, index) => <span className="explore-tile-placeholder" key={index} />)}
+  </div>;
   if (loading) return <Skeleton rows={3} />;
   if (error) return <ErrorState error={error} onRetry={() => load()} />;
   if (items.length === 0) {
     return <EmptyState
-      title={kind === 'saved' ? 'No saved posts yet' : kind === 'tagged' ? 'No tagged posts yet' : kind === 'reels' ? 'No Reels to show yet' : 'No posts to show yet'}
-      description={kind === 'saved'
+      title={layout === 'explore'
+        ? 'No media to explore yet'
+        : kind === 'saved' ? 'No saved posts yet' : kind === 'tagged' ? 'No tagged posts yet' : kind === 'reels' ? 'No Reels to show yet' : 'No posts to show yet'}
+      description={layout === 'explore'
+        ? 'Posts and Reels shared on CliQHeart will appear here.'
+        : kind === 'saved'
         ? 'Posts you save will appear here.'
         : kind === 'tagged'
           ? 'Posts this person is tagged in will appear here.'
@@ -140,13 +165,20 @@ export function ContentFeed({
     />;
   }
   return <>
-    <div className={`content-feed${kind === 'reels' ? ' content-feed--reels' : ''}${layout === 'grid' ? ' content-feed--grid' : ''}`}>
+    <div className={`content-feed${kind === 'reels' ? ' content-feed--reels' : ''}${layout === 'grid' ? ' content-feed--grid' : ''}${layout === 'explore' ? ' content-feed--grid content-feed--explore-grid' : ''}`}>
     {items.map((item) => <ContentCard
       key={`${item.feedType || kind}:${item.id}`}
       item={item}
       layout={layout}
+      thumbnailOnly={layout === 'explore'}
       kind={item.feedType || kind}
+      homeFeed={showSuggestedLabels && layout === 'feed'}
       showSuggestedLabel={showSuggestedLabels}
+      claimActiveVideo={claimActiveVideo}
+      playActiveVideo={playActiveVideo}
+      pauseActiveVideo={pauseActiveVideo}
+      onDeleted={(id, itemKind) => setItems((current) => current.filter((entry) =>
+        entry.id !== id || (entry.feedType || kind) !== itemKind))}
       onSavedChange={(saved) => {
         setItems((current) => kind === 'saved' && !saved
           ? current.filter((entry) => entry.id !== item.id)
@@ -160,6 +192,135 @@ export function ContentFeed({
     {moreError && <p className="inline-error" role="alert">{moreError} <RetryButton error={moreError} onRetry={loadMore} className="text-link" label="Retry" /></p>}
     {(nextCursor || nextReelCursor) && ['posts', 'saved', 'tagged', 'reels'].includes(kind) && <button className="button button--outline load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button>}
   </>;
+}
+
+function FeedVideo({ item, autoPlay, claimActiveVideo, playActiveVideo, pauseActiveVideo }) {
+  const videoRef = useRef(null);
+  const inViewportRef = useRef(false);
+  const [muted, setMuted] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [playbackError, setPlaybackError] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!mediaQuery) return undefined;
+    const updatePreference = () => setReducedMotion(mediaQuery.matches);
+    updatePreference();
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', updatePreference);
+      return () => mediaQuery.removeEventListener('change', updatePreference);
+    }
+    mediaQuery.addListener(updatePreference);
+    return () => mediaQuery.removeListener(updatePreference);
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return undefined;
+    if (!autoPlay || reducedMotion || typeof IntersectionObserver === 'undefined') {
+      pauseActiveVideo(video);
+      return () => pauseActiveVideo(video);
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        inViewportRef.current = entry.isIntersecting && entry.intersectionRatio >= 0.6;
+        if (document.visibilityState === 'visible' && inViewportRef.current) {
+          playActiveVideo(video).then(() => {
+            setPlaybackError(false);
+          }).catch((reason) => {
+            if (reason?.name !== 'NotAllowedError' && reason?.name !== 'AbortError') {
+              setPlaybackError(true);
+            }
+          });
+        } else {
+          pauseActiveVideo(video);
+        }
+      }
+    }, { threshold: [0, 0.6] });
+    observer.observe(video.parentElement);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        pauseActiveVideo(video);
+      } else if (inViewportRef.current && !reducedMotion) {
+        playActiveVideo(video).catch((reason) => {
+          if (reason?.name !== 'NotAllowedError' && reason?.name !== 'AbortError') setPlaybackError(true);
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      pauseActiveVideo(video);
+    };
+  }, [autoPlay, pauseActiveVideo, playActiveVideo, reducedMotion]);
+
+  function togglePlayback() {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      playActiveVideo(video).then(() => setPlaybackError(false)).catch((reason) => {
+        if (reason?.name !== 'NotAllowedError' && reason?.name !== 'AbortError') setPlaybackError(true);
+      });
+    } else {
+      pauseActiveVideo(video);
+    }
+  }
+
+  function retryPlayback() {
+    const video = videoRef.current;
+    if (!video) return;
+    setPlaybackError(false);
+    setBuffering(true);
+    video.load();
+    playActiveVideo(video).catch((reason) => {
+      setBuffering(false);
+      setPlaybackError(reason?.name !== 'NotAllowedError' && reason?.name !== 'AbortError');
+    });
+  }
+
+  return <div className="content-card-video-wrap">
+    {item.media?.secureUrl
+      ? <video
+        ref={videoRef}
+        src={item.media.secureUrl}
+        poster={item.media.thumbnailUrl}
+        controls
+        playsInline
+        muted={muted}
+        preload="none"
+        onPlay={() => { claimActiveVideo(videoRef.current); setPlaying(true); }}
+        onPause={() => setPlaying(false)}
+        onWaiting={() => setBuffering(true)}
+        onCanPlay={() => setBuffering(false)}
+        onPlaying={() => { setBuffering(false); setPlaybackError(false); }}
+        onError={() => { setBuffering(false); setPlaybackError(true); }}
+        aria-label={`Video by @${item.owner?.username || 'member'}`}
+      />
+      : <div className="content-media-unavailable" role="status">Video is unavailable.</div>}
+    {item.media?.secureUrl && <>
+      <button
+        type="button"
+        className="content-video-mute"
+        onClick={() => setMuted((value) => !value)}
+        aria-label={muted ? 'Unmute video' : 'Mute video'}
+        title={muted ? 'Unmute video' : 'Mute video'}
+      >{muted ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
+      {!playing && !playbackError && <button className="content-video-play" type="button" onClick={togglePlayback} aria-label="Play video">
+        <Play size={28} fill="currentColor" />
+      </button>}
+      {buffering && <span className="content-video-status" role="status">Loading video…</span>}
+      {playbackError && <div className="content-video-error" role="alert">
+        <span>Video playback failed.</span><button type="button" onClick={retryPlayback}>Try again</button>
+      </div>}
+    </>}
+  </div>;
 }
 
 export function StoryFeed() {
@@ -286,31 +447,100 @@ export function StoryFeed() {
   </>;
 }
 
-function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, onTaggedChange }) {
+function ContentCard({
+  item,
+  layout,
+  thumbnailOnly = false,
+  kind,
+  homeFeed = false,
+  showSuggestedLabel,
+  onSavedChange,
+  onTaggedChange,
+  claimActiveVideo,
+  playActiveVideo,
+  pauseActiveVideo,
+  onDeleted,
+}) {
   const { user } = useAuth();
   const ownerAvatarUrl = item.owner?.id === user?.id ? user.avatarUrl : item.owner?.avatarUrl;
   const isVideo = item.media?.resourceType === 'video';
+  const likeCount = formatEngagementCount(item.likeCount);
+  const commentCount = formatEngagementCount(item.commentCount);
+  const repostCount = formatEngagementCount(item.repostCount);
   const [saved, setSaved] = useState(Boolean(item.isSaved));
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
+  const bookmarkBusyRef = useRef(false);
   const [bookmarkError, setBookmarkError] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [tagBusy, setTagBusy] = useState(false);
   const [tagError, setTagError] = useState('');
   async function toggleSaved(event) {
     event.preventDefault();
     event.stopPropagation();
-    if (bookmarkBusy) return;
+    if (bookmarkBusyRef.current) return;
+    bookmarkBusyRef.current = true;
     setBookmarkBusy(true);
     setBookmarkError('');
+    const previousSaved = saved;
+    const nextSaved = !previousSaved;
+    setSaved(nextSaved);
     try {
-      const nextSaved = !saved;
       if (nextSaved) await contentApi.savePost(item.id);
       else await contentApi.unsavePost(item.id);
-      setSaved(nextSaved);
       onSavedChange?.(nextSaved);
     } catch (reason) {
+      setSaved(previousSaved);
       setBookmarkError(reason.message || 'Could not update the saved post.');
     } finally {
+      bookmarkBusyRef.current = false;
       setBookmarkBusy(false);
+    }
+  }
+  async function shareContent() {
+    const path = kind === 'reels' ? getReelPath(item.id) : `/post/${encodeURIComponent(item.id)}`;
+    const url = new URL(path, window.location.origin).toString();
+    setActionNotice('');
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: `Post by @${item.owner?.username || 'CliQHeart member'}`,
+            text: item.caption || 'View this post on CliQHeart.',
+            url,
+          });
+        } catch (reason) {
+          if (reason?.name === 'AbortError') return;
+          if (!navigator.clipboard?.writeText) throw reason;
+          await navigator.clipboard.writeText(url);
+          setActionNotice('Post link copied.');
+        }
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setActionNotice('Post link copied.');
+      } else {
+        setActionNotice('Sharing is not supported by this browser.');
+      }
+    } catch (reason) {
+      setBookmarkError(reason.message || 'Could not share this post.');
+    }
+  }
+  function unavailableAction(message) {
+    setActionNotice(message);
+  }
+  async function deleteContent() {
+    if (deleteBusy || item.owner?.id !== user?.id ||
+        !window.confirm(`Delete this ${kind === 'reels' ? 'Reel' : 'post'}? This cannot be undone.`)) return;
+    setDeleteBusy(true);
+    setBookmarkError('');
+    try {
+      if (kind === 'reels') await contentApi.deleteReel(item.id);
+      else await contentApi.deletePost(item.id);
+      onDeleted?.(item.id, kind);
+    } catch (reason) {
+      setBookmarkError(reason.message || 'Could not delete this content.');
+    } finally {
+      setDeleteBusy(false);
     }
   }
   async function removeTag() {
@@ -326,22 +556,29 @@ function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, on
       setTagBusy(false);
     }
   }
-  if (layout === 'grid') {
+  if (layout === 'grid' || layout === 'explore') {
+    const thumbnailUrl = item.media?.thumbnailUrl || (!isVideo ? item.media?.secureUrl : null);
     return <div className="content-grid-cell">
       <Link
         className="content-grid-item"
         to={kind === 'reels' ? getReelPath(item.id) : `/post/${encodeURIComponent(item.id)}`}
-        aria-label={`View post by ${item.owner?.username || 'CliQHeart member'}${item.caption ? `: ${item.caption}` : ''}`}
+        aria-label={thumbnailOnly
+          ? kind === 'reels' ? 'Open Reel' : isVideo ? 'Open video post' : 'Open post'
+          : `View post by ${item.owner?.username || 'CliQHeart member'}${item.caption ? `: ${item.caption}` : ''}`}
       >
-        <img src={item.media?.thumbnailUrl || item.media?.secureUrl} alt="" loading="lazy" />
-        {isVideo && <span className="content-grid-video" aria-label="Video"><Play size={18} fill="currentColor" /></span>}
-        <span className="content-grid-overlay">{item.caption || `Post by @${item.owner?.username || 'member'}`}</span>
+        {thumbnailUrl
+          ? <img src={thumbnailUrl} alt="" loading="lazy" decoding="async" />
+          : <span className="content-grid-thumbnail-placeholder" aria-hidden="true" />}
+        {isVideo && <span className="content-grid-video" aria-label={kind === 'reels' ? 'Reel' : 'Video'}>
+          {thumbnailOnly && kind === 'reels' ? <Clapperboard size={17} /> : <Play size={17} fill="currentColor" />}
+        </span>}
+        {!thumbnailOnly && <span className="content-grid-overlay">{item.caption || `Post by @${item.owner?.username || 'member'}`}</span>}
       </Link>
-      {kind !== 'reels' && <button className={`content-save-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? 'Remove saved post' : 'Save post'} title={saved ? 'Remove saved post' : 'Save post'}>
+      {!thumbnailOnly && kind !== 'reels' && <button className={`content-save-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? 'Remove saved post' : 'Save post'} title={saved ? 'Remove saved post' : 'Save post'}>
         <Bookmark size={17} fill={saved ? 'currentColor' : 'none'} />
       </button>}
-      {kind === 'tagged' && <button className="content-untag-button" onClick={removeTag} disabled={tagBusy}>Remove tag</button>}
-      {(bookmarkError || tagError) && <span className="content-action-error" role="alert">{bookmarkError || tagError}</span>}
+      {!thumbnailOnly && kind === 'tagged' && <button className="content-untag-button" onClick={removeTag} disabled={tagBusy}>Remove tag</button>}
+      {!thumbnailOnly && (bookmarkError || tagError) && <span className="content-action-error" role="alert">{bookmarkError || tagError}</span>}
     </div>;
   }
   return <article className={`content-card${kind === 'reels' ? ' content-card--reel' : ''}`}>
@@ -349,34 +586,88 @@ function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, on
     <header className="content-card-header">
       <Link to={`/profile/${item.owner?.id}`} className="content-card-owner">
         <Avatar name={item.owner?.displayName} src={ownerAvatarUrl} size="small" />
-        <span><strong>{item.owner?.displayName || 'CliQHeart member'}</strong><small>@{item.owner?.username || 'member'}</small></span>
+        <span><strong>{item.owner?.displayName || 'CliQHeart member'}{item.owner?.isVerified && <BadgeCheck className="content-verified-badge" size={14} aria-label="Verified" />}</strong><small>@{item.owner?.username || 'member'}</small></span>
       </Link>
       <div className="content-card-actions">
         {item.createdAt && <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleDateString()}</time>}
-        {kind !== 'reels' && <button className={`content-bookmark-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? 'Remove saved post' : 'Save post'} title={saved ? 'Remove saved post' : 'Save post'}>
+        {kind !== 'reels' && !homeFeed && <button className={`content-bookmark-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? 'Remove saved post' : 'Save post'} title={saved ? 'Remove saved post' : 'Save post'}>
           <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
         </button>}
+        {homeFeed && <details className="content-more-options">
+          <summary aria-label="More options" title="More options"><MoreHorizontal size={21} /></summary>
+          <div className="content-more-menu">
+            <button type="button" onClick={shareContent}>Share link</button>
+            {item.owner?.id === user?.id && <button type="button" onClick={deleteContent} disabled={deleteBusy}>
+              {deleteBusy ? 'Deleting…' : `Delete ${kind === 'reels' ? 'Reel' : 'post'}`}
+            </button>}
+            {item.owner?.id !== user?.id && <span>No other options are available.</span>}
+          </div>
+        </details>}
       </div>
     </header>
     <div className="content-card-media">
       {isVideo
-        ? <video src={item.media.secureUrl} poster={item.media.thumbnailUrl} controls preload="metadata" />
+        ? homeFeed
+          ? <FeedVideo
+            item={item}
+            autoPlay
+            claimActiveVideo={claimActiveVideo}
+            playActiveVideo={playActiveVideo}
+            pauseActiveVideo={pauseActiveVideo}
+          />
+          : <video src={item.media.secureUrl} poster={item.media.thumbnailUrl} controls playsInline preload="metadata" />
         : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.altText || item.caption || 'Shared CliQHeart media'} loading="lazy" />}
       {isVideo && (kind === 'reels'
         ? <Link className="content-video-badge content-video-badge--link" to={getReelPath(item.id)} aria-label="Open Reel"><Play size={14} fill="currentColor" /> Reel</Link>
         : <span className="content-video-badge"><Play size={14} fill="currentColor" /> Video</span>)}
     </div>
+    {homeFeed && <div className="content-engagement">
+      <div className="content-engagement-actions">
+        <button type="button" className="content-engagement-button is-unavailable" onClick={() => unavailableAction('Like is not available yet.')} aria-label="Like is not available yet" title="Like is not available yet">
+          <Heart size={23} />{likeCount !== null && <span>{likeCount}</span>}
+        </button>
+        <button type="button" className="content-engagement-button is-unavailable" onClick={() => unavailableAction('Comments are not available yet.')} aria-label="Comments are not available yet" title="Comments are not available yet">
+          <MessageCircle size={23} />{commentCount !== null && <span>{commentCount}</span>}
+        </button>
+        <button type="button" className="content-engagement-button is-unavailable" onClick={() => unavailableAction('Reposting is not available yet.')} aria-label="Reposting is not available yet" title="Reposting is not available yet">
+          <Repeat2 size={23} />{repostCount !== null && <span>{repostCount}</span>}
+        </button>
+        <button type="button" className="content-engagement-button" onClick={shareContent} aria-label="Share post" title="Share post"><Share2 size={22} /></button>
+        {kind === 'reels'
+          ? <button type="button" className="content-engagement-button content-engagement-save is-unavailable" onClick={() => unavailableAction('Saving Reels is not available yet.')} aria-label="Saving Reels is not available yet" title="Saving Reels is not available yet"><Bookmark size={22} /></button>
+          : <button
+            type="button"
+            className={`content-engagement-button content-engagement-save${saved ? ' is-saved' : ''}`}
+            onClick={toggleSaved}
+            disabled={bookmarkBusy}
+            aria-label={saved ? 'Remove saved post' : 'Save post'}
+            title={saved ? 'Remove saved post' : 'Save post'}
+          ><Bookmark size={22} fill={saved ? 'currentColor' : 'none'} /></button>}
+      </div>
+      {actionNotice && <p className="content-action-notice" role="status">{actionNotice}</p>}
+    </div>}
     {item.caption && <ContentCaption
       username={item.owner?.username || 'member'}
       caption={item.caption}
       postId={item.id}
+      compact={homeFeed}
     />}
+    {item.audio?.title && <div className="content-audio-attribution">
+      {item.audio.url
+        ? <a href={item.audio.url} target="_blank" rel="noreferrer">{item.audio.title}</a>
+        : <span>{item.audio.title}</span>}
+    </div>}
     {item.location && <p className="content-card-location">{item.location}</p>}
-    {bookmarkError && <p className="inline-error" role="alert">{bookmarkError}</p>}
+    {(bookmarkError || tagError) && <p className="inline-error" role="alert">{bookmarkError || tagError}</p>}
   </article>;
 }
 
-export function ContentCaption({ username, caption, postId }) {
+function formatEngagementCount(value) {
+  if (!Number.isFinite(value) || value < 0) return null;
+  return Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+}
+
+export function ContentCaption({ username, caption, postId, compact = false }) {
   const captionRef = useRef(null);
   const [isLong, setIsLong] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -395,7 +686,7 @@ export function ContentCaption({ username, caption, postId }) {
   }, [caption, isExpanded, postId]);
 
   return <div className="content-card-caption-block" data-post-id={postId}>
-    <p ref={captionRef} className={`content-card-caption${!isExpanded ? ' is-collapsed' : ''}`}>
+    <p ref={captionRef} className={`content-card-caption${!isExpanded ? ' is-collapsed' : ''}${compact ? ' is-home-preview' : ''}`}>
       <strong>@{username}</strong> {caption}
     </p>
     {isLong && <button
