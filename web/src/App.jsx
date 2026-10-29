@@ -31,15 +31,18 @@ function GuestOnly({ children }) {
 
 function ProfessionalDashboardRoute() {
   const { user } = useAuth();
-  return user?.accountType === 'CREATOR' || user?.accountType === 'BUSINESS'
+  if (user?.accountType !== 'CREATOR' && user?.accountType !== 'BUSINESS') {
+    return <Navigate to="/professional/onboarding" replace />;
+  }
+  return user.professionalOnboardingCompletedAt
     ? <ProfessionalDashboardPage />
-    : <Navigate to="/professional/onboarding" replace />;
+    : <ProfessionalOnboardingPage />;
 }
 
 function ProfessionalOnboardingRoute() {
   const { user } = useAuth();
-  return user?.accountType === 'CREATOR' || user?.accountType === 'BUSINESS'
-    ? <Navigate to="/professional" replace />
+  return user?.professionalOnboardingCompletedAt
+    ? <Navigate to="/professional/dashboard" replace />
     : <ProfessionalOnboardingPage />;
 }
 

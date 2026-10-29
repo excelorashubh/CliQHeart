@@ -579,6 +579,7 @@ describe('route handling', () => {
       username: 'test_creator',
       displayName: 'Test Creator',
       accountType: 'CREATOR',
+      professionalOnboardingCompletedAt: '2026-10-29T12:00:00.000Z',
     };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
       const path = String(url);
@@ -601,7 +602,12 @@ describe('route handling', () => {
       }
       if (path.includes('/professional/me')) {
         return new Response(JSON.stringify({
-          professional: { accountType: 'CREATOR', category: 'ARTIST', profile: null },
+          professional: {
+            accountType: 'CREATOR',
+            category: 'ARTIST',
+            profile: null,
+            onboardingCompletedAt: user.professionalOnboardingCompletedAt,
+          },
         }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
       return new Response(JSON.stringify({ unreadCount: 0 }), {
@@ -610,6 +616,7 @@ describe('route handling', () => {
     });
 
     renderApp('/professional/dashboard');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     expect(await screen.findByRole('heading', { name: 'Welcome, Test Creator' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/professional/dashboard');

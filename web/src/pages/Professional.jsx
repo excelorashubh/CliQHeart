@@ -81,8 +81,14 @@ export function ProfessionalOnboardingPage() {
         await professionalApi.saveOnboardingStep({ step, confirmPublicProfile: confirmed });
         const result = await professionalApi.convert({ confirmPublicProfile: true });
         setProfessional(result.professional);
-        updateUser({ accountType: result.professional.accountType, professionalCategory: result.professional.category });
-        navigate('/professional', { replace: true });
+        updateUser(result.user ?? {
+          accountType: result.professional.accountType,
+          professionalCategory: result.professional.category,
+          professionalOnboardingCompletedAt: result.professional.onboardingCompletedAt
+            ?? user?.professionalOnboardingCompletedAt
+            ?? null,
+        });
+        navigate('/professional/dashboard', { replace: true });
         return;
       }
       const body = step === 'type'
@@ -92,6 +98,7 @@ export function ProfessionalOnboardingPage() {
           : { step, profile: cleanProfile(profile) };
       const result = await professionalApi.saveOnboardingStep(body);
       setProfessional(result.professional);
+      if (result.user) updateUser(result.user);
       setStep(steps[steps.indexOf(step) + 1]);
     } catch (reason) {
       setError(reason.message || 'Could not save your progress. Try again.');
@@ -187,7 +194,11 @@ export function ProfessionalDashboardPage() {
       setAnalytics(dashboard.analytics);
       setProfile(result.professional);
       setProfileForm((current) => ({ ...current, ...(result.professional.profile ?? {}) }));
-      updateUser({ accountType: result.professional.accountType, professionalCategory: result.professional.category });
+      updateUser(result.user ?? {
+        accountType: result.professional.accountType,
+        professionalCategory: result.professional.category,
+        professionalOnboardingCompletedAt: result.professional.onboardingCompletedAt,
+      });
       setError('');
     }).catch((reason) => {
       if (reason.name !== 'AbortError') setError(reason.message || 'Could not load your professional dashboard.');
@@ -213,7 +224,11 @@ export function ProfessionalDashboardPage() {
     setError('');
     try {
       const result = await professionalApi.switchToPersonal();
-      updateUser({ accountType: result.professional.accountType, professionalCategory: null });
+      updateUser({
+        accountType: result.professional.accountType,
+        professionalCategory: null,
+        professionalOnboardingCompletedAt: null,
+      });
       window.location.assign('/settings');
     } catch (reason) {
       setError(reason.message || 'Could not switch account type.');

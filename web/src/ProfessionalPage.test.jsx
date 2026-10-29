@@ -53,7 +53,8 @@ describe('professional account pages', () => {
 
   it.each(['CREATOR', 'BUSINESS'])('saves a selected %s account type as the first onboarding draft', async (accountType) => {
     const saveStep = vi.spyOn(professionalApi, 'saveOnboardingStep').mockResolvedValue({
-      professional: { accountType: 'PERSONAL', onboardingDraft: { accountType } },
+      professional: { accountType, onboardingDraft: { accountType } },
+      user: { id: 'existing-id', accountType },
     });
     vi.spyOn(professionalApi, 'me').mockResolvedValue({
       professional: { accountType: 'PERSONAL', onboardingDraft: null },
@@ -67,6 +68,7 @@ describe('professional account pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
 
     await waitFor(() => expect(saveStep).toHaveBeenCalledWith({ step: 'type', accountType }));
+    expect(updateUserMock).toHaveBeenCalledWith({ id: 'existing-id', accountType });
     expect(await screen.findByText('What best describes you?')).toBeInTheDocument();
   });
 

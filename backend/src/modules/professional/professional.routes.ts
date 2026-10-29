@@ -61,11 +61,9 @@ export function createProfessionalRouter(config: AppConfig): Router {
         return;
       }
       const currentAccountType = user.accountType ?? 'PERSONAL';
-      if (currentAccountType !== 'PERSONAL') {
+      if (currentAccountType !== 'PERSONAL' && !isProfessionalType(currentAccountType)) {
         response.status(409).json({
-          error: isProfessionalType(currentAccountType)
-            ? 'This account is already professional.'
-            : 'This account cannot enter professional onboarding.',
+          error: 'This account cannot enter professional onboarding.',
         });
         return;
       }
@@ -73,13 +71,19 @@ export function createProfessionalRouter(config: AppConfig): Router {
         { toObject: () => OnboardingDraft } | undefined;
       const current = currentDocument?.toObject();
       const draft = { ...current };
-      if (update.step === 'type') draft.accountType = update.accountType;
+      if (update.step === 'type') {
+        draft.accountType = update.accountType;
+        user.accountType = update.accountType;
+      }
       if (update.step === 'category') draft.category = update.category;
       if (update.step === 'profile') draft.profile = update.profile;
       if (update.step === 'confirmation') draft.confirmPublicProfile = update.confirmPublicProfile;
       user.set('professionalOnboardingDraft', draft);
       await user.save();
-      response.json({ professional: serializeProfessional(userState(user)) });
+      response.json({
+        professional: serializeProfessional(userState(user)),
+        user: professionalUserResponse(user),
+      });
     } catch (error) {
       handleInputError(error, response, next);
     }
@@ -95,23 +99,31 @@ export function createProfessionalRouter(config: AppConfig): Router {
         return;
       }
       const currentAccountType = user.accountType ?? 'PERSONAL';
-      if (currentAccountType === 'PERSONAL') {
+      if (!isProfessionalType(currentAccountType)) {
+        response.status(409).json({ error: 'This account cannot be converted.' });
+        return;
+      }
+      if (!user.professionalOnboardingCompletedAt) {
         const draft = user.get('professionalOnboardingDraft') as OnboardingDraft | undefined;
-        if (!draft?.accountType || !draft.category || draft.confirmPublicProfile !== true) {
+        if (
+          !draft?.accountType ||
+          draft.accountType !== currentAccountType ||
+          !draft.category ||
+          draft.confirmPublicProfile !== true
+        ) {
           response.status(409).json({ error: 'Complete and confirm professional onboarding first.' });
           return;
         }
-        user.accountType = draft.accountType;
         user.professionalCategory = draft.category;
         user.set('professionalProfile', draft.profile);
         user.professionalOnboardingCompletedAt = new Date();
         user.professionalOnboardingDraft = undefined;
         await user.save();
-      } else if (!isProfessionalType(currentAccountType)) {
-        response.status(409).json({ error: 'This account cannot be converted.' });
-        return;
       }
-      response.json({ professional: serializeProfessional(userState(user)) });
+      response.json({
+        professional: serializeProfessional(userState(user)),
+        user: professionalUserResponse(user),
+      });
     } catch (error) {
       handleInputError(error, response, next);
     }
@@ -130,7 +142,10 @@ export function createProfessionalRouter(config: AppConfig): Router {
       const current = currentDocument?.toObject();
       user.set('professionalProfile', { ...current, ...profile });
       await user.save();
-      response.json({ professional: serializeProfessional(userState(user)) });
+      response.json({
+        professional: serializeProfessional(userState(user)),
+        user: professionalUserResponse(user),
+      });
     } catch (error) {
       handleInputError(error, response, next);
     }
@@ -332,6 +347,30 @@ async function requireProfessional(ownerId: string) {
 
 function authenticatedUserId(request: Request): string {
   return (request as AuthenticatedRequest).authenticatedUserId!;
+}
+
+function professionalUserResponse(user: {
+  _id: unknown;
+  username?: unknown;
+  displayName?: unknown;
+  accountType?: unknown;
+  professionalCategory?: unknown;
+  professionalOnboardingCompletedAt?: unknown;
+}) {
+  return {
+    id: String(user._id),
+    username: typeof user.username === 'string' ? user.username : undefined,
+    displayName: typeof user.displayName === 'string' ? user.displayName : undefined,
+    accountType: user.accountType === 'CREATOR' || user.accountType === 'BUSINESS'
+      ? user.accountType
+      : 'PERSONAL',
+    professionalCategory: typeof user.professionalCategory === 'string'
+      ? user.professionalCategory
+      : null,
+    professionalOnboardingCompletedAt: user.professionalOnboardingCompletedAt instanceof Date
+      ? user.professionalOnboardingCompletedAt.toISOString()
+      : null,
+  };
 }
 
 function serializeProfessional(user: Record<string, unknown>) {

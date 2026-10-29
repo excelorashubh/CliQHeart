@@ -82,8 +82,10 @@ for (const accountType of ['CREATOR', 'BUSINESS'] as const) {
       accountType,
     });
     assert.equal(typeResponse.status, 200);
-    assert.equal(typeResponse.body.professional.accountType, 'PERSONAL');
+    assert.equal(typeResponse.body.professional.accountType, accountType);
     assert.equal(typeResponse.body.professional.onboardingDraft.accountType, accountType);
+    assert.equal(typeResponse.body.user.accountType, accountType);
+    assert.equal(user.accountType, accountType);
 
     const categoryResponse = await send('patch', '/professional/onboarding', {
       step: 'category',
@@ -104,6 +106,9 @@ for (const accountType of ['CREATOR', 'BUSINESS'] as const) {
     assert.equal(conversionResponse.status, 200);
     assert.equal(conversionResponse.body.professional.accountType, accountType);
     assert.equal(conversionResponse.body.professional.category, 'ARTIST');
+    const completedAt = user.get('professionalOnboardingCompletedAt');
+    assert.ok(completedAt instanceof Date);
+    assert.equal(conversionResponse.body.user.professionalOnboardingCompletedAt, completedAt.toISOString());
     assert.equal(String(user._id), userId);
     assert.equal(user.username, 'existing_user');
     assert.equal(user.displayName, 'Existing User');

@@ -12,6 +12,7 @@ type UserWithPasswordHash = {
   _id: unknown;
   passwordHash?: string;
   accountStatus?: string;
+  professionalOnboardingCompletedAt?: Date | null;
   toJSON: () => Record<string, unknown>;
 };
 
@@ -114,7 +115,7 @@ export class AuthService {
     if (!session) throw new Error('Invalid refresh session.');
 
     const user = await UserModel.findOne({ _id: session.userId, accountStatus: 'active' })
-      .select('username displayName email bio avatarUrl accountStatus accountType professionalCategory')
+      .select('username displayName email bio avatarUrl accountStatus accountType professionalCategory professionalOnboardingCompletedAt')
       .lean();
     if (!user) {
       await SessionModel.updateOne({ _id: session._id, revokedAt: null }, { $set: { revokedAt: now } });
@@ -126,7 +127,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken: nextRefreshToken,
-      user: safeUser.toJSON(),
+      user: authUserResponse(safeUser),
       expiresAt: session.expiresAt,
     };
   }
@@ -164,7 +165,7 @@ export class AuthService {
     return {
       accessToken: this.createAccessToken(user.id ?? String(user._id), String(sessionId)),
       refreshToken,
-      user: user.toJSON(),
+      user: authUserResponse(user),
       expiresAt,
     };
   }
@@ -223,4 +224,11 @@ function duplicateKeyField(error: unknown): 'username' | 'email' {
     return 'username';
   }
   return 'email';
+}
+
+function authUserResponse(user: UserWithPasswordHash): Record<string, unknown> {
+  return {
+    ...user.toJSON(),
+    professionalOnboardingCompletedAt: user.professionalOnboardingCompletedAt ?? null,
+  };
 }
