@@ -30,7 +30,11 @@ export function createCloudinaryClient(config: AppConfig): CloudinaryMediaClient
   return {
     sign: (parameters) => cloudinary.utils.api_sign_request(parameters, CLOUDINARY_API_SECRET),
     resource: (publicId, resourceType) =>
-      cloudinary.api.resource(publicId, { resource_type: resourceType, type: 'upload' }),
+      cloudinary.api.resource(publicId, {
+        resource_type: resourceType,
+        type: 'upload',
+        ...(resourceType === 'video' ? { media_metadata: true } : {}),
+      }),
     destroy: (publicId, resourceType) =>
       cloudinary.uploader.destroy(publicId, { resource_type: resourceType, type: 'upload' }),
   };

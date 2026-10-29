@@ -136,11 +136,17 @@ export function createMediaRouter(
         response.status(404).json({ error: 'Media upload not found.' });
         return;
       }
-      if (media.status === 'ready') {
+      const reelDurationMissing = media.purpose === 'reel' &&
+        media.resourceType === 'video' &&
+        !normalizeDurationSeconds(media.duration, 'seconds');
+      if (media.status === 'ready' && !reelDurationMissing) {
         response.json({ media: mediaPayload(media) });
         return;
       }
-      if (media.status !== 'uploading' || media.signatureExpiresAt.getTime() < Date.now()) {
+      if (
+        (media.status !== 'uploading' && !(media.status === 'ready' && reelDurationMissing)) ||
+        (media.status === 'uploading' && media.signatureExpiresAt.getTime() < Date.now())
+      ) {
         response.status(410).json({ error: 'This upload signature has expired.' });
         return;
       }
@@ -198,6 +204,23 @@ export function createMediaRouter(
         response.status(422).json({ error: 'The uploaded asset did not pass validation.' });
         return;
       }
+      if (media.purpose === 'reel' && media.resourceType === 'video' &&
+        !normalizeDurationSeconds((resource as Record<string, unknown>).duration, 'seconds')) {
+        if (config.NODE_ENV === 'development') {
+          console.warn(JSON.stringify({
+            event: 'reel_duration_metadata_unavailable',
+            route: 'POST /media/:mediaId/confirm',
+            purpose: media.purpose,
+            resourceType: media.resourceType,
+            durationType: typeof (resource as Record<string, unknown>).duration,
+          }));
+        }
+        response.status(409).json({
+          error: 'Video duration metadata is not available yet. Retry verification shortly.',
+          code: 'VIDEO_DURATION_PENDING',
+        });
+        return;
+      }
 
       const thumbnailUrl = createThumbnailUrl(
         cloudName,
@@ -205,7 +228,12 @@ export function createMediaRouter(
         media.publicId,
       );
       const confirmed = await MediaModel.findOneAndUpdate(
-        { _id: media._id, ownerId, status: 'uploading' },
+        {
+          _id: media._id,
+          ownerId,
+          status: media.status,
+          attachedTo: { $exists: false },
+        },
         {
           $set: {
             assetId: verified.assetId,

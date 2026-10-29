@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { mediaApi } from '../services/api.js';
 import { uploadFileToCloudinary, validateMediaFile } from '../services/cloudinaryUpload.js';
+import { getVideoDurationSeconds } from '../services/videoMetadata.js';
 
 const acceptByPurpose = {
   profile: 'image/jpeg,image/png,image/webp',
@@ -38,6 +39,37 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
     try {
       const uploadFile = purpose === 'profile' ? await cropImage(selectedFile, cropZoom) : selectedFile;
       const { resourceType } = await validateMediaFile(uploadFile, purpose);
+      if (purpose === 'reel') {
+        if (import.meta.env.DEV) {
+          console.debug(JSON.stringify({
+            event: 'reel_video_metadata_started',
+            fileType: uploadFile.type,
+          }));
+        }
+        let selectedDuration;
+        try {
+          selectedDuration = await getVideoDurationSeconds(uploadFile);
+        } catch (reason) {
+          if (import.meta.env.DEV) {
+            console.warn(JSON.stringify({
+              event: 'reel_video_metadata_failed',
+              fileType: uploadFile.type,
+              failure: reason.message,
+            }));
+          }
+          throw reason;
+        }
+        if (import.meta.env.DEV) {
+          console.debug(JSON.stringify({
+            event: 'reel_video_metadata_completed',
+            durationSeconds: selectedDuration,
+            durationUnit: 'seconds',
+          }));
+        }
+        if (selectedDuration > 180) {
+          throw new Error('This video exceeds the 180-second Reel limit. Choose a shorter video.');
+        }
+      }
       const signed = await mediaApi.signature(purpose, resourceType);
       mediaId = signed.media?.id;
       if (
@@ -77,9 +109,27 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
       ) {
         throw new Error('Cloudinary returned an asset that did not match the signed upload.');
       }
-      const confirmed = await mediaApi.confirm(mediaId);
+      if (import.meta.env.DEV) {
+        console.debug(JSON.stringify({ event: 'media_upload_completed', resourceType }));
+      }
+      let confirmed;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          confirmed = await mediaApi.confirm(mediaId);
+          break;
+        } catch (reason) {
+          if (reason?.code !== 'VIDEO_DURATION_PENDING' || attempt === 2) throw reason;
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
       if (confirmed.media?.status !== 'ready') {
         throw new Error('The API did not confirm the uploaded media.');
+      }
+      if (purpose === 'reel' &&
+        (typeof confirmed.media.duration !== 'number' ||
+          !Number.isFinite(confirmed.media.duration) ||
+          confirmed.media.duration <= 0)) {
+        throw new Error('Could not verify this video’s duration. Choose another video or retry.');
       }
       setMedia(confirmed.media);
       onReady?.(confirmed.media);
@@ -95,7 +145,9 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
         }
       }
       if (reason?.name !== 'AbortError') {
-        const code = reason?.code ? ` (${reason.code})` : '';
+        const code = reason?.code && reason.code !== 'VIDEO_DURATION_PENDING'
+          ? ` (${reason.code})`
+          : '';
         setError(`${reason.message || 'Media upload failed.'}${code}`);
       }
     } finally {

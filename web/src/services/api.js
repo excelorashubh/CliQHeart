@@ -20,13 +20,14 @@ export function setSessionRestoredHandler(handler) {
 }
 
 export class ApiError extends Error {
-  constructor(message, status, details, field, retryAfterSeconds = null) {
+  constructor(message, status, details, field, retryAfterSeconds = null, code = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.details = details;
     this.field = field;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.code = code;
   }
 }
 
@@ -158,7 +159,7 @@ export async function apiRequest(path, options = {}) {
     if (response.status === 429 && retryAfterSeconds !== null) {
       message += ` Try again in ${retryAfterSeconds} seconds.`;
     }
-    throw new ApiError(message, response.status, data?.details, data?.field, retryAfterSeconds);
+    throw new ApiError(message, response.status, data?.details, data?.field, retryAfterSeconds, data?.code);
   }
   if (response.status === 204) return null;
   if (!contentType.includes('application/json')) {

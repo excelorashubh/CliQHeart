@@ -118,3 +118,89 @@ test('profile signatures are authenticated, scoped to the profile folder, and si
   assert.match(response.body.upload.uploadUrl, /dapomdxat\/image\/upload$/);
   assert.ok(!JSON.stringify(response.body).includes(apiSecret));
 });
+
+test('Reel confirmation accepts trusted Cloudinary duration strings and keeps missing metadata retryable', async (t) => {
+  const accessSecret = 'test-jwt-access-secret-at-least-32-chars-long';
+  const ownerId = '0123456789abcdef01234567';
+  const mediaId = 'abcdefabcdefabcdefabcdef';
+  const config = loadConfig({
+    NODE_ENV: 'test',
+    MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
+    JWT_ACCESS_SECRET: accessSecret,
+    CLOUDINARY_CLOUD_NAME: 'test-cloud',
+  });
+  const media = {
+    _id: mediaId,
+    ownerId,
+    purpose: 'reel',
+    resourceType: 'video',
+    publicId: 'cliqheart/reel/test',
+    signatureExpiresAt: new Date(Date.now() + 60_000),
+    status: 'uploading',
+  };
+  let resourceDuration: unknown = '35.0';
+  const provider = {
+    sign: () => 'signature',
+    resource: async () => ({
+      public_id: media.publicId,
+      asset_id: 'trusted-cloudinary-asset-id',
+      resource_type: 'video',
+      secure_url: 'https://res.cloudinary.com/test-cloud/video/upload/reel.mp4',
+      format: 'mp4',
+      bytes: 1024,
+      duration: resourceDuration,
+    }),
+    destroy: async () => ({ result: 'ok' }),
+  };
+  const findOne = t.mock.method(MediaModel, 'findOne', async () => media);
+  const updateMedia = t.mock.method(
+    MediaModel,
+    'findOneAndUpdate',
+    async (_filter: unknown, update: { $set?: Record<string, unknown> }) => ({
+      ...media,
+      ...update.$set,
+    }),
+  );
+  t.mock.method(UserModel, 'findOne', () => ({
+    select: () => ({
+      lean: async () => ({
+        _id: ownerId,
+        username: 'test_user',
+        displayName: 'Test User',
+        avatarUrl: null,
+      }),
+    }),
+  }));
+  const app = express();
+  app.use(express.json(), createMediaRouter(config, provider));
+  const token = jwt.sign({ sub: ownerId, tokenType: 'access' }, accessSecret, {
+    issuer: config.JWT_ISSUER,
+    audience: config.JWT_AUDIENCE,
+    expiresIn: '15m',
+  });
+
+  const confirmed = await request(app)
+    .post(`/media/${mediaId}/confirm`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(confirmed.status, 200);
+  assert.equal(confirmed.body.media.duration, 35);
+  assert.equal(updateMedia.mock.calls.length, 1);
+  assert.equal(findOne.mock.calls.length, 1);
+
+  resourceDuration = undefined;
+  const pending = await request(app)
+    .post(`/media/${mediaId}/confirm`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(pending.status, 409);
+  assert.equal(pending.body.code, 'VIDEO_DURATION_PENDING');
+  assert.equal(updateMedia.mock.calls.length, 1);
+
+  media.status = 'ready';
+  resourceDuration = 35;
+  const retried = await request(app)
+    .post(`/media/${mediaId}/confirm`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(retried.status, 200);
+  assert.equal(retried.body.media.duration, 35);
+  assert.equal(updateMedia.mock.calls.length, 2);
+});
