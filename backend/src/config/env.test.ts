@@ -30,11 +30,13 @@ test('loads application, database, CORS, token lifetime, and logging configurati
   assert.equal(config.APP_VERSION, '2.3.4');
   assert.equal(config.MONGODB_DB_NAME, 'cliqheart_test');
   assert.equal(config.ANDROID_DEV_ORIGIN, 'http://192.168.1.20:4000');
+  assert.equal(config.FRONTEND_URL, 'https://cliqhearts.onrender.com');
   assert.deepEqual(config.CORS_ORIGINS, [
     'https://example.test',
     'https://admin.example.test',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'https://cliqhearts.onrender.com',
   ]);
   assert.equal(config.LOG_LEVEL, 'debug');
   assert.equal(config.ACCESS_TOKEN_TTL, '20m');
@@ -54,8 +56,37 @@ test('uses safe defaults for optional configuration', () => {
     'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'https://cliqhearts.onrender.com',
   ]);
   assert.equal(config.LOG_LEVEL, 'info');
+});
+
+test('uses the requested frontend and allowed-origins environment variables', () => {
+  const config = loadConfig({
+    NODE_ENV: 'test',
+    MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
+    FRONTEND_URL: 'https://cliqhearts.onrender.com',
+    ALLOWED_ORIGINS:
+      'https://cliqhearts.onrender.com,http://localhost:5173,http://127.0.0.1:5173',
+  });
+
+  assert.equal(config.FRONTEND_URL, 'https://cliqhearts.onrender.com');
+  assert.deepEqual(config.CORS_ORIGINS, [
+    'https://cliqhearts.onrender.com',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ]);
+});
+
+test('retains the legacy CORS_ORIGINS environment variable', () => {
+  const config = loadConfig({
+    NODE_ENV: 'test',
+    MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
+    CORS_ORIGINS: 'https://legacy.example',
+  });
+
+  assert.ok(config.CORS_ORIGINS.includes('https://legacy.example'));
+  assert.ok(config.CORS_ORIGINS.includes('https://cliqhearts.onrender.com'));
 });
 
 test('requires MongoDB URI without exposing credentials', () => {

@@ -88,15 +88,17 @@ test('security middleware sets headers and restricts CORS origin', async () => {
   assert.equal(response.headers['x-powered-by'], undefined);
   assert.ok(response.headers['x-content-type-options']);
   assert.equal(response.headers['access-control-allow-origin'], undefined);
+  assert.equal(response.status, 403);
+  assert.equal(response.body.error, 'Browser origin is not allowed.');
 });
 
-test('CORS allows only configured origins', async () => {
+test('CORS allows the production frontend origin', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   const response = await request(app)
     .get('/api/v1')
-    .set('Origin', 'http://localhost:3000');
+    .set('Origin', 'https://cliqhearts.onrender.com');
 
-  assert.equal(response.headers['access-control-allow-origin'], 'http://localhost:3000');
+  assert.equal(response.headers['access-control-allow-origin'], 'https://cliqhearts.onrender.com');
   assert.equal(response.headers['access-control-allow-credentials'], 'true');
 });
 
@@ -112,6 +114,7 @@ test('default CORS configuration allows the Vite development origin', async () =
 test('CORS preflights allow browser auth headers before auth routes', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   for (const [origin, path] of [
+    ['https://cliqhearts.onrender.com', '/api/v1/auth/login'],
     ['http://localhost:5173', '/api/v1/auth/login'],
     ['http://127.0.0.1:5173', '/api/v1/auth/refresh'],
   ] as const) {
@@ -119,15 +122,32 @@ test('CORS preflights allow browser auth headers before auth routes', async () =
       .options(path)
       .set('Origin', origin)
       .set('Access-Control-Request-Method', 'POST')
-      .set('Access-Control-Request-Headers', 'content-type,x-session-transport');
+      .set(
+        'Access-Control-Request-Headers',
+        'content-type,authorization,x-csrf-token,x-session-transport',
+      );
 
     assert.equal(response.status, 204);
     assert.equal(response.headers['access-control-allow-origin'], origin);
     assert.equal(response.headers['access-control-allow-credentials'], 'true');
     assert.match(response.headers['access-control-allow-methods'] ?? '', /POST/);
     assert.match(response.headers['access-control-allow-headers'] ?? '', /content-type/i);
+    assert.match(response.headers['access-control-allow-headers'] ?? '', /authorization/i);
+    assert.match(response.headers['access-control-allow-headers'] ?? '', /x-csrf-token/i);
     assert.match(response.headers['access-control-allow-headers'] ?? '', /x-session-transport/i);
   }
+});
+
+test('unapproved browser origins are rejected before routes', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const response = await request(app)
+    .options('/api/v1/auth/login')
+    .set('Origin', 'https://untrusted.example')
+    .set('Access-Control-Request-Method', 'POST');
+
+  assert.equal(response.status, 403);
+  assert.equal(response.body.error, 'Browser origin is not allowed.');
+  assert.equal(response.headers['access-control-allow-origin'], undefined);
 });
 
 test('approved origins receive CORS headers on request errors', async () => {

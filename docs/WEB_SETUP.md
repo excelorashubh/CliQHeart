@@ -35,9 +35,22 @@ npm run dev
 Vite prints the local URL, normally `http://localhost:5173`. The backend
 configuration always includes `http://localhost:5173` and
 `http://127.0.0.1:5173`, and also honors production origins listed in
-`CORS_ORIGINS`. On Render, set `CORS_ORIGINS` to the verified
-production website origin; no production frontend hostname is assumed here.
+`ALLOWED_ORIGINS` (or the legacy `CORS_ORIGINS`). The configured
+`FRONTEND_URL` is also included in the same allowlist.
 Do not use wildcard origins.
+
+For the current Render deployment, set these on the **backend API service**:
+
+```text
+FRONTEND_URL=https://cliqhearts.onrender.com
+ALLOWED_ORIGINS=https://cliqhearts.onrender.com,http://localhost:5173,http://127.0.0.1:5173
+REFRESH_TOKEN_TTL=365d
+```
+
+The backend accepts the legacy `CORS_ORIGINS` variable for existing
+deployments, but `ALLOWED_ORIGINS` takes precedence. The frontend build should
+use `VITE_API_BASE_URL=https://cliqheart.onrender.com/api/v1`.
+`backend/.env.example` contains only non-secret browser-origin settings.
 
 ## Build and static deployment
 
@@ -80,12 +93,11 @@ include a session ID and are rejected after that session is revoked. Session
 expiry is checked in application queries; MongoDB TTL is cleanup only.
 
 Browser cookie auth requires HTTPS, credentialed CORS, and exact frontend
-origins. Set Render `CORS_ORIGINS` to the verified website origin. Production
+origins. Set Render `FRONTEND_URL` and `ALLOWED_ORIGINS` to the values above. Production
 uses `Secure; HttpOnly; SameSite=None` independently of `NODE_ENV` because the
 API and website may be on different sites. Browser privacy settings can block third-party cookies;
 for reliable production login persistence, deploy the API on a same-site custom
-domain or reverse proxy it under the website origin. No deployed website origin
-was provided or configured by this change.
+domain or reverse proxy it under the website origin.
 
 Registration now creates the active account and session in one onboarding flow;
 the browser and Android navigate into the app only after session creation and

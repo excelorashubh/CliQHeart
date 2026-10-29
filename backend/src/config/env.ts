@@ -8,11 +8,12 @@ const optionalSecretSchema = z.preprocess(
   z.string().min(32, 'must be at least 32 characters').optional(),
 );
 
+const productionFrontendOrigin = 'https://cliqhearts.onrender.com';
 const developmentOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 
 const originListSchema = z
   .string()
-  .default('http://localhost:3000,http://localhost:5173')
+  .default(`${productionFrontendOrigin},http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173`)
   .transform((value) => [
     ...new Set([
       ...value.split(',').map((origin) => origin.trim()).filter(Boolean),
@@ -32,7 +33,7 @@ const originListSchema = z
           return false;
         }
       }),
-    'CORS_ORIGINS must contain comma-separated HTTP or HTTPS origins without paths',
+    'ALLOWED_ORIGINS must contain comma-separated HTTP or HTTPS origins without paths',
   );
 
 const optionalOriginSchema = z.preprocess(
@@ -49,7 +50,7 @@ const optionalOriginSchema = z.preprocess(
       } catch {
         return false;
       }
-    }, 'ANDROID_DEV_ORIGIN must be an HTTP or HTTPS origin without a path')
+    }, 'FRONTEND_URL must be an HTTP or HTTPS origin without a path')
     .optional(),
 );
 
@@ -72,7 +73,8 @@ const environmentSchema = z
       ),
     MONGODB_DB_NAME: z.string().trim().min(1).default('cliqheart'),
     ANDROID_DEV_ORIGIN: optionalOriginSchema,
-    CORS_ORIGINS: originListSchema,
+    FRONTEND_URL: optionalOriginSchema.default(productionFrontendOrigin),
+    ALLOWED_ORIGINS: originListSchema,
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     JWT_ACCESS_SECRET: optionalSecretSchema,
     JWT_REFRESH_SECRET: optionalSecretSchema,
@@ -93,7 +95,12 @@ const environmentSchema = z
         message: 'JWT access and refresh secrets must be different',
       });
     }
-  });
+  })
+  .transform(({ ALLOWED_ORIGINS, FRONTEND_URL, ...config }) => ({
+    ...config,
+    FRONTEND_URL,
+    CORS_ORIGINS: [...new Set([...ALLOWED_ORIGINS, FRONTEND_URL])],
+  }));
 
 export type AppConfig = z.infer<typeof environmentSchema>;
 
@@ -107,7 +114,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     MONGODB_URI: environment.MONGODB_URI,
     MONGODB_DB_NAME: environment.MONGODB_DB_NAME,
     ANDROID_DEV_ORIGIN: environment.ANDROID_DEV_ORIGIN,
-    CORS_ORIGINS: environment.CORS_ORIGINS,
+    FRONTEND_URL: environment.FRONTEND_URL,
+    ALLOWED_ORIGINS: environment.ALLOWED_ORIGINS ?? environment.CORS_ORIGINS,
     LOG_LEVEL: environment.LOG_LEVEL,
     JWT_ACCESS_SECRET: environment.JWT_ACCESS_SECRET,
     JWT_REFRESH_SECRET: environment.JWT_REFRESH_SECRET,

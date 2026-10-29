@@ -66,8 +66,12 @@ Logout-all requires an access token and revokes every session for that user.
 Browser cookie requests require `X-Session-Transport: cookie`, an exact
 configured `Origin`, credentialed CORS, and HTTPS. The backend always
 permits `http://localhost:5173` and `http://127.0.0.1:5173` for local
-development; production website origins must be explicitly configured in
-`CORS_ORIGINS`. The cookie is always
+development. Its production browser origin is configured by `FRONTEND_URL`
+and may also be listed in `ALLOWED_ORIGINS` (legacy `CORS_ORIGINS` remains
+supported). CORS preflight permits the API methods and `Authorization`,
+`Content-Type`, and `X-CSRF-Token` headers without requiring authentication.
+Requests with no `Origin` remain available to native and server clients, which
+still require normal authentication where applicable. The cookie is always
 `HttpOnly; Secure; SameSite=None` and scoped to `/api/v1/auth`, including when
 the Render service's `NODE_ENV` is accidentally left at `development`.
 

@@ -72,7 +72,13 @@ export function createApp({
     cors({
       credentials: true,
       methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Accept', 'Authorization', 'Content-Type', 'X-Session-Transport'],
+      allowedHeaders: [
+        'Accept',
+        'Authorization',
+        'Content-Type',
+        'X-CSRF-Token',
+        'X-Session-Transport',
+      ],
       origin: (origin, callback) => {
         callback(
           null,
@@ -81,6 +87,17 @@ export function createApp({
       },
     }),
   );
+  app.use((request, response, next) => {
+    const origin = request.get('origin');
+    if (origin && !allowedCorsOrigins.has(origin)) {
+      response.status(403).json({
+        error: 'Browser origin is not allowed.',
+        requestId: response.locals.requestId,
+      });
+      return;
+    }
+    next();
+  });
   app.use(hpp());
   app.use(express.json({ limit: '100kb', strict: true }));
   app.use(
