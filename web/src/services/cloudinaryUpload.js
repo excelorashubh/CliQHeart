@@ -1,6 +1,23 @@
 const chunkSize = 20 * 1024 * 1024;
 const chunkedThreshold = 20 * 1024 * 1024;
 
+export class CloudinaryUploadError extends Error {
+  constructor(status, message) {
+    super(cloudinaryStatusMessage(status, message));
+    this.name = 'CloudinaryUploadError';
+    this.status = status;
+  }
+}
+
+export function cloudinaryStatusMessage(status, providerMessage) {
+  if (status === 401) return 'Cloudinary rejected the upload signature. Retry to request a fresh signature.';
+  if (status === 403) {
+    return 'Cloudinary denied the upload. Check that the backend API key has asset create/upload permission for this cloud.';
+  }
+  if (status === 413) return 'This file is too large for Cloudinary. Choose a smaller file and try again.';
+  return providerMessage || `Cloudinary upload failed (${status}).`;
+}
+
 export async function validateMediaFile(file, purpose) {
   if (!file) throw new Error('Choose a file to upload.');
   const isVideo = purpose === 'reel' || (purpose !== 'profile' && file.type.startsWith('video/'));
@@ -104,7 +121,7 @@ function sendChunk(url, form, { signal, uploadId, contentRange, onProgress }) {
         return;
       }
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error(result?.error?.message || `Cloudinary upload failed (${xhr.status}).`));
+        reject(new CloudinaryUploadError(xhr.status, result?.error?.message));
         return;
       }
       resolve(result);

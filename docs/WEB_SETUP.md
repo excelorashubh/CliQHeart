@@ -55,7 +55,9 @@ and `CLOUDINARY_API_SECRET` on the backend only. The API key is returned with
 short-lived, purpose-scoped upload signatures; the API secret must never be
 added to a `VITE_*` variable or browser bundle. Cloudinary settings are
 optional for auth and messaging, but uploads return a clear service error until
-they are configured.
+they are configured. The key must belong to the configured cloud and permit
+asset creation/uploads for signed browser uploads; keep its permissions scoped
+to the minimum required and do not grant account-administration access.
 
 ## Build and static deployment
 

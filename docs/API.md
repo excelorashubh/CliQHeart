@@ -159,6 +159,9 @@ server-generated public ID, resource type, format, size, and HTTPS URL. The
 backend secret is never returned. `DELETE /api/v1/media/:mediaId` removes an
 unattached owned upload; media still referenced by active content or a profile
 cannot be deleted.
+The configured backend API key must have asset create/upload permission for the
+same Cloudinary cloud; restricted keys without this permission receive an
+upload denial. The backend API secret is never returned.
 
 Accepted image formats are JPEG, PNG, and WebP. Video formats are MP4 and MOV.
 Maximum sizes are 10 MiB for profile photos, 100 MiB for post/story uploads,

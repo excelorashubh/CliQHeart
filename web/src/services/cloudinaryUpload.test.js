@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateMediaFile } from './cloudinaryUpload.js';
+import { cloudinaryStatusMessage, validateMediaFile } from './cloudinaryUpload.js';
 
 describe('validateMediaFile', () => {
   it('accepts supported image content based on its file signature', async () => {
@@ -8,6 +8,15 @@ describe('validateMediaFile', () => {
     ], 'portrait.jpg', { type: 'image/jpeg' });
 
     await expect(validateMediaFile(file, 'profile')).resolves.toEqual({ resourceType: 'image' });
+  });
+
+  describe('Cloudinary upload errors', () => {
+    it('explains permission, signature, and size failures without hiding their status', () => {
+      expect(cloudinaryStatusMessage(401)).toMatch(/signature/i);
+      expect(cloudinaryStatusMessage(403)).toMatch(/create\/upload permission/i);
+      expect(cloudinaryStatusMessage(413)).toMatch(/too large/i);
+      expect(cloudinaryStatusMessage(500, 'Provider error')).toBe('Provider error');
+    });
   });
 
   it('accepts an MP4 video only for video-enabled content', async () => {
