@@ -77,10 +77,23 @@ class SignupFragment : Fragment() {
                 )
 
                 if (response.isSuccessful) {
+                    val body = response.body()
+                    val accessToken = body?.accessToken
+                    val refreshToken = body?.refreshToken
+                    if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+                        throw IllegalStateException("Authentication response was incomplete.")
+                    }
+                    val currentUser = body.user
+                    if (currentUser?.id.isNullOrBlank() && currentUser?._id.isNullOrBlank()) {
+                        throw IllegalStateException("Authentication response did not include a user profile.")
+                    }
+                    val tokenStore = com.cliqheart.app.core.security.SecureTokenStore(requireContext())
+                    tokenStore.saveSession(accessToken, refreshToken, body.user)
+                    tokenStore.saveCurrentUser(requireNotNull(currentUser))
                     binding.passwordInput.text?.clear()
                     binding.confirmPasswordInput.text?.clear()
-                    Toast.makeText(requireContext(), "Account created. Please sign in.", Toast.LENGTH_SHORT).show()
-                    findNavController().popBackStack()
+                    Toast.makeText(requireContext(), "Account created. Welcome to CliQHeart!", Toast.LENGTH_SHORT).show()
+                    findNavController().navigate(R.id.mainShellFragment)
                     return@launch
                 }
 

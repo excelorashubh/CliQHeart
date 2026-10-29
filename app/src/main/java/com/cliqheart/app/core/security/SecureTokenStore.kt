@@ -16,6 +16,7 @@ data class SessionPayload(
     val accessToken: String? = null,
     val refreshToken: String? = null,
     val currentUser: com.cliqheart.app.core.network.UserResponse? = null,
+    val pendingRevocationToken: String? = null,
 )
 
 class SecureTokenStore(context: Context) {
@@ -27,10 +28,12 @@ class SecureTokenStore(context: Context) {
         refreshToken: String,
         currentUser: com.cliqheart.app.core.network.UserResponse? = null,
     ) {
+        val pendingRevocationToken = readSession()?.pendingRevocationToken
         val payload = SessionPayload(
             accessToken = accessToken,
             refreshToken = refreshToken,
             currentUser = currentUser,
+            pendingRevocationToken = pendingRevocationToken,
         )
         save(gson.toJson(payload))
     }
@@ -40,6 +43,39 @@ class SecureTokenStore(context: Context) {
         val accessToken = session.accessToken ?: return
         val refreshToken = session.refreshToken ?: return
         saveSession(accessToken, refreshToken, currentUser)
+    }
+
+    fun savePendingRevocation(refreshToken: String) {
+        require(refreshToken.isNotBlank()) { "Refresh token must not be blank." }
+        val session = readSession()
+        save(gson.toJson(SessionPayload(
+            accessToken = session?.accessToken,
+            refreshToken = session?.refreshToken,
+            currentUser = session?.currentUser,
+            pendingRevocationToken = refreshToken,
+        )))
+    }
+
+    fun clearSessionPreservingPendingRevocation() {
+        val pendingToken = readSession()?.pendingRevocationToken
+        if (pendingToken == null) {
+            clear()
+        } else {
+            save(gson.toJson(SessionPayload(pendingRevocationToken = pendingToken)))
+        }
+    }
+
+    fun clearPendingRevocation() {
+        val session = readSession() ?: return
+        if (session.accessToken.isNullOrBlank() || session.refreshToken.isNullOrBlank()) {
+            clear()
+        } else {
+            save(gson.toJson(SessionPayload(
+                accessToken = session.accessToken,
+                refreshToken = session.refreshToken,
+                currentUser = session.currentUser,
+            )))
+        }
     }
 
     fun readSession(): SessionPayload? {

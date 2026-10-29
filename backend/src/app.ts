@@ -70,6 +70,7 @@ export function createApp({
   app.use(helmet());
   app.use(
     cors({
+      credentials: true,
       origin: (origin, callback) => {
         callback(
           null,

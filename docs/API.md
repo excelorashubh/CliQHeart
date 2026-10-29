@@ -36,6 +36,37 @@ and `version`. The timestamp is generated when the health request is handled.
 The health example is illustrative and does not claim an Atlas connection is
 configured.
 
+## Authentication and sessions
+
+### `POST /api/v1/auth/register` and `POST /api/v1/auth/login`
+
+Both endpoints create a session and return an access token and public user
+response. Native clients also receive the rotating refresh token in JSON.
+Browser clients send `X-Session-Transport: cookie` from an allowed `Origin`;
+the refresh token is then set only in an HttpOnly cookie and omitted from JSON.
+New registrations are explicitly active; pending, suspended, deleted, and
+unknown-status accounts cannot authenticate.
+
+### `POST /api/v1/auth/refresh`
+
+Rotates the session refresh token and issues a new access token. Native clients
+send `{"refreshToken":"<refresh token>"}` and receive the replacement token in
+JSON. Browser clients send the trusted-origin cookie transport header and
+receive a rotated HttpOnly cookie. A session's `expiresAt` is fixed at creation
+to `min(REFRESH_TOKEN_TTL, 365 days)` and is not extended by rotation. The
+backend rejects expired and revoked sessions even before TTL cleanup.
+
+### `POST /api/v1/auth/logout` and `POST /api/v1/auth/logout-all`
+
+Logout revokes the active refresh session and immediately invalidates its
+session-bound access tokens. Native clients send their refresh token in JSON;
+browser clients use the cookie transport and the response clears the cookie.
+Logout-all requires an access token and revokes every session for that user.
+
+Browser cookie requests require `X-Session-Transport: cookie`, an exact
+configured `Origin`, credentialed CORS, and HTTPS in production. The cookie is
+`HttpOnly; Secure; SameSite=None` in production and scoped to `/api/v1/auth`.
+
 ## Authenticated user endpoints
 
 ### `GET /api/v1/users/me`
@@ -56,7 +87,8 @@ binary image-upload or object-storage integration.
 Searches active users by escaped username or display name, excluding the
 authenticated user. Query text must contain 2–80 characters; page size is
 1–50 (default 30). Results are ordered by username and include `nextCursor`
-when another page is available. Private email and account status are excluded.
+when another page is available. Each result includes `isFollowing` for the
+authenticated viewer. Private email and account status are excluded.
 
 ### `GET /api/v1/users/:userId`
 

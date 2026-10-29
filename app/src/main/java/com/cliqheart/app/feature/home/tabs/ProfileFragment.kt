@@ -10,8 +10,10 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
+import androidx.navigation.NavOptions
 import com.cliqheart.app.R
 import com.cliqheart.app.core.network.ApiClient
+import com.cliqheart.app.core.network.LogoutRequest
 import com.cliqheart.app.core.network.UserResponse
 import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.core.ui.limitContentWidth
@@ -63,6 +65,8 @@ class ProfileFragment : Fragment() {
         }
         binding.profileBackButton.visibility = if (isOwnProfile) View.GONE else View.VISIBLE
         binding.profileBackButton.setOnClickListener { findNavController().popBackStack() }
+        binding.btnLogout.visibility = if (isOwnProfile) View.VISIBLE else View.GONE
+        binding.btnLogout.setOnClickListener { logout() }
         binding.btnEditProfile.setOnClickListener {
             if (isOwnProfile) {
                 findNavController().navigate(R.id.editProfileFragment)
@@ -253,6 +257,46 @@ class ProfileFragment : Fragment() {
             putExtra(android.content.Intent.EXTRA_TEXT, username)
         }
         startActivity(android.content.Intent.createChooser(shareIntent, getString(R.string.share_profile)))
+    }
+
+    private fun logout() {
+        val store = SecureTokenStore(requireContext())
+        val refreshToken = store.readSession()?.refreshToken
+        if (refreshToken.isNullOrBlank()) {
+            store.clear()
+            navigateToWelcome()
+            return
+        }
+
+        binding.btnLogout.isEnabled = false
+        binding.btnLogout.text = getString(R.string.logging_out)
+        store.savePendingRevocation(refreshToken)
+        store.clearSessionPreservingPendingRevocation()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val revoked = try {
+                ApiClient.service.logout(LogoutRequest(refreshToken)).isSuccessful
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                false
+            }
+            if (revoked) {
+                store.clear()
+                Toast.makeText(requireContext(), R.string.signed_out, Toast.LENGTH_SHORT).show()
+            } else {
+                store.clearSessionPreservingPendingRevocation()
+                Toast.makeText(requireContext(), R.string.signed_out_revocation_pending, Toast.LENGTH_LONG).show()
+            }
+            navigateToWelcome()
+        }
+    }
+
+    private fun navigateToWelcome() {
+        findNavController().navigate(
+            R.id.welcomeFragment,
+            null,
+            NavOptions.Builder().setPopUpTo(R.id.mainShellFragment, true).build(),
+        )
     }
 
     override fun onDestroyView() {

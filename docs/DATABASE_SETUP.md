@@ -22,7 +22,8 @@ connectivity is not assumed. Never put a MongoDB URI in the Android app.
 6. Create the single local file `backend/.env` and set `NODE_ENV`, `HOST`,
    `PORT`, `MONGODB_URI`, `MONGODB_DB_NAME`, `JWT_ACCESS_SECRET`,
    `JWT_REFRESH_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACCESS_TOKEN_TTL`,
-   and `REFRESH_TOKEN_TTL`. Keep `.env` out of Git. Set `CORS_ORIGINS` only
+   and `REFRESH_TOKEN_TTL` (set it to `365d` for the one-year maximum). Keep
+   `.env` out of Git. Set `CORS_ORIGINS` only
    when browser clients are used; native Android requests do not require CORS.
 7. Start the backend and check `GET /api/v1/health`. HTTP 200 confirms the API
    process is serving; inspect the separate `database` field to confirm Atlas

@@ -1,6 +1,7 @@
-import { randomUUID, randomBytes } from 'node:crypto';
+import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import argon2 from 'argon2';
 import { sign, type SignOptions } from 'jsonwebtoken';
+import { Types } from 'mongoose';
 import { UserModel } from '../../models/user';
 import type { AppConfig } from '../../config/env';
 import { SessionModel } from './session.model';
@@ -14,10 +15,12 @@ type UserWithPasswordHash = {
   toJSON: () => Record<string, unknown>;
 };
 
+const maximumSessionLifetimeMs = 365 * 24 * 60 * 60 * 1000;
+
 export class AuthService {
   constructor(private readonly config: AppConfig) {}
 
-  async register(input: RegisterInput): Promise<{ user: Record<string, unknown> }> {
+  async register(input: RegisterInput): Promise<AuthSessionResult> {
     const username = input.username.trim().toLowerCase();
     const email = input.email.trim().toLowerCase();
     const displayName = input.displayName.trim();
@@ -47,11 +50,10 @@ export class AuthService {
       throw error;
     }
 
-    const userData = created.toJSON() as Record<string, unknown>;
-    return { user: userData };
+    return this.createSession(created as UserWithPasswordHash);
   }
 
-  async login(input: LoginInput): Promise<{ accessToken: string; refreshToken: string; user: Record<string, unknown> }> {
+  async login(input: LoginInput): Promise<AuthSessionResult> {
     const identifier = input.identifier.trim().toLowerCase();
     const user = (await UserModel.findOne({
       $or: [{ email: identifier }, { username: identifier }],
@@ -80,23 +82,91 @@ export class AuthService {
         throw new Error('Account status is invalid.');
     }
 
-    const accessToken = this.createAccessToken(user.id ?? String(user._id));
-    const refreshToken = randomBytes(32).toString('hex');
-    const refreshTokenHash = await argon2.hash(refreshToken);
-    const tokenFamily = randomUUID();
-
-    await SessionModel.create({
-      userId: user._id,
-      refreshTokenHash,
-      tokenFamily,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
-
-    const safeUser = user.toJSON() as Record<string, unknown>;
-    return { accessToken, refreshToken, user: safeUser };
+    return this.createSession(user);
   }
 
-  private createAccessToken(subjectId: string): string {
+  async refresh(refreshToken: string): Promise<AuthSessionResult> {
+    const [sessionId, secret] = refreshToken.split('.');
+    if (!sessionId || !secret || !/^[a-f\d]{24}$/i.test(sessionId) || !/^[a-f\d]{64}$/i.test(secret)) {
+      throw new Error('Invalid refresh session.');
+    }
+
+    const now = new Date();
+    const nextRefreshToken = createRefreshToken(sessionId);
+    const session = await SessionModel.findOneAndUpdate(
+      {
+        _id: sessionId,
+        refreshTokenHash: hashRefreshToken(refreshToken),
+        revokedAt: null,
+        expiresAt: { $gt: now },
+      },
+      {
+        $set: {
+          refreshTokenHash: hashRefreshToken(nextRefreshToken),
+          lastUsedAt: now,
+        },
+      },
+      { new: true },
+    );
+    if (!session) throw new Error('Invalid refresh session.');
+
+    const user = await UserModel.findOne({ _id: session.userId, accountStatus: 'active' })
+      .select('username displayName email bio avatarUrl accountStatus')
+      .lean();
+    if (!user) {
+      await SessionModel.updateOne({ _id: session._id, revokedAt: null }, { $set: { revokedAt: now } });
+      throw new Error('Account is not available.');
+    }
+
+    const safeUser = UserModel.hydrate(user) as unknown as UserWithPasswordHash;
+    const accessToken = this.createAccessToken(String(session.userId), String(session._id));
+    return {
+      accessToken,
+      refreshToken: nextRefreshToken,
+      user: safeUser.toJSON(),
+      expiresAt: session.expiresAt,
+    };
+  }
+
+  async logout(refreshToken: string | undefined): Promise<void> {
+    const sessionId = refreshToken?.split('.')[0];
+    if (!sessionId || !/^[a-f\d]{24}$/i.test(sessionId)) return;
+    await SessionModel.updateOne(
+      { _id: sessionId, revokedAt: null },
+      { $set: { revokedAt: new Date() } },
+    );
+  }
+
+  async logoutAll(userId: string): Promise<void> {
+    await SessionModel.updateMany(
+      { userId, revokedAt: null },
+      { $set: { revokedAt: new Date() } },
+    );
+  }
+
+  private async createSession(user: UserWithPasswordHash): Promise<AuthSessionResult> {
+    const sessionId = new Types.ObjectId();
+    const refreshToken = createRefreshToken(String(sessionId));
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + getSessionLifetimeMs(this.config.REFRESH_TOKEN_TTL));
+    const session = await SessionModel.create({
+      _id: sessionId,
+      userId: user._id,
+      refreshTokenHash: hashRefreshToken(refreshToken),
+      tokenFamily: randomUUID(),
+      expiresAt,
+      lastUsedAt: now,
+    });
+
+    return {
+      accessToken: this.createAccessToken(user.id ?? String(user._id), String(sessionId)),
+      refreshToken,
+      user: user.toJSON(),
+      expiresAt,
+    };
+  }
+
+  private createAccessToken(subjectId: string, sessionId: string): string {
     const secret = this.config.JWT_ACCESS_SECRET;
     if (!secret) {
       throw new Error('JWT access secret is not configured.');
@@ -105,6 +175,7 @@ export class AuthService {
     return sign(
       {
         sub: subjectId,
+        sid: sessionId,
         tokenType: 'access',
       },
       secret,
@@ -116,6 +187,27 @@ export class AuthService {
       },
     );
   }
+}
+
+export interface AuthSessionResult {
+  accessToken: string;
+  refreshToken: string;
+  user: Record<string, unknown>;
+  expiresAt: Date;
+}
+
+export function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function createRefreshToken(sessionId: string): string {
+  return `${sessionId}.${randomBytes(32).toString('hex')}`;
+}
+
+function getSessionLifetimeMs(configuredTtl: string): number {
+  const [, amount, unit] = /^(\d+)([smhd])$/.exec(configuredTtl) ?? [];
+  const multiplier = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[unit as 's' | 'm' | 'h' | 'd'];
+  return Math.min(Number(amount) * multiplier, maximumSessionLifetimeMs);
 }
 
 function isDuplicateKeyError(error: unknown): boolean {

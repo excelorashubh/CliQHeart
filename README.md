@@ -95,6 +95,7 @@ watch-mode tests.
 
 - [Architecture](./docs/ARCHITECTURE.md)
 - [API](./docs/API.md)
+- [Web setup and capabilities](./docs/WEB_SETUP.md)
 - [MongoDB Atlas setup](./docs/DATABASE_SETUP.md)
 - [Android setup](./docs/ANDROID_SETUP.md)
 - [Phase 0 checklist and limitations](./docs/PHASE_0_CHECKLIST.md)

@@ -210,6 +210,15 @@
                     android:textSize="13sp" />
             </LinearLayout>
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_logout"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/log_out"
+                android:visibility="gone" />
+
             <!-- Grid Header Separator -->
             <View
                 android:layout_width="match_parent"

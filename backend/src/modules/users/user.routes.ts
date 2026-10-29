@@ -98,8 +98,21 @@ export function createUserRouter(config: AppConfig): Router {
         .lean();
       const hasMore = users.length > limitValue;
       const page = hasMore ? users.slice(0, limitValue) : users;
+      const viewerId = (request as AuthenticatedRequest).authenticatedUserId!;
+      const followedIds = new Set(
+        page.length
+          ? (await FollowModel.find({
+            followerId: viewerId,
+            followedId: { $in: page.map((user) => user._id) },
+          }).select('followedId').lean()).map((follow) => String(follow.followedId))
+          : [],
+      );
       response.json({
-        users: page.map((user) => ({ id: String(user._id), ...user })),
+        users: page.map((user) => ({
+          id: String(user._id),
+          ...user,
+          isFollowing: followedIds.has(String(user._id)),
+        })),
         nextCursor: hasMore ? page.at(-1)?.username ?? null : null,
       });
     } catch (error) {

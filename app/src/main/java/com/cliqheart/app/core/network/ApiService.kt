@@ -26,6 +26,9 @@ data class RegisterRequest(
     val agreeToTerms: Boolean = true,
 )
 
+data class RefreshRequest(val refreshToken: String)
+data class LogoutRequest(val refreshToken: String)
+
 data class UserResponse(
     val id: String? = null,
     val _id: String? = null,
@@ -86,6 +89,12 @@ interface ApiService {
 
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
+
+    @POST("auth/refresh")
+    suspend fun refresh(@Body request: RefreshRequest): Response<AuthResponse>
+
+    @POST("auth/logout")
+    suspend fun logout(@Body request: LogoutRequest): Response<Unit>
 
     @GET("users/me")
     suspend fun getMyProfile(): Response<UserEnvelope>

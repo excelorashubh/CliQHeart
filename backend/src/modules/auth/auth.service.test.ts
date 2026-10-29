@@ -3,7 +3,7 @@ import test from 'node:test';
 import argon2 from 'argon2';
 import { UserModel } from '../../models/user';
 import { SessionModel } from './session.model';
-import { AuthService } from './auth.service';
+import { AuthService, hashRefreshToken } from './auth.service';
 import { loadConfig } from '../../config/env';
 
 const config = loadConfig({
@@ -29,6 +29,9 @@ type MockableUserModel = {
 
 type MockableSessionModel = {
   create: (...args: unknown[]) => Promise<unknown>;
+  findOneAndUpdate: (...args: unknown[]) => unknown;
+  updateOne: (...args: unknown[]) => Promise<unknown>;
+  updateMany: (...args: unknown[]) => Promise<unknown>;
 };
 
 function mockUserModel(): MockableUserModel {
@@ -60,6 +63,7 @@ function loginQuery(user: Record<string, unknown>) {
 
 test('registration persists an active user with an Argon2 hash and no verification fields', async (t) => {
   let createdUserData: Record<string, unknown> | undefined;
+  let createdSessionData: Record<string, unknown> | undefined;
   const savedUser = {
     toJSON: () => ({ id: 'user-id', username: 'test_user', email: 'test@example.com', accountStatus: 'active' }),
   };
@@ -67,6 +71,10 @@ test('registration persists an active user with an Argon2 hash and no verificati
   t.mock.method(mockUserModel(), 'create', async (data: Record<string, unknown>) => {
     createdUserData = data;
     return savedUser;
+  });
+  t.mock.method(mockSessionModel(), 'create', async (data: Record<string, unknown>) => {
+    createdSessionData = data;
+    return { _id: data._id };
   });
 
   const result = await new AuthService(config).register(validInput);
@@ -76,6 +84,13 @@ test('registration persists an active user with an Argon2 hash and no verificati
   assert.equal('isPhoneVerified' in (createdUserData ?? {}), false);
   assert.equal(await argon2.verify(String(createdUserData?.passwordHash), validInput.password), true);
   assert.equal('passwordHash' in result.user, false);
+  assert.ok(result.accessToken);
+  assert.match(result.refreshToken, /^[a-f\d]{24}\.[a-f\d]{64}$/i);
+  const createdAt = createdSessionData?.lastUsedAt as Date;
+  assert.equal(
+    result.expiresAt.getTime() - createdAt.getTime(),
+    365 * 24 * 60 * 60 * 1000,
+  );
 });
 
 test('registration and immediate login work without email or SMS provider configuration', async (t) => {
@@ -94,7 +109,7 @@ test('registration and immediate login work without email or SMS provider config
   let sessionData: Record<string, unknown> | undefined;
   t.mock.method(mockSessionModel(), 'create', async (data: Record<string, unknown>) => {
     sessionData = data;
-    return {};
+    return { _id: data._id };
   });
 
   const service = new AuthService(config);
@@ -103,10 +118,14 @@ test('registration and immediate login work without email or SMS provider config
 
   assert.equal(registration.user.accountStatus, 'active');
   assert.ok(login.accessToken.length > 0);
-  assert.match(login.refreshToken, /^[a-f0-9]{64}$/);
+  assert.match(login.refreshToken, /^[a-f\d]{24}\.[a-f\d]{64}$/i);
   assert.equal(sessionData?.userId, 'user-id');
   assert.equal(typeof sessionData?.refreshTokenHash, 'string');
-  assert.equal(await argon2.verify(String(sessionData?.refreshTokenHash), login.refreshToken), true);
+  assert.equal(sessionData?.refreshTokenHash, hashRefreshToken(login.refreshToken));
+  assert.equal(
+    (sessionData?.expiresAt as Date).getTime() - (sessionData?.lastUsedAt as Date).getTime(),
+    365 * 24 * 60 * 60 * 1000,
+  );
   assert.equal('passwordHash' in login.user, false);
   assert.equal('isEmailVerified' in (savedData ?? {}), false);
 });
@@ -124,6 +143,83 @@ test('login accepts absent and false legacy verification flags', async (t) => {
 
   assert.ok(falseFlagsLogin.accessToken);
   assert.ok(absentFlagsLogin.accessToken);
+});
+
+test('refresh rotates the token hash and keeps the original absolute expiry', async (t) => {
+  const passwordHash = await argon2.hash(validInput.password);
+  const user = makeUser(passwordHash);
+  let sessionData: Record<string, unknown> | undefined;
+  t.mock.method(mockUserModel(), 'findOne', (query: Record<string, unknown>) => {
+    if ('accountStatus' in query) {
+      return { select: () => ({ lean: async () => ({ _id: '0123456789abcdef01234567', username: 'test_user', displayName: 'Test User', accountStatus: 'active' }) }) };
+    }
+    return loginQuery(user);
+  });
+  t.mock.method(mockSessionModel(), 'create', async (data: Record<string, unknown>) => {
+    sessionData = data;
+    return { _id: data._id };
+  });
+  const service = new AuthService(config);
+  const login = await service.login({ identifier: validInput.email, password: validInput.password });
+  const expiresAt = sessionData?.expiresAt as Date;
+  const createdAt = sessionData?.lastUsedAt as Date;
+  let storedHash = String(sessionData?.refreshTokenHash);
+  let capturedFilter: Record<string, unknown> | undefined;
+  let capturedUpdate: Record<string, unknown> | undefined;
+  let capturedExpiryFilter: Date | undefined;
+  t.mock.method(mockSessionModel(), 'findOneAndUpdate', async (
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+  ) => {
+    capturedFilter = filter;
+    capturedUpdate = update;
+    if (filter.refreshTokenHash !== storedHash) return null;
+    capturedExpiryFilter = (filter.expiresAt as { $gt: Date }).$gt;
+    storedHash = String((update.$set as Record<string, unknown>).refreshTokenHash);
+    return { _id: (filter._id as { toString(): string }).toString(), userId: 'user-id', expiresAt };
+  });
+  const firstRefresh = await service.refresh(login.refreshToken);
+
+  assert.notEqual(firstRefresh.refreshToken, login.refreshToken);
+  assert.equal(capturedFilter?.refreshTokenHash, hashRefreshToken(login.refreshToken));
+  assert.equal(capturedUpdate && (capturedUpdate.$set as Record<string, unknown>).refreshTokenHash, hashRefreshToken(firstRefresh.refreshToken));
+  assert.ok(capturedExpiryFilter instanceof Date);
+  assert.ok(capturedExpiryFilter < expiresAt);
+  assert.equal(expiresAt.getTime() - createdAt.getTime(), 365 * 24 * 60 * 60 * 1000);
+  await assert.rejects(service.refresh(login.refreshToken), { message: 'Invalid refresh session.' });
+});
+
+test('an expired refresh session is rejected using the absolute expiry filter', async (t) => {
+  let expiryFilter: Date | undefined;
+  t.mock.method(mockSessionModel(), 'findOneAndUpdate', async (filter: Record<string, unknown>) => {
+    expiryFilter = (filter.expiresAt as { $gt: Date }).$gt;
+    return null;
+  });
+
+  await assert.rejects(
+    new AuthService(config).refresh('0123456789abcdef01234567.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
+    { message: 'Invalid refresh session.' },
+  );
+  assert.ok(expiryFilter instanceof Date);
+});
+
+test('logout revokes the active session and logout-all revokes a user’s sessions', async (t) => {
+  let revokedId: string | undefined;
+  let revokedUser: string | undefined;
+  t.mock.method(mockSessionModel(), 'updateOne', async (filter: Record<string, unknown>) => {
+    revokedId = String(filter._id);
+    return {};
+  });
+  t.mock.method(mockSessionModel(), 'updateMany', async (filter: Record<string, unknown>) => {
+    revokedUser = String(filter.userId);
+    return {};
+  });
+
+  const service = new AuthService(config);
+  await service.logout('0123456789abcdef01234567.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+  await service.logoutAll('user-id');
+  assert.equal(revokedId, '0123456789abcdef01234567');
+  assert.equal(revokedUser, 'user-id');
 });
 
 test('invalid passwords are rejected without creating a session', async (t) => {

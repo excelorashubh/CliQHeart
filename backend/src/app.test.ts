@@ -97,6 +97,16 @@ test('CORS allows only configured origins', async () => {
     .set('Origin', 'http://localhost:3000');
 
   assert.equal(response.headers['access-control-allow-origin'], 'http://localhost:3000');
+  assert.equal(response.headers['access-control-allow-credentials'], 'true');
+});
+
+test('default CORS configuration allows the Vite development origin', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const response = await request(app)
+    .get('/api/v1')
+    .set('Origin', 'http://localhost:5173');
+
+  assert.equal(response.headers['access-control-allow-origin'], 'http://localhost:5173');
 });
 
 test('private user and message routes require a valid access token', async () => {

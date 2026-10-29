@@ -94,3 +94,34 @@ test('login route rejects a missing identifier before accessing the database', a
     error: 'Invalid login request.',
   });
 });
+
+test('browser cookie auth rejects untrusted origins and never returns refresh tokens in JSON', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const rejected = await request(app)
+    .post('/api/v1/auth/refresh')
+    .set('Origin', 'https://untrusted.example')
+    .set('X-Session-Transport', 'cookie');
+  const missingSession = await request(app)
+    .post('/api/v1/auth/refresh')
+    .set('Origin', 'http://localhost:5173')
+    .set('X-Session-Transport', 'cookie');
+
+  assert.equal(rejected.status, 403);
+  assert.equal(missingSession.status, 401);
+  assert.equal(missingSession.body.refreshToken, undefined);
+});
+
+test('browser logout clears the HttpOnly cookie and native logout stays idempotent', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const browserLogout = await request(app)
+    .post('/api/v1/auth/logout')
+    .set('Origin', 'http://localhost:5173')
+    .set('X-Session-Transport', 'cookie');
+  const nativeLogout = await request(app).post('/api/v1/auth/logout').send({});
+  const clearedCookie = browserLogout.headers['set-cookie']?.[0] ?? '';
+
+  assert.equal(browserLogout.status, 204);
+  assert.ok(clearedCookie.includes('HttpOnly'));
+  assert.ok(clearedCookie.includes('cliqheart_refresh=;'));
+  assert.equal(nativeLogout.status, 204);
+});

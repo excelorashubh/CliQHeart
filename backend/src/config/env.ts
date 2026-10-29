@@ -10,7 +10,7 @@ const optionalSecretSchema = z.preprocess(
 
 const originListSchema = z
   .string()
-  .default('http://localhost:3000')
+  .default('http://localhost:3000,http://localhost:5173')
   .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean))
   .refine(
     (origins) =>
@@ -72,7 +72,7 @@ const environmentSchema = z
     JWT_ISSUER: z.string().trim().min(1).default('cliqheart'),
     JWT_AUDIENCE: z.string().trim().min(1).default('cliqheart-mobile'),
     ACCESS_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('15m'),
-    REFRESH_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('7d'),
+    REFRESH_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('365d'),
   })
   .strict()
   .superRefine((config, context) => {

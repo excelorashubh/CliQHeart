@@ -70,11 +70,25 @@ class LoginFragment : Fragment() {
                         throw IllegalStateException("Authentication response was incomplete.")
                     }
 
-                    SecureTokenStore(requireContext()).saveSession(
+                    val tokenStore = SecureTokenStore(requireContext())
+                    tokenStore.saveSession(
                         accessToken,
                         refreshToken,
                         body.user,
                     )
+                    val profileResponse = ApiClient.service.getMyProfile()
+                    val currentUser = profileResponse.body()?.user
+                    if (!profileResponse.isSuccessful || currentUser == null) {
+                        val failure = AuthNetworkErrors.fromHttpResponse(
+                            context = requireContext(),
+                            statusCode = profileResponse.code(),
+                            responseBody = profileResponse.errorBody()?.string(),
+                            isLogin = true,
+                        )
+                        showFailure(failure)
+                        return@launch
+                    }
+                    tokenStore.saveCurrentUser(currentUser)
                     Toast.makeText(requireContext(), "Welcome back!", Toast.LENGTH_SHORT).show()
                     findNavController().navigate(R.id.mainShellFragment)
                     return@launch

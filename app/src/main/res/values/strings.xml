@@ -91,4 +91,9 @@
     <string name="profile_action_failed">Could not complete this action. Please retry.</string>
     <string name="profile_load_failed">Could not load profile. Tap to retry.</string>
     <string name="posts_unavailable">Posts are not available yet.</string>
+    <string name="log_out">Log out</string>
+    <string name="logging_out">Logging out...</string>
+    <string name="signed_out">You have been signed out.</string>
+    <string name="signed_out_revocation_pending">You are signed out on this device. Server revocation will be retried when you are online.</string>
+    <string name="session_restore_failed">Could not verify your saved session. Check your connection and retry.</string>
 </resources>

@@ -5,7 +5,7 @@ import { loadConfig } from './env';
 const baseEnvironment = {
   NODE_ENV: 'test',
   MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
-  CORS_ORIGINS: 'http://localhost:3000',
+  CORS_ORIGINS: 'http://localhost:3000,http://localhost:5173',
 };
 
 test('loads application, database, CORS, token lifetime, and logging configuration', () => {
@@ -48,7 +48,7 @@ test('uses safe defaults for optional configuration', () => {
   assert.equal(config.PORT, 4000);
   assert.equal(config.APP_NAME, 'CliQHeart');
   assert.equal(config.MONGODB_DB_NAME, 'cliqheart');
-  assert.deepEqual(config.CORS_ORIGINS, ['http://localhost:3000']);
+  assert.deepEqual(config.CORS_ORIGINS, ['http://localhost:3000', 'http://localhost:5173']);
   assert.equal(config.LOG_LEVEL, 'info');
 });
 

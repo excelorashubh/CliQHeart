@@ -2,7 +2,6 @@ package com.cliqheart.app.core.network
 
 import com.google.gson.Gson
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AuthResponseParsingTest {
@@ -21,14 +20,14 @@ class AuthResponseParsingTest {
     }
 
     @Test
-    fun registrationResponseDoesNotInventSessionTokens() {
+    fun registrationResponseParsesNewSessionTokens() {
         val response = Gson().fromJson(
-            """{"message":"Registration successful.","user":{"id":"user-id","accountStatus":"active"}}""",
+            """{"message":"Registration successful.","accessToken":"access-token","refreshToken":"refresh-token","user":{"id":"user-id","accountStatus":"active"}}""",
             AuthResponse::class.java,
         )
 
-        assertNull(response.accessToken)
-        assertNull(response.refreshToken)
+        assertEquals("access-token", response.accessToken)
+        assertEquals("refresh-token", response.refreshToken)
         assertEquals("Registration successful.", response.message)
         assertEquals("active", response.user?.accountStatus)
     }
