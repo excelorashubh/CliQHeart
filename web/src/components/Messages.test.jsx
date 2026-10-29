@@ -37,6 +37,8 @@ function renderWorkspace() {
   return render(
     <MemoryRouter initialEntries={['/messages/conversation-1']}>
       <Routes>
+        <Route path="/messages" element={<MessageWorkspace />} />
+        <Route path="/messages/:conversationId/details" element={<MessageWorkspace />} />
         <Route path="/messages/:conversationId" element={<MessageWorkspace />} />
       </Routes>
     </MemoryRouter>,
@@ -47,9 +49,9 @@ function mockConversationApi() {
   vi.spyOn(messageApi, 'conversations').mockResolvedValue({
     conversations: [{
       id: 'conversation-1',
-      participant: { id: 'user-b', displayName: 'User B', username: 'user_b' },
+      participant: { id: 'user-b', displayName: 'User B', username: 'user_b', avatarUrl: null },
       lastMessage: null,
-      unreadCount: 0,
+      unreadCount: 2,
     }],
   });
   vi.spyOn(messageApi, 'messages').mockResolvedValue({
@@ -125,5 +127,54 @@ describe('real-time message workspace', () => {
 
     view.unmount();
     expect(realtimeSocket.off).toHaveBeenCalledWith('message:new', expect.any(Function));
+  });
+
+  it('aligns message bubbles by authenticated sender ID and opens public chat details', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    mockConversationApi();
+    renderWorkspace();
+    const incoming = await screen.findByText('Earlier message');
+    expect(incoming.closest('.message-bubble')).not.toHaveClass('message-bubble--mine');
+
+    eventHandlers.get('message:sent')({
+      conversationId: 'conversation-1',
+      message: {
+        id: 'message-mine',
+        conversationId: 'conversation-1',
+        senderId: 'user-a',
+        text: 'My message',
+        createdAt: '2026-10-29T10:01:00.000Z',
+      },
+    });
+    expect((await screen.findByText('My message')).closest('.message-bubble'))
+      .toHaveClass('message-bubble--mine');
+
+    fireEvent.click(screen.getByRole('link', { name: 'Chat details' }));
+    expect(await screen.findByRole('heading', { name: 'Chat details' })).toBeInTheDocument();
+    expect(screen.getByText('@user_b')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View profile' }))
+      .toHaveAttribute('href', '/profile/user_b');
+  });
+
+  it('filters the real conversation list to unread conversations', async () => {
+    vi.spyOn(messageApi, 'conversations').mockResolvedValue({
+      conversations: [{
+        id: 'conversation-1',
+        participant: { id: 'user-b', displayName: 'User B', username: 'user_b' },
+        lastMessage: { text: 'Unread message' },
+        unreadCount: 2,
+      }],
+    });
+    render(
+      <MemoryRouter initialEntries={['/messages']}>
+        <Routes>
+          <Route path="/messages" element={<MessageWorkspace />} />
+          <Route path="/messages/:conversationId" element={<MessageWorkspace />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('User B')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Unread' }));
+    expect(screen.getByRole('link', { name: /User B/ })).toBeInTheDocument();
   });
 });

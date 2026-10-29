@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
+import { Link, useMatch, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, ArrowUpRight, Info, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
 import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, Skeleton } from './Feedback.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -8,6 +8,7 @@ import { messageApi, userApi } from '../services/api.js';
 
 export function MessageWorkspace() {
   const { conversationId } = useParams();
+  const isDetailsRoute = Boolean(useMatch('/messages/:conversationId/details'));
   const { user: currentUser, realtimeSocket, realtimeStatus } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -30,9 +31,12 @@ export function MessageWorkspace() {
   const nearBottom = useRef(true);
   const pendingSend = useRef(null);
   const readInFlight = useRef(false);
+  const readRequested = useRef(false);
   const outgoingTypingTimer = useRef(null);
   const incomingTypingTimer = useRef(null);
   const [typing, setTyping] = useState(false);
+  const [inboxFilter, setInboxFilter] = useState('all');
+  const [newMessagesCount, setNewMessagesCount] = useState(0);
 
   const loadConversations = useCallback(async () => {
     setError('');
@@ -69,9 +73,13 @@ export function MessageWorkspace() {
   }, [conversationId]);
 
   const markRead = useCallback(async () => {
-    if (!conversationId || document.visibilityState !== 'visible' ||
+    if (!conversationId || isDetailsRoute || document.visibilityState !== 'visible' ||
         (typeof document.hasFocus === 'function' && !document.hasFocus()) ||
-        readInFlight.current) return;
+        !nearBottom.current) return;
+    if (readInFlight.current) {
+      readRequested.current = true;
+      return;
+    }
     readInFlight.current = true;
     try {
       await messageApi.markRead(conversationId);
@@ -81,8 +89,12 @@ export function MessageWorkspace() {
       if (reason?.name !== 'AbortError') setMessageError(reason.message || 'Could not update read status.');
     } finally {
       readInFlight.current = false;
+      if (readRequested.current) {
+        readRequested.current = false;
+        void markRead();
+      }
     }
-  }, [conversationId]);
+  }, [conversationId, isDetailsRoute]);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
   useEffect(() => { loadMessages(); }, [loadMessages]);
@@ -97,19 +109,16 @@ export function MessageWorkspace() {
       void loadConversations();
       if (payload?.conversationId !== conversationId || !payload.message?.id) return;
       const message = payload.message;
-      setMessages((current) => current.some((item) => item.id === message.id)
-        ? current
-        : [...current, message]);
+      setMessages((current) => mergeMessages(current, message));
       if (message.senderId !== currentUser?.id) {
         realtimeSocket.emit('message:delivered', { conversationId, messageId: message.id });
-        void markRead();
+        if (nearBottom.current) void markRead();
+        else setNewMessagesCount((count) => count + 1);
       }
     };
     const onMessageSent = (payload) => {
       if (payload?.conversationId !== conversationId || !payload.message?.id) return;
-      setMessages((current) => current.some((item) => item.id === payload.message.id)
-        ? current
-        : [...current, payload.message]);
+      setMessages((current) => mergeMessages(current, payload.message));
       void loadConversations();
     };
     const onConversation = () => { void loadConversations(); };
@@ -177,6 +186,10 @@ export function MessageWorkspace() {
   useEffect(() => {
     if (messages.length > 0) void markRead();
   }, [messages.length, markRead]);
+  useEffect(() => {
+    setNewMessagesCount(0);
+    nearBottom.current = true;
+  }, [conversationId]);
   useLayoutEffect(() => {
     if (!scrollRef.current) return;
     if (preserveScroll.current) {
@@ -248,7 +261,7 @@ export function MessageWorkspace() {
       pendingSend.current = { text: content, id: clientMessageId };
       const result = await messageApi.send(conversationId, content, clientMessageId);
       if (result.message) {
-        setMessages((current) => [...current.filter((item) => item.id !== result.message.id), result.message]);
+        setMessages((current) => mergeMessages(current, result.message));
         setText('');
         pendingSend.current = null;
         realtimeSocket?.emit('typing:stop', conversationId);
@@ -287,7 +300,7 @@ export function MessageWorkspace() {
       const older = data.messages || [];
       setMessages((current) => {
         const known = new Set(current.map((item) => item.id));
-        return [...older.filter((item) => !known.has(item.id)), ...current];
+        return [...older.filter((item) => !known.has(item.id)), ...current].sort(compareMessageTime);
       });
       setHasOlderMessages(data.hasMore ?? older.length === 30);
       if (!older.length) preserveScroll.current = null;
@@ -300,15 +313,29 @@ export function MessageWorkspace() {
   }
 
   const active = conversations.find((item) => item.id === conversationId);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleConversations = conversations.filter((item) => {
+    if (inboxFilter === 'unread' && item.unreadCount <= 0) return false;
+    if (!normalizedQuery) return true;
+    return [
+      item.participant?.displayName,
+      item.participant?.username,
+      item.lastMessage?.text,
+    ].some((value) => value?.toLocaleLowerCase().includes(normalizedQuery));
+  });
   return <div className="messages-page">
     <aside className={`inbox-panel${conversationId ? ' inbox-panel--mobile-hidden' : ''}`}>
       <header className="inbox-header"><div><p className="eyebrow">YOUR CONNECTIONS</p><h1>Messages</h1></div><button className="icon-button" aria-label="Refresh conversations" onClick={loadConversations}><RefreshCw size={17} /></button></header>
-      <label className="search-field inbox-search"><Search size={17} /><input placeholder="Find someone to message" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search users to message" /></label>
+      <label className="search-field inbox-search"><Search size={17} /><input placeholder="Search chats or people" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search chats or people" /></label>
+      <div className="inbox-filters" aria-label="Filter conversations">
+        <button type="button" aria-pressed={inboxFilter === 'all'} className={inboxFilter === 'all' ? 'is-selected' : ''} onClick={() => setInboxFilter('all')}>All</button>
+        <button type="button" aria-pressed={inboxFilter === 'unread'} className={inboxFilter === 'unread' ? 'is-selected' : ''} onClick={() => setInboxFilter('unread')}>Unread</button>
+      </div>
       {searching && <p className="helper-text">Finding people…</p>}
       {searchError && <p className="form-error">{searchError}</p>}
       {results.length > 0 && <div className="message-search-results">{results.map((person) => <button key={person.id} className="conversation-row" onClick={() => startConversation(person.id)}><Avatar name={person.displayName} src={person.avatarUrl} /><span><b>{person.displayName}</b><small>@{person.username}</small></span><ArrowUpRight size={16} /></button>)}</div>}
-      {loading ? <Skeleton rows={4} /> : error ? <ErrorState error={error} onRetry={loadConversations} /> : conversations.length === 0 && query.trim().length < 2 ? <EmptyState title="A little quiet here" description="Search for someone above to start a conversation." icon={MessageCircle} /> : (
-        <div className="conversation-list">{conversations.map((item) => <Link key={item.id} to={`/messages/${item.id}`} className={`conversation-row${conversationId === item.id ? ' is-selected' : ''}`}>
+      {loading ? <Skeleton rows={4} /> : error ? <ErrorState error={error} onRetry={loadConversations} /> : visibleConversations.length === 0 && conversations.length > 0 ? <EmptyState title={inboxFilter === 'unread' ? 'All caught up' : 'No matching chats'} description={inboxFilter === 'unread' ? 'Unread conversations will appear here.' : 'Try a different search.'} icon={MessageCircle} /> : conversations.length === 0 && query.trim().length < 2 ? <EmptyState title="A little quiet here" description="Search for someone above to start a conversation." icon={MessageCircle} /> : (
+        <div className="conversation-list">{visibleConversations.map((item) => <Link key={item.id} to={`/messages/${item.id}`} className={`conversation-row${conversationId === item.id ? ' is-selected' : ''}`}>
           <Avatar name={item.participant?.displayName || ''} src={item.participant?.avatarUrl} />
           <span><b>{item.participant?.displayName || 'Unavailable account'}</b><small>{item.lastMessage?.text || 'Start a conversation'}</small></span>
           {item.lastMessageAt && <time>{formatTime(item.lastMessageAt)}</time>}
@@ -317,11 +344,23 @@ export function MessageWorkspace() {
       )}
     </aside>
     <section className={`chat-panel${conversationId ? ' chat-panel--mobile-active' : ''}`}>
-      {!conversationId ? <div className="chat-welcome"><span className="chat-welcome-icon"><MessageCircle size={28} /></span><h2>Your conversations</h2><p>Choose a conversation or find someone new to say hello.</p><span className="helper-text">Messages refresh when you open or manually refresh a conversation.</span></div>
-        : <><header className="chat-header"><Link to="/messages" className="back-link" aria-label="Back to messages"><ArrowLeft size={19} /></Link><Avatar name={active?.participant?.displayName || ''} src={active?.participant?.avatarUrl} size="small" /><span><b>{active?.participant?.displayName || 'Conversation'}</b><small>@{active?.participant?.username || ''}</small></span><span className={`chat-connection-status chat-connection-status--${realtimeStatus}`} role="status">{realtimeStatus === 'connected' ? 'Live' : realtimeStatus === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</span><button className="icon-button chat-refresh" aria-label="Refresh messages" onClick={loadMessages}><RefreshCw size={17} /></button></header>
+      {isDetailsRoute ? <div className="chat-details-page">
+        <header className="chat-details-header"><Link to={`/messages/${conversationId}`} className="back-link" aria-label="Back to conversation"><ArrowLeft size={19} /></Link><h2>Chat details</h2><Link to={`/messages/${conversationId}`} className="icon-button" aria-label="Close chat details">×</Link></header>
+        {active?.participant ? <div className="chat-details-profile">
+          <Avatar name={active.participant.displayName || ''} src={active.participant.avatarUrl} size="large" />
+          <h3>{active.participant.displayName}</h3>
+          <p>@{active.participant.username}</p>
+          <Link className="button button--outline" to={`/profile/${encodeURIComponent(active.participant.username)}`}>View profile</Link>
+        </div> : <EmptyState title="Chat details unavailable" description="This account may no longer be available." icon={Info} />}
+      </div> : !conversationId ? <div className="chat-welcome"><span className="chat-welcome-icon"><MessageCircle size={28} /></span><h2>Your conversations</h2><p>Choose a conversation or find someone new to say hello.</p><span className="helper-text">New messages appear here in real time.</span></div>
+        : <><header className="chat-header"><Link to="/messages" className="back-link" aria-label="Back to messages"><ArrowLeft size={19} /></Link><Avatar name={active?.participant?.displayName || ''} src={active?.participant?.avatarUrl} size="small" /><span><b>{active?.participant?.displayName || 'Conversation'}</b><small>@{active?.participant?.username || ''}</small></span><span className={`chat-connection-status chat-connection-status--${realtimeStatus}`} role="status">{realtimeStatus === 'connected' ? 'Live' : realtimeStatus === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</span><Link className="icon-button" to={`/messages/${conversationId}/details`} aria-label="Chat details"><Info size={17} /></Link><button className="icon-button chat-refresh" aria-label="Refresh messages" onClick={loadMessages}><RefreshCw size={17} /></button></header>
           <div className="chat-messages" ref={scrollRef} onScroll={(event) => {
             const element = event.currentTarget;
             nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+            if (nearBottom.current) {
+              setNewMessagesCount(0);
+              void markRead();
+            }
           }}>
             {messageLoading ? <Skeleton rows={5} /> : messageError && messages.length === 0 ? <ErrorState error={messageError} onRetry={loadMessages} /> : messages.length === 0 ? <EmptyState title="Your first hello" description="Send a message to get things started." icon={MessageCircle} /> : <>
               {hasOlderMessages && <button className="button button--outline older-messages" onClick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Loading older messages…' : 'Load older messages'}</button>}
@@ -332,6 +371,12 @@ export function MessageWorkspace() {
             </>}
             {typing && <p className="typing-indicator" role="status">{active?.participant?.displayName || 'They'} is typing…</p>}
           </div>
+          {newMessagesCount > 0 && <button className="new-messages-indicator" type="button" onClick={() => {
+            if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            nearBottom.current = true;
+            setNewMessagesCount(0);
+            void markRead();
+          }}>{newMessagesCount} new {newMessagesCount === 1 ? 'message' : 'messages'} ↓</button>}
           {messageError && messages.length > 0 && <p className="inline-error">{messageError}</p>}
           {messageError && pendingSend.current && <button className="message-retry" type="button" onClick={() => void sendMessage()}>Retry sending</button>}
           <form className="message-composer" onSubmit={send}><textarea aria-label="Write a message" maxLength="4000" rows="1" value={text} onChange={(event) => onComposerChange(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Write a message…" /><button className="send-button" aria-label="Send message" disabled={sending || !text.trim()}><Send size={18} /></button></form>
@@ -354,7 +399,21 @@ function isNewMessageDay(previous, current) {
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+}
+
+function compareMessageTime(first, second) {
+  return new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime();
+}
+
+function mergeMessages(current, incoming) {
+  if (!incoming?.id || current.some((message) => message.id === incoming.id)) return current;
+  return [...current, incoming].sort(compareMessageTime);
 }
 
 function createClientMessageId() {

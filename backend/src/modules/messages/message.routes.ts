@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import mongoose from 'mongoose';
 import { Types } from 'mongoose';
 import { z, ZodError } from 'zod';
@@ -24,6 +25,15 @@ const pageSizeSchema = z.coerce.number().int().min(1).max(100).default(30);
 export function createMessageRouter(config: AppConfig): Router {
   const router = Router();
   const authenticate = requireAccessToken(config);
+  const messageSendLimit = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 60,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    keyGenerator: (request) =>
+      (request as AuthenticatedRequest).authenticatedUserId ?? 'unauthenticated',
+    message: { error: 'You are sending messages too quickly. Please wait and try again.' },
+  });
 
   router.get('/conversations', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
@@ -159,7 +169,7 @@ export function createMessageRouter(config: AppConfig): Router {
     }
   });
 
-  router.post('/conversations/:conversationId/messages', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+  router.post('/conversations/:conversationId/messages', authenticate, messageSendLimit, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const { conversationId } = request.params;
       if (!conversationId || !Types.ObjectId.isValid(conversationId)) {

@@ -74,6 +74,7 @@ export default function App() {
     <Route path="/profile/edit" element={<Protected><ProfilePage editOnOpen /></Protected>} />
     <Route path="/profile/:userId" element={<Protected><ProfilePage /></Protected>} />
     <Route path="/messages" element={<Protected><MessagesPage /></Protected>} />
+    <Route path="/messages/:conversationId/details" element={<Protected><MessagesPage /></Protected>} />
     <Route path="/messages/:conversationId" element={<Protected><MessagesPage /></Protected>} />
     <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
     <Route path="/professional" element={<Protected><Navigate to="/professional/dashboard" replace /></Protected>} />

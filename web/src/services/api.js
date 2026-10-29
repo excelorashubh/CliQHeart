@@ -81,8 +81,8 @@ export async function apiRequest(path, options = {}) {
 
   const headers = new Headers({ Accept: 'application/json' });
   if (extraHeaders) new Headers(extraHeaders).forEach((value, key) => headers.set(key, value));
-  if (body !== undefined) headers.set('Content-Type', 'application/json');
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+    if (body !== undefined) headers.set('Content-Type', 'application/json');
+    if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
   const controller = new AbortController();
   let timedOut = false;
   const abortFromCaller = () => controller.abort();

@@ -161,6 +161,7 @@ export function AuthProvider({ children }) {
       autoConnect: false,
       withCredentials: true,
       auth: (callback) => callback({ token: getAccessToken() }),
+      transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,

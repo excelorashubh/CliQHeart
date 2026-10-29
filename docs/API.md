@@ -305,6 +305,8 @@ Accepts `{"text":"...","clientMessageId":"<stable retry key>"}` (text is
 idempotent for that sender and conversation. The endpoint persists the message,
 updates conversation metadata and the recipient's unread count, and returns the
 saved message. Only participants may read or send messages.
+Message sends are additionally limited to 60 requests per authenticated account
+per minute; rate-limited requests return `429`.
 
 `PATCH /api/v1/conversations/:conversationId/read` marks received messages as
 read. `GET /api/v1/messages/unread-count` returns the authenticated user's
