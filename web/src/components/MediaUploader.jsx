@@ -15,6 +15,7 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [dragging, setDragging] = useState(false);
   const [cropZoom, setCropZoom] = useState(1);
   const controller = useRef(null);
   const fileInput = useRef(null);
@@ -103,15 +104,14 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
     }
   }
 
-  async function chooseFile(event) {
-    const next = event.target.files?.[0] ?? null;
+  async function selectFile(next) {
+    if (busy || disabled) return;
     if (media?.id) {
       try {
         await mediaApi.remove(media.id);
         onReady?.(null);
       } catch (reason) {
         setError(`Could not remove the previous upload: ${reason.message}`);
-        event.target.value = '';
         return;
       }
     }
@@ -132,6 +132,19 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
         await upload(next);
       }
     }
+  }
+
+  async function chooseFile(event) {
+    await selectFile(event.target.files?.[0] ?? null);
+    event.target.value = '';
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    setDragging(false);
+    if (disabled || busy) return;
+    const droppedFile = event.dataTransfer.files?.[0];
+    if (droppedFile) void selectFile(droppedFile);
   }
 
   function cancel() {
@@ -174,7 +187,15 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
       disabled={disabled || busy}
       onChange={chooseFile}
     />
-    <div className="media-uploader-preview">
+    <div
+      className={`media-uploader-preview${dragging ? ' is-dragging' : ''}`}
+      onDragEnter={(event) => { event.preventDefault(); if (!disabled && !busy) setDragging(true); }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false);
+      }}
+      onDrop={handleDrop}
+    >
       {media?.resourceType === 'video'
         ? <video src={media.secureUrl} poster={media.thumbnailUrl} controls preload="metadata" />
         : media?.secureUrl

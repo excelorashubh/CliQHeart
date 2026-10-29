@@ -360,10 +360,11 @@ function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, on
     <div className="content-card-media">
       {isVideo
         ? <video src={item.media.secureUrl} poster={item.media.thumbnailUrl} controls preload="metadata" />
-        : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.caption || 'Shared CliQHeart media'} loading="lazy" />}
+        : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.altText || item.caption || 'Shared CliQHeart media'} loading="lazy" />}
       {isVideo && <span className="content-video-badge"><Play size={14} fill="currentColor" /> {kind === 'reels' ? 'Reel' : 'Video'}</span>}
     </div>
     {item.caption && <p className="content-card-caption"><strong>@{item.owner?.username}</strong> {item.caption}</p>}
+    {item.location && <p className="content-card-location">{item.location}</p>}
     {bookmarkError && <p className="inline-error" role="alert">{bookmarkError}</p>}
   </article>;
 }

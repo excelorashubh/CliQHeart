@@ -5,6 +5,8 @@ const postSchema = new Schema(
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     mediaId: { type: Schema.Types.ObjectId, ref: 'Media', required: true, unique: true },
     caption: { type: String, trim: true, maxlength: 2200, default: '' },
+    location: { type: String, trim: true, maxlength: 120 },
+    altText: { type: String, trim: true, maxlength: 500 },
   },
   { timestamps: true, strict: 'throw' },
 );

@@ -1420,18 +1420,37 @@ export function CapabilityPage({ title, feature }) {
 
 export function CreatePage() {
   const location = useLocation();
+  const { user } = useAuth();
   const requestedKind = new URLSearchParams(location.search).get('kind');
   const [kind, setKind] = useState(['post', 'story', 'reel'].includes(requestedKind) ? requestedKind : 'post');
   const [media, setMedia] = useState(null);
   const [caption, setCaption] = useState('');
+  const [locationName, setLocationName] = useState('');
+  const [altText, setAltText] = useState('');
+  const [aiDisclosure, setAiDisclosure] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const navigate = useNavigate();
+  const [published, setPublished] = useState(null);
+  const [uploaderKey, setUploaderKey] = useState(0);
+  const submitting = useRef(false);
   const reelTooLong = kind === 'reel' && media?.duration > 180;
+  const hasUnsavedChanges = Boolean(
+    media?.id || caption.trim() || locationName.trim() || altText.trim() || aiDisclosure,
+  );
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+    const warnBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   async function changeKind(nextKind) {
-    if (busy || nextKind === kind) return;
+    if (busy || published || nextKind === kind) return;
+    if (hasUnsavedChanges && !window.confirm('Discard this upload and your unsaved changes?')) return;
     if (media?.id) {
       try {
         await mediaApi.remove(media.id);
@@ -1442,54 +1461,140 @@ export function CreatePage() {
     }
     setMedia(null);
     setCaption('');
+    setLocationName('');
+    setAltText('');
+    setAiDisclosure(false);
     setError('');
-    setSuccess('');
     setKind(nextKind);
   }
 
   async function publish(event) {
     event.preventDefault();
-    if (!media?.id || busy) return;
+    if (!media?.id || busy || submitting.current || reelTooLong) return;
+    submitting.current = true;
     setBusy(true);
     setError('');
-    setSuccess('');
     try {
       const payload = { mediaId: media.id, caption: caption.trim() };
-      if (kind === 'post') await contentApi.createPost(payload);
-      else if (kind === 'story') await contentApi.createStory(payload);
-      else await contentApi.createReel(payload);
-      setSuccess(kind === 'story' ? 'Your story is live for 24 hours.' : 'Your content has been published.');
+      if (locationName.trim()) payload.location = locationName.trim();
+      if (kind === 'post' && altText.trim()) payload.altText = altText.trim();
+      if (kind === 'reel' && aiDisclosure) payload.aiDisclosure = true;
+      const result = kind === 'post'
+        ? await contentApi.createPost(payload)
+        : kind === 'story'
+          ? await contentApi.createStory(payload)
+          : await contentApi.createReel(payload);
+      setPublished({
+        kind,
+        id: result?.[kind]?.id,
+      });
       setMedia(null);
-      navigate(kind === 'reel' ? '/reels' : '/', { replace: true });
+      setCaption('');
+      setLocationName('');
+      setAltText('');
+      setAiDisclosure(false);
+      setUploaderKey((value) => value + 1);
     } catch (reason) {
-      setError(reason.message || 'Could not publish your content.');
+      const validationDetails = Array.isArray(reason.details)
+        ? reason.details
+          .filter((detail) => typeof detail?.field === 'string' && typeof detail?.message === 'string')
+          .map((detail) => `${detail.field}: ${detail.message}`)
+        : [];
+      setError([
+        reason.message || 'Could not publish your content.',
+        ...validationDetails,
+      ].join(' '));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
 
   return <div className="page-content create-page">
-    <header className="page-heading"><div><p className="eyebrow">MAKE A MOMENT</p><h1>Create</h1><p className="heading-subtitle">Share something with your CliQHeart community.</p></div></header>
+    <header className="page-heading create-heading"><div><p className="eyebrow">MAKE A MOMENT</p><h1>Create</h1><p className="heading-subtitle">Share something with your CliQHeart community.</p></div><Link className="button button--outline" to="/" onClick={(event) => {
+      if (hasUnsavedChanges && !window.confirm('Leave and discard your unsaved changes?')) event.preventDefault();
+    }}>Close</Link></header>
     <div className="content-mode-tabs" role="tablist" aria-label="Content type">
       {['post', 'story', 'reel'].map((option) => <button
         type="button"
         role="tab"
         aria-selected={kind === option}
         className={kind === option ? 'is-selected' : ''}
-        disabled={busy}
+        disabled={busy || Boolean(published)}
         key={option}
         onClick={() => changeKind(option)}
       >{option[0].toUpperCase() + option.slice(1)}</button>)}
     </div>
-    <form className="create-form" onSubmit={publish}>
-      <MediaUploader key={kind} purpose={kind} onReady={setMedia} disabled={busy} />
-      <label>Caption<textarea rows="4" maxLength={kind === 'story' ? 500 : 2200} value={caption} onChange={(event) => setCaption(event.target.value)} disabled={busy} /></label>
-      {kind === 'reel' && <p className="helper-text">Reels must be videos no longer than 180 seconds.</p>}
-      {reelTooLong && <p className="form-error" role="alert">This video is longer than the 180-second Reel limit.</p>}
-      {error && <p className="form-error" role="alert">{error}</p>}
-      {success && <p className="form-success" role="status">{success}</p>}
-      <button className="button button--primary button--wide" disabled={busy || !media?.id || reelTooLong}>{busy ? 'Publishing…' : kind === 'story' ? 'Share story' : 'Publish'}</button>
-    </form>
+    {published ? <section className="create-published" role="status">
+      <CheckCircle2 size={26} />
+      <div>
+        <h2>{published.kind === 'story' ? 'Your story is live for 24 hours.' : 'Your content has been published.'}</h2>
+        <p>{published.kind === 'story'
+          ? 'Your story is now available to you and the people you follow.'
+          : 'Your verified media and caption are now part of your CliQHeart profile.'}</p>
+        {published.id && <Link className="text-link" to={`/${published.kind}/${published.id}`}>View published {published.kind}</Link>}
+        {published.kind === 'story' && <Link className="text-link" to="/">Return to your feed</Link>}
+      </div>
+      <button type="button" className="button button--primary" onClick={() => setPublished(null)}>Create another</button>
+    </section> : <form className="create-form create-studio" onSubmit={publish}>
+      <section className="create-editor">
+        <div className="create-section-heading">
+          <div><p className="eyebrow">STEP 1 · MEDIA</p><h2>{kind === 'story' ? 'Create a story' : kind === 'reel' ? 'Create a Reel' : 'Create a post'}</h2></div>
+          <span className="create-draft-status">Drafts unavailable</span>
+        </div>
+        <MediaUploader key={`${kind}-${uploaderKey}`} purpose={kind} onReady={setMedia} disabled={busy} />
+        <p className="helper-text">{kind === 'reel'
+          ? 'Choose an MP4 or MOV video up to 180 seconds. Your upload is verified before it can be published.'
+          : kind === 'story'
+            ? 'Choose a photo or video. Stories expire automatically after 24 hours.'
+            : 'Choose one photo or video for this post. Carousel posts are not supported yet.'}</p>
+        <label className="create-field">
+          <span>Caption</span>
+          <textarea aria-label="Caption" rows="5" maxLength={kind === 'story' ? 500 : 2200} value={caption} onChange={(event) => setCaption(event.target.value)} disabled={busy} />
+          <small>{caption.length}/{kind === 'story' ? 500 : 2200}</small>
+        </label>
+        {kind !== 'story' && <label className="create-field">
+          <span>Location <small>Optional</small></span>
+          <input maxLength={120} value={locationName} onChange={(event) => setLocationName(event.target.value)} placeholder="Add a location" disabled={busy} />
+        </label>}
+        {kind === 'post' && <label className="create-field">
+          <span>Alt text <small>Optional · accessibility</small></span>
+          <textarea rows="2" maxLength={500} value={altText} onChange={(event) => setAltText(event.target.value)} placeholder="Describe this media for people using screen readers" disabled={busy} />
+        </label>}
+        {kind === 'reel' && <div className="create-options">
+          <label className="create-check">
+            <input type="checkbox" checked={aiDisclosure} onChange={(event) => setAiDisclosure(event.target.checked)} disabled={busy} />
+            <span><strong>AI-generated or altered content</strong><small>Disclose realistic AI-generated or significantly altered media. This is a self-reported label; CliQHeart does not automatically detect AI content.</small></span>
+          </label>
+          <p className="create-unavailable"><strong>Scheduling unavailable:</strong> this service does not yet have a durable publishing worker. Reels publish immediately.</p>
+        </div>}
+        {kind !== 'reel' && <p className="create-unavailable"><strong>Draft saving unavailable:</strong> drafts are not stored by the backend, so this composer publishes only after you choose Share or Publish.</p>}
+        {kind === 'reel' && <p className="create-unavailable"><strong>Captions unavailable:</strong> automatic transcription and subtitle generation are not implemented.</p>}
+        {reelTooLong && <p className="form-error" role="alert">This video is longer than the 180-second Reel limit.</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="button button--primary button--wide create-publish" disabled={busy || !media?.id || reelTooLong}>{busy ? 'Publishing…' : kind === 'story' ? 'Share story' : 'Publish'}</button>
+      </section>
+      <aside className={`create-preview${kind === 'story' ? ' create-preview--story' : kind === 'reel' ? ' create-preview--reel' : ''}`} aria-label="Content preview">
+        <div className="create-section-heading"><div><p className="eyebrow">STEP 2 · PREVIEW</p><h2>Preview</h2></div></div>
+        <article className="create-preview-card">
+          <header className="create-preview-owner">
+            <Avatar name={user?.displayName || user?.username || ''} src={user?.avatarUrl} size="small" />
+            <span><strong>{user?.displayName || user?.username || 'Your profile'}</strong><small>@{user?.username || 'your-username'}</small></span>
+          </header>
+          <div className="create-preview-media">
+            {media?.resourceType === 'video'
+              ? <video src={media.secureUrl} poster={media.thumbnailUrl} controls playsInline preload="metadata" />
+              : media?.secureUrl
+                ? <img src={media.secureUrl} alt={altText || 'Selected media preview'} />
+                : <p>Your media preview will appear here after upload.</p>}
+          </div>
+          <p className="create-preview-caption"><strong>@{user?.username || 'your-username'}</strong>{caption ? ` ${caption}` : ' Your caption will appear here.'}</p>
+          {locationName.trim() && <p className="create-preview-location">{locationName.trim()}</p>}
+          {kind === 'reel' && aiDisclosure && <span className="create-ai-label">AI-generated or altered</span>}
+        </article>
+        <p className="helper-text">{kind === 'story' ? 'Stories are shown to people you follow and expire after 24 hours.' : kind === 'reel' ? 'Reels may appear in feeds and profile pages under existing visibility rules.' : 'Your post will appear in feeds and on your profile.'}</p>
+      </aside>
+    </form>}
   </div>;
 }
 
@@ -1735,9 +1840,11 @@ export function ContentDetailPage({ kind }) {
     <div className="content-detail-media">
       {isVideo
         ? <video src={item.media.secureUrl} poster={item.media.thumbnailUrl} controls playsInline preload="metadata" />
-        : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.caption || 'Shared CliQHeart media'} />}
+        : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.altText || item.caption || 'Shared CliQHeart media'} />}
     </div>
     {item.caption && <p className="content-card-caption"><strong>@{item.owner.username}</strong> {item.caption}</p>}
+    {item.location && <p className="content-card-location">{item.location}</p>}
+    {kind === 'reel' && item.aiDisclosure && <p className="content-card-location">AI-generated or altered content</p>}
     {actionError && <p className="inline-error" role="alert">{actionError}</p>}
     {tagStatus && <p className="form-success" role="status">{tagStatus}</p>}
     {kind === 'post' && currentUser?.id === item.owner.id && <section className="post-tag-editor" aria-label="Tag someone in this post">

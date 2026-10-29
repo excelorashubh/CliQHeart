@@ -90,6 +90,18 @@ API after changes to `backend/src/modules/professional/` so its
 backend `CORS_ORIGINS`. Never put backend secrets in Vite environment variables; every
 `VITE_*` value is visible to browser users.
 
+## Create Studio
+
+The authenticated composer uses the existing signed Cloudinary upload and
+content APIs. Posts and Reels support captions and optional locations; posts
+also support persisted alt text, and Reels support a self-reported AI-content
+disclosure. Stories continue to use the backend's follower visibility and
+24-hour expiration rules. The current content model supports one media asset
+per post, so carousel publishing is unavailable. Draft persistence, scheduled
+publishing, and transcription/subtitle generation are also unavailable because
+the backend has no draft API, durable scheduler, or transcription service.
+The composer labels these limitations instead of simulating those features.
+
 ## Authentication notes
 
 The website uses short-lived in-memory access tokens and an HttpOnly refresh

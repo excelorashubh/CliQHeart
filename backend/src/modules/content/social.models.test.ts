@@ -3,6 +3,9 @@ import test from 'node:test';
 import { BookmarkModel } from './bookmark.model';
 import { PostTagModel } from './post-tag.model';
 import { NotificationModel } from '../notifications/notification.model';
+import { PostModel } from './post.model';
+import { ReelModel } from './reel.model';
+import { StoryModel } from './story.model';
 
 test('bookmark and tag relationships enforce uniqueness and owner pagination indexes', () => {
   const bookmarkIndexes = BookmarkModel.schema.indexes();
@@ -22,4 +25,36 @@ test('notifications have deduplication and recipient unread-feed indexes', () =>
     fields.deduplicationKey === 1 && options.unique === true && options.sparse === true));
   assert.ok(indexes.some(([fields]) =>
     fields.recipientId === 1 && fields.readAt === 1 && fields.createdAt === -1));
+});
+
+test('published content models validate and preserve composer metadata', () => {
+  const ownerId = '507f1f77bcf86cd799439011';
+  const mediaId = '507f1f77bcf86cd799439012';
+  const post = new PostModel({
+    ownerId,
+    mediaId,
+    caption: 'A real moment',
+    location: 'Lisbon',
+    altText: 'Friends at the coast',
+  });
+  const reel = new ReelModel({
+    ownerId,
+    mediaId,
+    caption: 'A short video',
+    location: 'Studio',
+    aiDisclosure: true,
+  });
+  const story = new StoryModel({
+    ownerId,
+    mediaId,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  });
+
+  assert.equal(post.validateSync(), undefined);
+  assert.equal(post.altText, 'Friends at the coast');
+  assert.equal(post.location, 'Lisbon');
+  assert.equal(reel.validateSync(), undefined);
+  assert.equal(reel.aiDisclosure, true);
+  assert.equal(reel.location, 'Studio');
+  assert.equal(story.validateSync(), undefined);
 });

@@ -15,9 +15,19 @@ import { createNotificationSafely } from '../notifications/notification.service'
 import { NotificationModel } from '../notifications/notification.model';
 import { recordContentView } from '../professional/professional.service';
 
-const publishSchema = z.object({
+const publishBaseSchema = {
   mediaId: z.string().regex(/^[a-f\d]{24}$/i),
   caption: z.string().trim().max(2200).default(''),
+};
+const postPublishSchema = z.object({
+  ...publishBaseSchema,
+  location: z.string().trim().max(120).optional(),
+  altText: z.string().trim().max(500).optional(),
+}).strict();
+const reelPublishSchema = z.object({
+  ...publishBaseSchema,
+  location: z.string().trim().max(120).optional(),
+  aiDisclosure: z.boolean().optional(),
 }).strict();
 const addTagSchema = z.object({ userId: z.string().regex(/^[a-f\d]{24}$/i) }).strict();
 
@@ -35,7 +45,7 @@ export function createContentRouter(config: AppConfig): Router {
 
   router.post('/posts', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
-      const { mediaId, caption } = publishSchema.parse(request.body);
+      const { mediaId, caption, location, altText } = postPublishSchema.parse(request.body);
       const ownerId = authenticatedUserId(request);
       const postId = new Types.ObjectId();
       const media = await claimMedia(mediaId, ownerId, 'post', ['image', 'video'], postId);
@@ -44,7 +54,14 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       try {
-        const post = await PostModel.create({ _id: postId, ownerId, mediaId: media._id, caption });
+        const post = await PostModel.create({
+          _id: postId,
+          ownerId,
+          mediaId: media._id,
+          caption,
+          ...(location ? { location } : {}),
+          ...(altText ? { altText } : {}),
+        });
         response.status(201).json({
           post: { ...await contentPayload(post, media), isSaved: false },
         });
@@ -53,7 +70,7 @@ export function createContentRouter(config: AppConfig): Router {
         throw error;
       }
     } catch (error) {
-      handleValidationError(error, response);
+      handleValidationError(error, request, response, config);
       if (!(error instanceof ZodError)) next(error);
     }
   });
@@ -380,7 +397,7 @@ export function createContentRouter(config: AppConfig): Router {
         throw error;
       }
     } catch (error) {
-      handleValidationError(error, response);
+      handleValidationError(error, request, response, config);
       if (!(error instanceof ZodError)) next(error);
     }
   });
@@ -424,7 +441,7 @@ export function createContentRouter(config: AppConfig): Router {
 
   router.post('/reels', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
-      const { mediaId, caption } = publishSchema.parse(request.body);
+      const { mediaId, caption, location, aiDisclosure } = reelPublishSchema.parse(request.body);
       const ownerId = authenticatedUserId(request);
       const reelId = new Types.ObjectId();
       const media = await claimMedia(mediaId, ownerId, 'reel', ['video'], reelId);
@@ -434,14 +451,21 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       try {
-        const reel = await ReelModel.create({ _id: reelId, ownerId, mediaId: media._id, caption });
+        const reel = await ReelModel.create({
+          _id: reelId,
+          ownerId,
+          mediaId: media._id,
+          caption,
+          ...(location ? { location } : {}),
+          ...(aiDisclosure ? { aiDisclosure } : {}),
+        });
         response.status(201).json({ reel: await contentPayload(reel, media) });
       } catch (error) {
         await releaseMedia(media._id, reelId, 'reel');
         throw error;
       }
     } catch (error) {
-      handleValidationError(error, response);
+      handleValidationError(error, request, response, config);
       if (!(error instanceof ZodError)) next(error);
     }
   });
@@ -602,6 +626,9 @@ async function contentPayload(
     ownerId: unknown;
     mediaId: unknown;
     caption?: string;
+    location?: string | null;
+    altText?: string | null;
+    aiDisclosure?: boolean | null;
     createdAt?: Date;
     expiresAt?: Date;
   },
@@ -623,6 +650,9 @@ async function contentPayload(
   return {
     id: String(content._id),
     caption: content.caption ?? '',
+    ...(content.location ? { location: content.location } : {}),
+    ...(content.altText ? { altText: content.altText } : {}),
+    ...(content.aiDisclosure ? { aiDisclosure: content.aiDisclosure } : {}),
     createdAt: content.createdAt,
     ...(content.expiresAt ? { expiresAt: content.expiresAt } : {}),
     owner: owner ? {
@@ -651,6 +681,9 @@ async function contentListPayload(
     ownerId: unknown;
     mediaId: unknown;
     caption?: string;
+    location?: string | null;
+    altText?: string | null;
+    aiDisclosure?: boolean | null;
     createdAt?: Date;
     expiresAt?: Date;
   }>,
@@ -678,6 +711,9 @@ async function contentListPayload(
     return [{
       id: String(item._id),
       caption: item.caption ?? '',
+      ...(item.location ? { location: item.location } : {}),
+      ...(item.altText ? { altText: item.altText } : {}),
+      ...(item.aiDisclosure ? { aiDisclosure: item.aiDisclosure } : {}),
       createdAt: item.createdAt,
       ...(item.expiresAt ? { expiresAt: item.expiresAt } : {}),
       owner: {
@@ -712,8 +748,29 @@ async function parsePageSize(request: Request): Promise<number> {
   return pageSizeSchema.parse(request.query.limit ?? 30);
 }
 
-function handleValidationError(error: unknown, response: Response): void {
+function handleValidationError(
+  error: unknown,
+  request: Request,
+  response: Response,
+  config: AppConfig,
+): void {
   if (error instanceof ZodError) {
-    response.status(400).json({ error: 'Invalid content request.' });
+    const details = error.issues.map((issue) => ({
+      field: issue.path.join('.') ||
+        (issue.code === 'unrecognized_keys' ? issue.keys.join(', ') : 'value'),
+      message: issue.message,
+    }));
+    if (config.NODE_ENV === 'development') {
+      console.warn(JSON.stringify({
+        event: 'content_validation_failed',
+        route: `${request.method} ${request.originalUrl.split('?')[0]}`,
+        fields: [...new Set(details.map((issue) => issue.field))],
+      }));
+    }
+    response.status(400).json({
+      error: 'Invalid content request.',
+      details,
+      requestId: response.locals.requestId,
+    });
   }
 }
