@@ -33,9 +33,9 @@ afterEach(() => {
   realtimeSocket.emit.mockClear();
 });
 
-function renderWorkspace() {
+function renderWorkspace(initialEntry = '/messages/conversation-1') {
   return render(
-    <MemoryRouter initialEntries={['/messages/conversation-1']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/messages" element={<MessageWorkspace />} />
         <Route path="/messages/:conversationId/details" element={<MessageWorkspace />} />
@@ -89,6 +89,7 @@ describe('real-time message workspace', () => {
     });
 
     expect(await screen.findByText('Live message')).toBeInTheDocument();
+    expect(messageApi.conversations).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(messageApi.markRead).toHaveBeenCalledWith('conversation-1'));
     expect(realtimeSocket.emit).toHaveBeenCalledWith('message:delivered', {
       conversationId: 'conversation-1',
@@ -135,6 +136,7 @@ describe('real-time message workspace', () => {
     renderWorkspace();
     const incoming = await screen.findByText('Earlier message');
     expect(incoming.closest('.message-bubble')).not.toHaveClass('message-bubble--mine');
+    expect(incoming.closest('.message-row')).not.toHaveClass('message-row--mine');
 
     eventHandlers.get('message:sent')({
       conversationId: 'conversation-1',
@@ -146,7 +148,9 @@ describe('real-time message workspace', () => {
         createdAt: '2026-10-29T10:01:00.000Z',
       },
     });
-    expect((await screen.findByText('My message')).closest('.message-bubble'))
+    expect((await screen.findByText('My message')).closest('.message-row'))
+      .toHaveClass('message-row--mine');
+    expect(screen.getByText('My message').closest('.message-bubble'))
       .toHaveClass('message-bubble--mine');
 
     fireEvent.click(screen.getByRole('link', { name: 'Chat details' }));
@@ -176,5 +180,47 @@ describe('real-time message workspace', () => {
     expect(await screen.findByText('User B')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Unread' }));
     expect(screen.getByRole('link', { name: /User B/ })).toBeInTheDocument();
+  });
+
+  it('shows the list first, opens a conversation from its real row, and returns to the list', async () => {
+    mockConversationApi();
+    renderWorkspace('/messages');
+    const conversationLink = await screen.findByRole('link', { name: /User B/ });
+    expect(conversationLink).toHaveAttribute('href', '/messages/conversation-1');
+    expect(document.querySelector('.inbox-panel')).not.toHaveClass('inbox-panel--mobile-hidden');
+    expect(document.querySelector('.chat-panel')).not.toHaveClass('chat-panel--mobile-active');
+
+    fireEvent.click(conversationLink);
+    expect(await screen.findByText('Earlier message')).toBeInTheDocument();
+    expect(document.querySelector('.inbox-panel')).toHaveClass('inbox-panel--mobile-hidden');
+    expect(document.querySelector('.chat-panel')).toHaveClass('chat-panel--mobile-active');
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to messages' }));
+    expect(await screen.findByRole('link', { name: /User B/ })).toBeInTheDocument();
+    expect(document.querySelector('.inbox-panel')).not.toHaveClass('inbox-panel--mobile-hidden');
+  });
+
+  it('supports direct conversation and details URLs and returns from details to the conversation', async () => {
+    mockConversationApi();
+    renderWorkspace('/messages/conversation-1/details');
+    expect(await screen.findByRole('heading', { name: 'Chat details' })).toBeInTheDocument();
+    expect(screen.getByText('@user_b')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Back to conversation' }));
+    expect(await screen.findByText('Earlier message')).toBeInTheDocument();
+  });
+
+  it('renders persisted messages in chronological order', async () => {
+    mockConversationApi();
+    vi.spyOn(messageApi, 'messages').mockResolvedValue({
+      messages: [
+        { id: 'later', conversationId: 'conversation-1', senderId: 'user-b', text: 'Later', createdAt: '2026-10-29T10:02:00.000Z' },
+        { id: 'earlier', conversationId: 'conversation-1', senderId: 'user-a', text: 'Earlier', createdAt: '2026-10-29T10:01:00.000Z' },
+      ],
+      hasMore: false,
+    });
+    renderWorkspace();
+    const earlier = await screen.findByText('Earlier');
+    const later = await screen.findByText('Later');
+    expect(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

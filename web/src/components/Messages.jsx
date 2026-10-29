@@ -42,7 +42,7 @@ export function MessageWorkspace() {
     setError('');
     try {
       const data = await messageApi.conversations();
-      setConversations(data.conversations || []);
+      setConversations((data.conversations || []).slice().sort(compareConversationActivity));
     } catch (reason) {
       setError(reason.message || 'Could not load conversations.');
     } finally {
@@ -61,7 +61,7 @@ export function MessageWorkspace() {
     try {
       const data = await messageApi.messages(conversationId);
       if (request === requestId.current) {
-        const page = data.messages || [];
+        const page = normalizeMessages(data.messages || []);
         setMessages(page);
         setHasOlderMessages(data.hasMore ?? page.length === 30);
       }
@@ -364,10 +364,24 @@ export function MessageWorkspace() {
           }}>
             {messageLoading ? <Skeleton rows={5} /> : messageError && messages.length === 0 ? <ErrorState error={messageError} onRetry={loadMessages} /> : messages.length === 0 ? <EmptyState title="Your first hello" description="Send a message to get things started." icon={MessageCircle} /> : <>
               {hasOlderMessages && <button className="button button--outline older-messages" onClick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Loading older messages…' : 'Load older messages'}</button>}
-              {messages.map((message, index) => <div key={message.id}>
-                {isNewMessageDay(messages[index - 1], message) && <p className="message-date-separator">{formatDate(message.createdAt)}</p>}
-                <div className={`message-bubble${message.senderId === currentUser?.id ? ' message-bubble--mine' : ''}`}><p>{message.text}</p><time>{formatTime(message.createdAt)}{message.senderId === currentUser?.id && <span className="message-delivery-state">{message.readAt ? ' · Read' : message.deliveredAt ? ' · Delivered' : ' · Sent'}</span>}</time></div>
-              </div>)}
+              {messages.map((message, index) => {
+                const mine = message.senderId === currentUser?.id;
+                const previous = messages[index - 1];
+                const next = messages[index + 1];
+                const continuesPrevious = previous?.senderId === message.senderId &&
+                  !isNewMessageDay(previous, message);
+                const continuesNext = next?.senderId === message.senderId &&
+                  !isNewMessageDay(message, next);
+                return <div className="message-entry" key={message.id}>
+                  {isNewMessageDay(previous, message) && <p className="message-date-separator">{formatDate(message.createdAt)}</p>}
+                  <div className={`message-row${mine ? ' message-row--mine' : ''}`}>
+                    <div className={`message-bubble${mine ? ' message-bubble--mine' : ''}${continuesPrevious ? ' message-bubble--grouped-before' : ''}${continuesNext ? ' message-bubble--grouped-after' : ''}`}>
+                      <p>{message.text}</p>
+                      <time>{formatTime(message.createdAt)}{mine && <span className="message-delivery-state">{message.readAt ? ' · Read' : message.deliveredAt ? ' · Delivered' : ' · Sent'}</span>}</time>
+                    </div>
+                  </div>
+                </div>;
+              })}
             </>}
             {typing && <p className="typing-indicator" role="status">{active?.participant?.displayName || 'They'} is typing…</p>}
           </div>
@@ -411,9 +425,20 @@ function compareMessageTime(first, second) {
   return new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime();
 }
 
+function normalizeMessages(messages) {
+  return [...new Map(messages.filter((message) => message?.id).map((message) => [message.id, message])).values()]
+    .sort(compareMessageTime);
+}
+
+function compareConversationActivity(first, second) {
+  const firstTime = new Date(first.lastMessageAt || first.lastMessage?.createdAt || 0).getTime();
+  const secondTime = new Date(second.lastMessageAt || second.lastMessage?.createdAt || 0).getTime();
+  return secondTime - firstTime;
+}
+
 function mergeMessages(current, incoming) {
   if (!incoming?.id || current.some((message) => message.id === incoming.id)) return current;
-  return [...current, incoming].sort(compareMessageTime);
+  return normalizeMessages([...current, incoming]);
 }
 
 function createClientMessageId() {
