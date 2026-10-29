@@ -2,21 +2,23 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { SearchPage } from './pages.jsx';
-import { userApi } from './services/api.js';
+import { contentApi, userApi } from './services/api.js';
 
 function renderSearchPage() {
   return render(<MemoryRouter><SearchPage /></MemoryRouter>);
 }
 
 describe('SearchPage', () => {
-  it('shows the real-content empty state without requesting a made-up feed', () => {
+  it('loads real posts in Explore instead of showing sample content', async () => {
     const search = vi.spyOn(userApi, 'search');
+    const posts = vi.spyOn(contentApi, 'posts').mockResolvedValue({ posts: [] });
     renderSearchPage();
 
     expect(screen.getByRole('heading', { name: 'Search' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Explore' })).toBeInTheDocument();
-    expect(screen.getByText('Posts and videos are not available yet')).toBeInTheDocument();
+    expect(await screen.findByText('No posts to show yet')).toBeInTheDocument();
     expect(search).not.toHaveBeenCalled();
+    expect(posts).toHaveBeenCalledOnce();
   });
 
   it('debounces user search and reflects follow status from the API', async () => {

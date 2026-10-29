@@ -180,6 +180,30 @@ test('private user and message routes require a valid access token', async () =>
   assert.equal(followersResponse.status, 401);
 });
 
+test('media and content routes require access tokens while their preflights remain public', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const protectedResponses = await Promise.all([
+    request(app).post('/api/v1/media/signature').send({ purpose: 'post', resourceType: 'image' }),
+    request(app).get('/api/v1/posts'),
+    request(app).get('/api/v1/stories'),
+    request(app).get('/api/v1/reels'),
+  ]);
+  for (const response of protectedResponses) {
+    assert.equal(response.status, 401);
+    assert.deepEqual(response.body, { error: 'Authentication required.' });
+  }
+
+  for (const path of ['/api/v1/media/signature', '/api/v1/posts', '/api/v1/stories', '/api/v1/reels']) {
+    const response = await request(app)
+      .options(path)
+      .set('Origin', 'http://localhost:5173')
+      .set('Access-Control-Request-Method', path.endsWith('signature') ? 'POST' : 'GET')
+      .set('Access-Control-Request-Headers', 'authorization,content-type');
+    assert.equal(response.status, 204);
+    assert.equal(response.headers['access-control-allow-origin'], 'http://localhost:5173');
+  }
+});
+
 test('request ID is returned and logs omit raw URL, query, and credentials', async () => {
   const entries: RequestLogEntry[] = [];
   const app = createApp({

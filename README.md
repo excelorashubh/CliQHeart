@@ -1,16 +1,15 @@
 # CliQHeart
 
-CliQHeart is a native Android social app foundation with a separately deployable
-TypeScript/Express API. The project includes real account registration and
-sign-in backed by MongoDB, alongside the app shell, navigation, API
-connectivity, and initial user model. A social feed and media features are not
-implemented yet.
+CliQHeart is a native Android social app with a separately deployable
+TypeScript/Express API and React website. The project includes account
+registration and sign-in backed by MongoDB, user profiles and messaging, plus
+website support for Cloudinary-backed posts, stories, and Reels.
 
 ## Technology
 
 - Android: Kotlin, XML, AndroidX, Material 3, ViewBinding, Navigation Component,
   ViewModel, Retrofit, and OkHttp.
-- Backend: Node.js, TypeScript, Express, Zod, Mongoose, and MongoDB.
+- Backend: Node.js, TypeScript, Express, Zod, Mongoose, MongoDB, and Cloudinary.
 - Android package: `com.cliqheart.app`.
 
 ## Prerequisites

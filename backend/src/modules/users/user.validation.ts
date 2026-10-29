@@ -41,6 +41,7 @@ export const userProfileUpdateSchema = z
     displayName: userProfileInputSchema.shape.displayName.optional(),
     bio: z.string().trim().max(500).optional(),
     avatarUrl: userProfileInputSchema.shape.avatarUrl,
+    avatarMediaId: z.string().regex(/^[a-f\d]{24}$/i).nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, 'At least one profile field is required.');

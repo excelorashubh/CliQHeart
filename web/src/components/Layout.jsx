@@ -10,10 +10,10 @@ import { useAuth } from '../context/AuthContext.jsx';
 const links = [
   { name: 'Home', to: '/', Icon: Home },
   { name: 'Search', to: '/search', Icon: Search },
-  { name: 'Reels', to: '/reels', Icon: Video, disabled: true },
+  { name: 'Reels', to: '/reels', Icon: Video },
   { name: 'Messages', to: '/messages', Icon: MessageCircle },
   { name: 'Notifications', to: '/notifications', Icon: Heart, disabled: true },
-  { name: 'Create post', to: '/create', Icon: PlusSquare, disabled: true },
+  { name: 'Create post', to: '/create', Icon: PlusSquare },
 ];
 
 export function AppLayout({ children }) {
@@ -66,7 +66,7 @@ export function AppLayout({ children }) {
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <main className="main-column">{children}</main>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {links.filter(({ name }) => ['Home', 'Search', 'Messages'].includes(name)).map(({ name, to, Icon }) =>
+      {links.filter(({ name }) => ['Home', 'Search', 'Reels', 'Create post', 'Messages'].includes(name)).map(({ name, to, Icon }) =>
         <NavLink end={to === '/'} key={name} to={to} aria-label={name} className={({ isActive }) => isActive ? 'is-active' : ''}><Icon size={22} /></NavLink>)}
       <NavLink to="/profile" aria-label="Profile" className={({ isActive }) => `mobile-profile${isActive ? ' is-active' : ''}`}><Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /></NavLink>
     </nav>

@@ -9,6 +9,8 @@ import { isDatabaseConnected } from './db/mongoose';
 import { createAuthRouter } from './modules/auth';
 import { createMessageRouter } from './modules/messages/message.routes';
 import { createUserRouter } from './modules/users/user.routes';
+import { createContentRouter } from './modules/content/content.routes';
+import { createMediaRouter } from './modules/media/media.routes';
 
 export interface RequestLogEntry {
   requestId: string;
@@ -134,6 +136,8 @@ export function createApp({
   });
 
   app.use('/api/v1', createAuthRouter(config));
+  app.use('/api/v1', createMediaRouter(config));
+  app.use('/api/v1', createContentRouter(config));
   app.use('/api/v1', createUserRouter(config));
   app.use('/api/v1', createMessageRouter(config));
   app.use('/api/v1', api);

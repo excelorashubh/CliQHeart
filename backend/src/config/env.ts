@@ -82,6 +82,9 @@ const environmentSchema = z
     JWT_AUDIENCE: z.string().trim().min(1).default('cliqheart-mobile'),
     ACCESS_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('15m'),
     REFRESH_TOKEN_TTL: z.string().regex(/^\d+[smhd]$/).default('365d'),
+    CLOUDINARY_CLOUD_NAME: z.string().trim().min(1).default('dlfvdqs3'),
+    CLOUDINARY_API_KEY: z.string().trim().min(1).optional(),
+    CLOUDINARY_API_SECRET: z.string().trim().min(1).optional(),
   })
   .strict()
   .superRefine((config, context) => {
@@ -93,6 +96,17 @@ const environmentSchema = z
         code: 'custom',
         path: ['JWT_REFRESH_SECRET'],
         message: 'JWT access and refresh secrets must be different',
+      });
+    }
+    const cloudinarySettings = [
+      config.CLOUDINARY_API_KEY,
+      config.CLOUDINARY_API_SECRET,
+    ];
+    if (cloudinarySettings.some(Boolean) && cloudinarySettings.some((value) => !value)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['CLOUDINARY_API_KEY'],
+        message: 'CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET must be configured together',
       });
     }
   })
@@ -123,6 +137,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     JWT_AUDIENCE: environment.JWT_AUDIENCE,
     ACCESS_TOKEN_TTL: environment.ACCESS_TOKEN_TTL,
     REFRESH_TOKEN_TTL: environment.REFRESH_TOKEN_TTL,
+    CLOUDINARY_CLOUD_NAME: environment.CLOUDINARY_CLOUD_NAME,
+    CLOUDINARY_API_KEY: environment.CLOUDINARY_API_KEY,
+    CLOUDINARY_API_SECRET: environment.CLOUDINARY_API_SECRET,
   });
 
   if (!result.success) {

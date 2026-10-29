@@ -55,6 +55,11 @@ const userSchema = new Schema(
         message: 'avatarUrl must be an HTTP or HTTPS URL',
       },
     },
+    avatarMediaId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Media',
+      default: undefined,
+    },
     accountStatus: {
       type: String,
       enum: ['pending', 'active', 'suspended', 'deleted'],

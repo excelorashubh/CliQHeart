@@ -157,6 +157,38 @@ export const userApi = {
   },
 };
 
+export const mediaApi = {
+  signature: (purpose, resourceType) => apiRequest('media/signature', {
+    method: 'POST',
+    body: { purpose, resourceType },
+  }),
+  confirm: (id) => apiRequest(`media/${encodeURIComponent(id)}/confirm`, {
+    method: 'POST',
+  }),
+  remove: (id) => apiRequest(`media/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }),
+};
+
+export const contentApi = {
+  posts: (limit = 30, options = {}) => apiRequest(`posts?${new URLSearchParams({ limit: String(limit) })}`, options),
+  userPosts: (id, limit = 30, options = {}) => apiRequest(
+    `users/${encodeURIComponent(id)}/posts?${new URLSearchParams({ limit: String(limit) })}`,
+    options,
+  ),
+  createPost: (body) => apiRequest('posts', { method: 'POST', body }),
+  deletePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  stories: (options = {}) => apiRequest('stories', options),
+  createStory: (body) => apiRequest('stories', { method: 'POST', body }),
+  deleteStory: (id) => apiRequest(`stories/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  reels: (limit = 30, options = {}) => apiRequest(
+    `reels?${new URLSearchParams({ limit: String(limit) })}`,
+    options,
+  ),
+  createReel: (body) => apiRequest('reels', { method: 'POST', body }),
+  deleteReel: (id) => apiRequest(`reels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
 export const messageApi = {
   conversations: () => apiRequest('conversations'),
   createConversation: (participantId) => apiRequest('conversations', { method: 'POST', body: { participantId } }),

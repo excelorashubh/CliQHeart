@@ -73,6 +73,37 @@ data class MessagesResponse(val messages: List<MessageResponse> = emptyList())
 data class ConversationEnvelope(val conversation: ConversationResponse? = null)
 data class MessageEnvelope(val message: MessageResponse? = null)
 
+data class MediaSignatureRequest(
+    val purpose: String,
+    val resourceType: String,
+)
+data class MediaUploadConfiguration(
+    val apiKey: String? = null,
+    val cloudName: String? = null,
+    val uploadUrl: String? = null,
+    val resourceType: String? = null,
+    val timestamp: Long? = null,
+    val signature: String? = null,
+    val publicId: String? = null,
+    val allowedFormats: List<String> = emptyList(),
+    val maxBytes: Long? = null,
+)
+data class MediaUploadResponse(
+    val id: String? = null,
+    val status: String? = null,
+)
+data class MediaSignatureResponse(
+    val media: MediaUploadResponse? = null,
+    val upload: MediaUploadConfiguration? = null,
+)
+data class MediaEnvelope(val media: MediaUploadResponse? = null)
+data class PostCreateRequest(
+    val mediaId: String,
+    val caption: String,
+)
+data class PostResponse(val id: String? = null)
+data class PostEnvelope(val post: PostResponse? = null)
+
 data class AuthResponse(
     val accessToken: String? = null,
     val refreshToken: String? = null,
@@ -142,4 +173,18 @@ interface ApiService {
         @Path("conversationId") conversationId: String,
         @Body request: MessageCreateRequest,
     ): Response<MessageEnvelope>
+
+    @POST("media/signature")
+    suspend fun createMediaSignature(
+        @Body request: MediaSignatureRequest,
+    ): Response<MediaSignatureResponse>
+
+    @POST("media/{mediaId}/confirm")
+    suspend fun confirmMedia(@Path("mediaId") mediaId: String): Response<MediaEnvelope>
+
+    @retrofit2.http.DELETE("media/{mediaId}")
+    suspend fun deleteMedia(@Path("mediaId") mediaId: String): Response<Unit>
+
+    @POST("posts")
+    suspend fun createPost(@Body request: PostCreateRequest): Response<PostEnvelope>
 }

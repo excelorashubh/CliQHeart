@@ -4,7 +4,7 @@ import { AppLayout } from './components/Layout.jsx';
 import { ErrorState, PageSpinner } from './components/Feedback.jsx';
 import {
   HomePage, LoginPage, RegisterPage, SearchPage, ProfilePage, MessagesPage,
-  SettingsPage, CapabilityPage, NotFoundPage, LandingPage,
+  SettingsPage, CapabilityPage, CreatePage, ReelsPage, NotFoundPage, LandingPage,
 } from './pages.jsx';
 
 function Protected({ children }) {
@@ -48,8 +48,8 @@ export default function App() {
     <Route path="/messages" element={<Protected><MessagesPage /></Protected>} />
     <Route path="/messages/:conversationId" element={<Protected><MessagesPage /></Protected>} />
     <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
-    <Route path="/create" element={<Protected><CapabilityPage title="Create a post" feature="Post and media publishing" /></Protected>} />
-    <Route path="/reels" element={<Protected><CapabilityPage title="Reels" feature="Reels and video playback" /></Protected>} />
+    <Route path="/create" element={<Protected><CreatePage /></Protected>} />
+    <Route path="/reels" element={<Protected><ReelsPage /></Protected>} />
     <Route path="/notifications" element={<Protected><CapabilityPage title="Notifications" feature="Activity notifications" /></Protected>} />
     <Route path="/post/:postId" element={<Protected><CapabilityPage title="Post" feature="Post details and engagement" /></Protected>} />
     <Route path="*" element={<NotFoundPage />} />

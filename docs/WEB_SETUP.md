@@ -50,7 +50,12 @@ REFRESH_TOKEN_TTL=365d
 The backend accepts the legacy `CORS_ORIGINS` variable for existing
 deployments, but `ALLOWED_ORIGINS` takes precedence. The frontend build should
 use `VITE_API_BASE_URL=https://cliqheart.onrender.com/api/v1`.
-`backend/.env.example` contains only non-secret browser-origin settings.
+For media uploads, configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
+and `CLOUDINARY_API_SECRET` on the backend only. The API key is returned with
+short-lived, purpose-scoped upload signatures; the API secret must never be
+added to a `VITE_*` variable or browser bundle. Cloudinary settings are
+optional for auth and messaging, but uploads return a clear service error until
+they are configured.
 
 ## Build and static deployment
 
@@ -124,32 +129,43 @@ The website reuses:
 - `GET /users/:userId/followers` and `/following`
 - `GET` and `POST /conversations`
 - `GET` and `POST /conversations/:conversationId/messages`
+- `POST /media/signature`, `POST /media/:mediaId/confirm`, and `DELETE /media/:mediaId`
+- post, story, and Reel publishing and feed endpoints
 
 The client-side routes include `/`, `/login`, `/signup` (also `/register`),
 `/search` (the legacy `/explore` and `/discover` URLs redirect here),
 `/profile`, `/profile/:userId`,
 `/profile/edit`, `/messages`, `/messages/:conversationId`, `/settings`,
 `/create`, `/post/:postId`, `/reels`, and `/notifications`. Routes requiring an
-account redirect signed-out visitors to `/login`.
+account redirect signed-out visitors to `/login`. Create supports posts,
+24-hour stories, and short Reels. Uploads are signed by the API and sent
+directly from the browser to Cloudinary; the backend verifies the uploaded
+asset before it can be attached to a profile or published.
 
 Messaging is request/response. There is no realtime transport, read/unread
 state, or notification API. Message lists refresh when opened or manually
 refreshed; the website does not describe this as realtime.
 
-## Backend-dependent features not yet available
+## Media and content features
 
-The current backend does not implement a posts/feed retrieval endpoint,
-comments, likes, bookmarks,
-stories, profile-photo upload, Reels/video processing, notifications, or
-publishing. Those pages state the limitation and do not display fabricated
-content or claim an unsupported operation succeeded. Profile photos can only
-be set to an existing public HTTP(S) image URL through the current profile
-update endpoint.
+The backend implements authenticated Cloudinary media signing, asset
+confirmation and owner deletion, profile-photo uploads, post and story
+publishing, and Reels. Supported images are JPEG, PNG, and WebP; videos are MP4
+and MOV. Upload limits are enforced again against Cloudinary's resource
+metadata: 10 MiB for profile photos, 100 MiB for posts and stories, and 250
+MiB for Reels. Reels are limited to 180 seconds, and stories expire after 24
+hours. Unattached uploads can be deleted from the upload UI; content-attached
+media cannot be deleted independently.
 
-The Search page uses the authenticated user-search endpoint and shows the
-Explore empty state until a real posts/feed endpoint is added. It does not
-request made-up routes or display placeholder media. The user-search response
-includes the viewer's follow state alongside each public profile.
+The Search page's Explore section and Home feed load real authenticated API
+responses. Empty states reflect actual API results, and errors can be retried;
+the browser does not show fabricated posts or claim a failed publish succeeded.
+Notifications, comments, likes, and bookmarks are not implemented.
+
+The Android client still uses bearer-token authentication and remains
+compatible with the existing API. Its Create screen can publish image posts
+through the same signed-upload and server-confirmation flow; story and Reel
+creation is currently available from the website.
 
 The backend search response adds `isFollowing` as an additive public field;
 existing Android clients can ignore it without a contract change.

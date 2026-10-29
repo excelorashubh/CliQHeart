@@ -46,3 +46,11 @@ test('user service rejects invalid and unknown fields without accepting password
       }),
   );
 });
+
+test('profile updates accept only a MongoDB media identifier for uploaded avatars', () => {
+  assert.deepEqual(
+    userProfileUpdateSchema.parse({ avatarMediaId: '507f1f77bcf86cd799439011' }),
+    { avatarMediaId: '507f1f77bcf86cd799439011' },
+  );
+  assert.throws(() => userProfileUpdateSchema.parse({ avatarMediaId: 'https://example.test/photo.jpg' }));
+});

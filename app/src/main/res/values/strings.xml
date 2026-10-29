@@ -53,7 +53,6 @@
     <string name="following">Following</string>
     <string name="share_post">Share Post</string>
     <string name="write_caption">Write a caption...</string>
-    <string name="add_location">Add location...</string>
     <string name="select_photo">Select Photo</string>
     <string name="edit_profile">Edit Profile</string>
     <string name="share_profile">Share Profile</string>
@@ -82,7 +81,16 @@
     <string name="loading_messages">Loading conversations...</string>
     <string name="activity_unavailable">Activity updates are not available yet.</string>
     <string name="post_features_unavailable">Post interactions are not available yet.</string>
-    <string name="post_upload_unavailable">Post publishing is not available yet. Your draft was kept.</string>
+    <string name="post_photo_required">Choose a photo before publishing.</string>
+    <string name="post_uploading">Uploading photo…</string>
+    <string name="post_confirming_upload">Verifying photo…</string>
+    <string name="post_publishing">Publishing post…</string>
+    <string name="post_removing_upload">Removing previous upload…</string>
+    <string name="post_upload_failed">The API returned an incomplete media upload response.</string>
+    <string name="post_upload_failed_with_reason">Could not publish the post: %1$s</string>
+    <string name="post_upload_cleanup_failed">Could not remove the previous upload: %1$s</string>
+    <string name="post_media_cleanup_failed">Could not clean up the failed upload: %1$s</string>
+    <string name="post_share_success">Your post has been published.</string>
     <string name="caption_required">Please write a caption first.</string>
     <string name="back">Back</string>
     <string name="loading_users">Loading…</string>

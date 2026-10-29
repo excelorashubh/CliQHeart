@@ -7,7 +7,9 @@ import {
 import { useAuth } from './context/AuthContext.jsx';
 import { Avatar, Brand } from './components/Brand.jsx';
 import { EmptyState, ErrorState, Skeleton } from './components/Feedback.jsx';
-import { messageApi, userApi } from './services/api.js';
+import { ContentFeed, StoryFeed } from './components/Content.jsx';
+import { MediaUploader } from './components/MediaUploader.jsx';
+import { contentApi, mediaApi, messageApi, userApi } from './services/api.js';
 import { MessageWorkspace } from './components/Messages.jsx';
 
 export function LandingPage() {
@@ -186,8 +188,10 @@ export function HomePage() {
       <Link to="/profile" className="action-card"><span className="action-icon action-icon--rose"><Heart size={20} /></span><span><strong>Set up your profile</strong><small>Share a little about yourself.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
       <Link to="/search" className="action-card"><span className="action-icon action-icon--lavender"><Compass size={20} /></span><span><strong>Search and explore</strong><small>Find people and explore CliQHeart.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
       <Link to="/messages" className="action-card"><span className="action-icon action-icon--peach"><MessageCircle size={20} /></span><span><strong>Say hello</strong><small>Pick up a conversation.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
+      <Link to="/create" className="action-card"><span className="action-icon action-icon--rose"><Heart size={20} /></span><span><strong>Share a moment</strong><small>Post a photo, story, or video.</small></span><ArrowRight size={18} className="action-arrow" /></Link>
     </div>
-    <div className="notice-card"><span className="notice-icon"><ShieldCheck size={18} /></span><p><strong>A note about your feed</strong><br />Posts, stories, Reels, media uploads, and notifications are not yet available in the shared backend. We show no sample content here—your space will fill with real features as they become available.</p></div>
+    <section className="content-section"><div className="section-heading"><div><p className="eyebrow">YOUR PEOPLE</p><h2>Stories</h2></div></div><StoryFeed /></section>
+    <section className="content-section"><div className="section-heading"><div><p className="eyebrow">SHARED MOMENTS</p><h2>Latest posts</h2></div><Link className="text-link" to="/create">Create a post</Link></div><ContentFeed /></section>
   </div>;
 }
 
@@ -326,7 +330,7 @@ export function SearchPage() {
     </> : <section className="explore-section" aria-labelledby="explore-heading">
       <div className="explore-heading"><div><p className="eyebrow">A LITTLE INSPIRATION</p><h2 id="explore-heading">Explore</h2></div></div>
       <div className="explore-content" aria-label="Explore posts">
-        <EmptyState title="Posts and videos are not available yet" description="The shared backend does not currently provide a posts or media feed endpoint. This space will show real CliQHeart content when that API is available." icon={Compass} />
+        <ContentFeed />
       </div>
     </section>}
   </div>;
@@ -346,8 +350,10 @@ export function ProfilePage({ editOnOpen = false }) {
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState('');
   const [cursor, setCursor] = useState(null);
-  const [form, setForm] = useState({ username: '', displayName: '', bio: '', avatarUrl: '' });
+  const [form, setForm] = useState({ username: '', displayName: '', bio: '', avatarMediaId: '' });
+  const [postCount, setPostCount] = useState('—');
   const navigate = useNavigate();
+  const updatePostCount = useCallback((count) => setPostCount(count), []);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -367,7 +373,7 @@ export function ProfilePage({ editOnOpen = false }) {
         username: data.user.username || '',
         displayName: data.user.displayName || '',
         bio: data.user.bio || '',
-        avatarUrl: data.user.avatarUrl || '',
+        avatarMediaId: '',
       });
     } catch (reason) {
       setError(reason.message || 'Could not load this profile.');
@@ -403,7 +409,7 @@ export function ProfilePage({ editOnOpen = false }) {
       username: form.username,
       displayName: form.displayName,
       bio: form.bio,
-      ...(form.avatarUrl.trim() ? { avatarUrl: form.avatarUrl.trim() } : {}),
+      ...(form.avatarMediaId ? { avatarMediaId: form.avatarMediaId } : {}),
     };
     try {
       const result = await userApi.updateMe(payload);
@@ -470,7 +476,7 @@ export function ProfilePage({ editOnOpen = false }) {
           ? <button className="button button--outline" onClick={() => setEditOpen(true)}>Edit profile</button>
           : <><button className={`button ${profile.isFollowing ? 'button--outline' : 'button--primary'}`} onClick={toggleFollow} disabled={busy}>{profile.isFollowing ? 'Following' : 'Follow'}</button><button className="button button--outline" onClick={messageUser}>Message</button></>}</div>
         <div className="profile-counts">
-            <span><b>—</b> posts</span>
+            <span><b>{postCount}</b> posts</span>
           <button onClick={() => openList('followers')}><b>{profile.followersCount || 0}</b> followers</button>
           <button onClick={() => openList('following')}><b>{profile.followingCount || 0}</b> following</button>
         </div>
@@ -479,7 +485,7 @@ export function ProfilePage({ editOnOpen = false }) {
     </header>
     {error && <p className="inline-error">{error}</p>}
     <div className="profile-content"><div className="profile-tabs"><span className="profile-tab is-active"><Heart size={15} /> POSTS</span></div>
-      <EmptyState title="No posts to show" description="Post and media sharing will appear here when the shared backend supports publishing." icon={Compass} />
+      <ContentFeed userId={profile.id} onLoaded={updatePostCount} />
     </div>
     {editOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditOpen(false); }}>
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title">
@@ -488,7 +494,8 @@ export function ProfilePage({ editOnOpen = false }) {
           <label>Display name<input maxLength="80" required value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} /></label>
           <label>Username<input minLength="3" maxLength="30" pattern="(?!.*\\.\\.)[a-zA-Z0-9._]{3,30}" required value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} /></label>
           <label>Bio<textarea maxLength="500" rows="3" value={form.bio} onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))} /></label>
-          <label>Profile photo URL<input type="url" maxLength="2048" placeholder="https://…" value={form.avatarUrl} onChange={(event) => setForm((current) => ({ ...current, avatarUrl: event.target.value }))} /><small>Photo upload is not yet supported; use a public image URL.</small></label>
+          <label>Profile photo</label>
+          <MediaUploader purpose="profile" onReady={(media) => setForm((current) => ({ ...current, avatarMediaId: media?.id || '' }))} />
           {editError && <p className="form-error" role="alert">{editError}</p>}
           <button className="button button--primary button--wide" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
         </form>
@@ -536,6 +543,86 @@ export function SettingsPage() {
 
 export function CapabilityPage({ title, feature }) {
   return <div className="page-content capability-page"><header className="page-heading"><div><p className="eyebrow">COMING INTO FOCUS</p><h1>{title}</h1><p className="heading-subtitle">A genuine feature, not a placeholder feed.</p></div></header><EmptyState title={`${feature} is not available yet`} description="The current shared API does not provide this capability. We have not added sample content or a pretend action. Your existing CliQHeart account and profile still work here." icon={Sparkles} /><Link to="/search" className="button button--primary"><Search size={16} /> Find people instead</Link></div>;
+}
+
+export function CreatePage() {
+  const [kind, setKind] = useState('post');
+  const [media, setMedia] = useState(null);
+  const [caption, setCaption] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const navigate = useNavigate();
+  const reelTooLong = kind === 'reel' && media?.duration > 180;
+
+  async function changeKind(nextKind) {
+    if (busy || nextKind === kind) return;
+    if (media?.id) {
+      try {
+        await mediaApi.remove(media.id);
+      } catch (reason) {
+        setError(`Could not clear the previous upload: ${reason.message}`);
+        return;
+      }
+    }
+    setMedia(null);
+    setCaption('');
+    setError('');
+    setSuccess('');
+    setKind(nextKind);
+  }
+
+  async function publish(event) {
+    event.preventDefault();
+    if (!media?.id || busy) return;
+    setBusy(true);
+    setError('');
+    setSuccess('');
+    try {
+      const payload = { mediaId: media.id, caption: caption.trim() };
+      if (kind === 'post') await contentApi.createPost(payload);
+      else if (kind === 'story') await contentApi.createStory(payload);
+      else await contentApi.createReel(payload);
+      setSuccess(kind === 'story' ? 'Your story is live for 24 hours.' : 'Your content has been published.');
+      setMedia(null);
+      navigate(kind === 'reel' ? '/reels' : '/', { replace: true });
+    } catch (reason) {
+      setError(reason.message || 'Could not publish your content.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="page-content create-page">
+    <header className="page-heading"><div><p className="eyebrow">MAKE A MOMENT</p><h1>Create</h1><p className="heading-subtitle">Share something with your CliQHeart community.</p></div></header>
+    <div className="content-mode-tabs" role="tablist" aria-label="Content type">
+      {['post', 'story', 'reel'].map((option) => <button
+        type="button"
+        role="tab"
+        aria-selected={kind === option}
+        className={kind === option ? 'is-selected' : ''}
+        disabled={busy}
+        key={option}
+        onClick={() => changeKind(option)}
+      >{option[0].toUpperCase() + option.slice(1)}</button>)}
+    </div>
+    <form className="create-form" onSubmit={publish}>
+      <MediaUploader key={kind} purpose={kind} onReady={setMedia} disabled={busy} />
+      <label>Caption<textarea rows="4" maxLength={kind === 'story' ? 500 : 2200} value={caption} onChange={(event) => setCaption(event.target.value)} disabled={busy} /></label>
+      {kind === 'reel' && <p className="helper-text">Reels must be videos no longer than 180 seconds.</p>}
+      {reelTooLong && <p className="form-error" role="alert">This video is longer than the 180-second Reel limit.</p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {success && <p className="form-success" role="status">{success}</p>}
+      <button className="button button--primary button--wide" disabled={busy || !media?.id || reelTooLong}>{busy ? 'Publishing…' : kind === 'story' ? 'Share story' : 'Publish'}</button>
+    </form>
+  </div>;
+}
+
+export function ReelsPage() {
+  return <div className="page-content reels-page">
+    <header className="page-heading"><div><p className="eyebrow">SHORT VIDEOS</p><h1>Reels</h1><p className="heading-subtitle">Discover video moments from the CliQHeart community.</p></div><Link className="button button--primary" to="/create">Create a Reel</Link></header>
+    <ContentFeed kind="reels" />
+  </div>;
 }
 
 export function NotFoundPage() {

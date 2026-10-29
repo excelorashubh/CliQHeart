@@ -87,8 +87,9 @@ returned by this endpoint.
 
 Updates one or more of `username`, `displayName`, `bio`, and `avatarUrl`.
 Unknown fields are rejected. Username conflicts return `409`; invalid profile
-data returns `400`. `avatarUrl` accepts an HTTP(S) URL only. This phase has no
-binary image-upload or object-storage integration.
+data returns `400`. `avatarUrl` accepts an HTTP(S) URL. To use a verified
+Cloudinary profile image, send its owned `avatarMediaId`; the API resolves the
+URL from verified media metadata and prevents reusing another account's upload.
 
 ### `GET /api/v1/users/search?q=<text>&limit=<n>&after=<username>`
 
@@ -114,6 +115,41 @@ the confirmed following state; repeated requests are safe.
 Return real public users in pages of 1–50 entries (default 30). Pass the
 returned `nextCursor` as `after` to fetch the next page.
 
+## Media and content endpoints
+
+All media and content endpoints require an active access token. `POST
+/api/v1/media/signature` accepts `{"purpose":"profile|post|story|reel",
+"resourceType":"image|video"}` and returns a short-lived Cloudinary upload
+signature, an upload URL, and the media record ID. The browser sends the file
+directly to Cloudinary, then calls `POST /api/v1/media/:mediaId/confirm`.
+Confirmation reads the asset from Cloudinary and checks ownership through the
+server-generated public ID, resource type, format, size, and HTTPS URL. The
+backend secret is never returned. `DELETE /api/v1/media/:mediaId` removes an
+unattached owned upload; media still referenced by active content or a profile
+cannot be deleted.
+
+Accepted image formats are JPEG, PNG, and WebP. Video formats are MP4 and MOV.
+Maximum sizes are 10 MiB for profile photos, 100 MiB for post/story uploads,
+and 250 MiB for Reels. Reels must be no longer than 180 seconds.
+
+- `POST /api/v1/posts` publishes an owned verified image or video with an
+  optional caption. `GET /api/v1/posts` returns the authenticated feed;
+  `GET /api/v1/users/:userId/posts` returns a user's posts; the owner can
+  remove a post with `DELETE /api/v1/posts/:postId`.
+- `POST /api/v1/stories` publishes a verified image or video. Stories expire
+  after 24 hours. `GET /api/v1/stories` returns unexpired stories belonging
+  to the authenticated user and accounts they follow. Owners can remove their
+  own stories with `DELETE /api/v1/stories/:storyId`.
+- `POST /api/v1/reels` publishes a verified video of up to 180 seconds.
+  `GET /api/v1/reels` returns the authenticated feed;
+  `GET /api/v1/users/:userId/reels` returns a user's Reels; owners can remove
+  their own Reels with `DELETE /api/v1/reels/:reelId`.
+
+The Cloudinary API key is a public identifier returned with approved direct
+upload signatures. `CLOUDINARY_API_SECRET` must be configured on the backend
+and never in Vite environment variables, Android resources, or API responses.
+Upload settings are documented in `backend/.env.example`.
+
 ## Messaging endpoints
 
 ### `GET /api/v1/conversations`
@@ -137,13 +173,12 @@ Accepts `{"text":"..."}` (1–4000 characters), persists the message, and update
 the conversation's last-message timestamp. Only participants may read or send
 messages. Delivery is request/response; realtime push is not implemented.
 
-Conversation, message, and follow collections are created by Mongoose when the
-backend connects to MongoDB. Existing user collections require no migration.
-Profile-photo upload, posts, Reels, highlights, and tagged-post APIs are not
-implemented in this backend yet.
-The Android Create screen keeps the selected photo and caption in place but
-does not claim that a post was published. Feed, post interactions, and activity
-feed APIs are also not implemented.
+Conversation, message, follow, media, post, story, and reel collections are
+created by Mongoose when the backend connects to MongoDB. Existing user
+collections require no migration. Comments, likes, bookmarks, and notifications
+are not implemented. Android retains bearer-token authentication and uses the
+media endpoints for image posts; story and Reel creation is currently exposed
+only by the website.
 
 ## Status codes and errors
 

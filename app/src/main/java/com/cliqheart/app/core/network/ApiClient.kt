@@ -1,18 +1,33 @@
 package com.cliqheart.app.core.network
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import com.cliqheart.app.BuildConfig
 import com.cliqheart.app.core.security.SecureTokenStore
 import com.google.gson.Gson
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import okio.source
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 object ApiClient {
+    private val supportedImageTypes = setOf("image/jpeg", "image/png", "image/webp")
+
     @Volatile
     private var tokenStore: SecureTokenStore? = null
     private val refreshLock = Any()
@@ -31,6 +46,15 @@ object ApiClient {
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
             .callTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val cloudinaryClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.MINUTES)
+            .writeTimeout(2, TimeUnit.MINUTES)
+            .callTimeout(3, TimeUnit.MINUTES)
             .build()
     }
 
@@ -67,6 +91,101 @@ object ApiClient {
     }
 
     val service: ApiService by lazy { retrofit.create(ApiService::class.java) }
+
+    suspend fun uploadToCloudinary(
+        context: Context,
+        upload: MediaUploadConfiguration,
+        uri: Uri,
+    ) {
+        val apiKey = upload.apiKey?.takeIf(String::isNotBlank)
+            ?: throw IOException("The API returned an incomplete upload signature.")
+        val uploadUrl = upload.uploadUrl?.takeIf(String::isNotBlank)
+            ?: throw IOException("The API returned an incomplete upload signature.")
+        val cloudName = upload.cloudName?.takeIf(String::isNotBlank)
+            ?: throw IOException("The API returned an incomplete upload signature.")
+        val uploadUri = Uri.parse(uploadUrl)
+        if (upload.resourceType != "image" || uploadUri.scheme != "https" ||
+            uploadUri.host != "api.cloudinary.com" ||
+            uploadUri.encodedPath != "/v1_1/$cloudName/image/upload"
+        ) {
+            throw IOException("The API returned an invalid Cloudinary upload target.")
+        }
+        val signature = upload.signature?.takeIf(String::isNotBlank)
+            ?: throw IOException("The API returned an incomplete upload signature.")
+        val publicId = upload.publicId?.takeIf(String::isNotBlank)
+            ?: throw IOException("The API returned an incomplete upload signature.")
+        val timestamp = upload.timestamp
+            ?: throw IOException("The API returned an incomplete upload signature.")
+        val maxBytes = upload.maxBytes
+            ?: throw IOException("The API returned an incomplete upload signature.")
+        if (maxBytes < 1 || upload.allowedFormats.isEmpty()) {
+            throw IOException("The API returned an incomplete upload signature.")
+        }
+
+        val resolver = context.contentResolver
+        val mimeType = resolver.getType(uri)?.takeIf { it in supportedImageTypes }
+            ?: throw IOException("Choose a JPEG, PNG, or WebP image.")
+        val fileSize = resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+            }
+        if (fileSize != null && (fileSize < 1 || fileSize > maxBytes)) {
+            throw IOException("The selected image exceeds the upload size limit.")
+        }
+        val filename = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+            ?.takeIf(String::isNotBlank)
+            ?: "upload.${mimeType.substringAfter('/')}"
+        val imageBody = object : RequestBody() {
+            override fun contentType(): MediaType = mimeType.toMediaType()
+            override fun contentLength(): Long = fileSize ?: -1
+            override fun writeTo(sink: BufferedSink) {
+                val input = resolver.openInputStream(uri)
+                    ?: throw IOException("Could not read the selected image.")
+                input.source().use { source -> sink.writeAll(source) }
+            }
+        }
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", filename, imageBody)
+            .addFormDataPart("api_key", apiKey)
+            .addFormDataPart("timestamp", timestamp.toString())
+            .addFormDataPart("public_id", publicId)
+            .addFormDataPart("allowed_formats", upload.allowedFormats.joinToString(","))
+            .addFormDataPart("overwrite", "false")
+            .addFormDataPart("signature", signature)
+            .build()
+        val response = executeCloudinaryUpload(
+            Request.Builder().url(uploadUrl).post(requestBody).build(),
+        )
+        response.use {
+            if (!it.isSuccessful) {
+                val message = it.body?.string()?.let { body ->
+                    runCatching { org.json.JSONObject(body).optJSONObject("error")?.optString("message") }
+                        .getOrNull()
+                }
+                throw IOException(message?.takeIf(String::isNotBlank) ?: "Image upload failed (${it.code}).")
+            }
+        }
+    }
+
+    private suspend fun executeCloudinaryUpload(request: Request): okhttp3.Response =
+        suspendCancellableCoroutine { continuation ->
+            val call: Call = cloudinaryClient.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: okhttp3.Response) {
+                    if (continuation.isActive) continuation.resume(response)
+                    else response.close()
+                }
+            })
+        }
 
     private fun refreshAfterUnauthorized(response: okhttp3.Response): Request? {
         val failedRequest = response.request
@@ -124,6 +243,7 @@ object ApiClient {
                     .header("Authorization", "Bearer $nextAccessToken")
                     .build()
             }
+
         }
     }
 }

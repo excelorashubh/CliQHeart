@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { ZodError } from 'zod';
 import type { AppConfig } from '../../config/env';
 import { UserModel } from '../../models/user';
+import { MediaModel } from '../media/media.model';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { FollowModel } from './follow.model';
 import { userProfileUpdateSchema } from './user.validation';
@@ -28,21 +29,90 @@ export function createUserRouter(config: AppConfig): Router {
   });
 
   router.patch('/users/me', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    let claimedMediaId: string | undefined;
+    let profileUpdated = false;
     try {
       const update = userProfileUpdateSchema.parse(request.body);
+      const ownerId = (request as AuthenticatedRequest).authenticatedUserId!;
+      const currentUser = await UserModel.findById(ownerId).select('avatarMediaId');
+      if (!currentUser) {
+        response.status(404).json({ error: 'User not found.' });
+        return;
+      }
+
+      const set: Record<string, unknown> = {};
+      const unset: Record<string, 1> = {};
+      if (update.avatarMediaId) {
+        const media = await MediaModel.findOneAndUpdate(
+          {
+            _id: update.avatarMediaId,
+            ownerId,
+            purpose: 'profile',
+            resourceType: 'image',
+            status: 'ready',
+            attachedTo: { $exists: false },
+          },
+          { $set: { attachedTo: 'profile', attachedId: currentUser._id } },
+          { new: true },
+        );
+        if (!media?.secureUrl) {
+          response.status(409).json({ error: 'Choose a verified profile image owned by your account.' });
+          return;
+        }
+        claimedMediaId = String(media._id);
+        set.avatarMediaId = media._id;
+        set.avatarUrl = media.secureUrl;
+      } else if (update.avatarMediaId === null) {
+        unset.avatarMediaId = 1;
+        unset.avatarUrl = 1;
+      } else if (update.avatarUrl !== undefined) {
+        set.avatarUrl = update.avatarUrl;
+        unset.avatarMediaId = 1;
+      }
+      if (update.username !== undefined) set.username = update.username;
+      if (update.displayName !== undefined) set.displayName = update.displayName;
+      if (update.bio !== undefined) set.bio = update.bio;
+      const updateOperation = {
+        ...(Object.keys(set).length ? { $set: set } : {}),
+        ...(Object.keys(unset).length ? { $unset: unset } : {}),
+      };
       const user = await UserModel.findByIdAndUpdate(
-        (request as AuthenticatedRequest).authenticatedUserId,
-        { $set: update },
+        ownerId,
+        updateOperation,
         { new: true, runValidators: true },
       ).select(publicProfileFields).lean();
       if (!user) {
+        if (claimedMediaId) {
+          await MediaModel.updateOne(
+            { _id: claimedMediaId, attachedTo: 'profile', attachedId: currentUser._id },
+            { $unset: { attachedTo: 1, attachedId: 1 } },
+          );
+        }
         response.status(404).json({ error: 'User not found.' });
         return;
+      }
+      profileUpdated = true;
+      const oldAvatarMediaId = currentUser.avatarMediaId;
+      if (oldAvatarMediaId && String(oldAvatarMediaId) !== String(claimedMediaId ?? '')) {
+        await MediaModel.updateOne(
+          { _id: oldAvatarMediaId, attachedTo: 'profile', attachedId: currentUser._id },
+          { $unset: { attachedTo: 1, attachedId: 1 } },
+        );
       }
       response.json({
         user: await profilePayload(user, (request as AuthenticatedRequest).authenticatedUserId!),
       });
     } catch (error) {
+      if (claimedMediaId && !profileUpdated) {
+        await MediaModel.updateOne(
+          {
+            _id: claimedMediaId,
+            attachedTo: 'profile',
+            attachedId: (request as AuthenticatedRequest).authenticatedUserId,
+          },
+          { $unset: { attachedTo: 1, attachedId: 1 } },
+        );
+      }
       if (error instanceof ZodError) {
         response.status(400).json({
           error: 'Invalid profile data.',
