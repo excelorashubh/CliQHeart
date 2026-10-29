@@ -8,10 +8,17 @@ const optionalSecretSchema = z.preprocess(
   z.string().min(32, 'must be at least 32 characters').optional(),
 );
 
+const developmentOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+
 const originListSchema = z
   .string()
   .default('http://localhost:3000,http://localhost:5173')
-  .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean))
+  .transform((value) => [
+    ...new Set([
+      ...value.split(',').map((origin) => origin.trim()).filter(Boolean),
+      ...developmentOrigins,
+    ]),
+  ])
   .refine(
     (origins) =>
       origins.every((origin) => {

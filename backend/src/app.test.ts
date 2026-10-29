@@ -109,6 +109,39 @@ test('default CORS configuration allows the Vite development origin', async () =
   assert.equal(response.headers['access-control-allow-origin'], 'http://localhost:5173');
 });
 
+test('CORS preflights allow browser auth headers before auth routes', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  for (const [origin, path] of [
+    ['http://localhost:5173', '/api/v1/auth/login'],
+    ['http://127.0.0.1:5173', '/api/v1/auth/refresh'],
+  ] as const) {
+    const response = await request(app)
+      .options(path)
+      .set('Origin', origin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type,x-session-transport');
+
+    assert.equal(response.status, 204);
+    assert.equal(response.headers['access-control-allow-origin'], origin);
+    assert.equal(response.headers['access-control-allow-credentials'], 'true');
+    assert.match(response.headers['access-control-allow-methods'] ?? '', /POST/);
+    assert.match(response.headers['access-control-allow-headers'] ?? '', /content-type/i);
+    assert.match(response.headers['access-control-allow-headers'] ?? '', /x-session-transport/i);
+  }
+});
+
+test('approved origins receive CORS headers on request errors', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const response = await request(app)
+    .post('/api/v1/example')
+    .set('Origin', 'http://localhost:5173')
+    .set('Content-Type', 'application/json')
+    .send('{"broken":');
+
+  assert.equal(response.status, 400);
+  assert.equal(response.headers['access-control-allow-origin'], 'http://localhost:5173');
+});
+
 test('private user and message routes require a valid access token', async () => {
   const app = createApp({ config, databaseStatus: () => false });
 

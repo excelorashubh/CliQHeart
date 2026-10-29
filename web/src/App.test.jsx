@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import App from './App.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 
@@ -13,8 +13,13 @@ function renderApp(path) {
 }
 
 function AuthStatus() {
-  const { isAuthenticated, isInitializing, user } = useAuth();
-  return <p>{isInitializing ? 'Checking session' : isAuthenticated ? `@${user.username}` : 'Signed out'}</p>;
+  const { authError, isAuthenticated, isInitializing, user } = useAuth();
+  return <p>{isInitializing ? 'Checking session' : authError ? 'Retry needed' : isAuthenticated ? `@${user.username}` : 'Signed out'}</p>;
+}
+
+function CurrentLocation() {
+  const location = useLocation();
+  return <output aria-label="current location">{`${location.pathname}${location.search}${location.hash}`}</output>;
 }
 
 function refreshRejectedResponse() {
@@ -43,6 +48,66 @@ describe('route handling', () => {
     expect(fetchMock.mock.calls[0][1].credentials).toBe('include');
     expect(fetchMock.mock.calls[1][0]).toContain('/users/me');
     expect(fetchMock.mock.calls[1][1].headers.get('authorization')).toContain('restored-access-token');
+  });
+
+  it('continues cookie restoration if browser storage is unavailable', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('Storage access denied.');
+    });
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ accessToken: 'restored-token' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        user: { id: 'user-id', username: 'test_user' },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    render(<AuthProvider><AuthStatus /></AuthProvider>);
+
+    expect(await screen.findByText('@test_user')).toBeInTheDocument();
+  });
+
+  it('keeps the session recoverable when the backend returns a non-session 403', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'Browser origin is not allowed.' }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    ));
+    render(<AuthProvider><AuthStatus /></AuthProvider>);
+
+    expect(await screen.findByText('Retry needed')).toBeInTheDocument();
+  });
+
+  it('preserves the full protected URL through login', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url).includes('/auth/refresh')) return refreshRejectedResponse();
+      if (String(url).includes('/auth/login')) {
+        return new Response(JSON.stringify({
+          accessToken: 'access-token',
+          user: { id: 'user-id', username: 'test_user' },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (String(url).includes('/users/me')) {
+        return new Response(JSON.stringify({
+          user: { id: 'user-id', username: 'test_user', displayName: 'Test User' },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ conversations: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    render(
+      <MemoryRouter initialEntries={['/messages/conversation-1?tab=unread#latest']}>
+        <AuthProvider><App /><CurrentLocation /></AuthProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email or username' }), {
+      target: { value: 'test@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'Password123!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByText('/messages/conversation-1?tab=unread#latest')).toBeInTheDocument();
   });
 
   it('redirects signed-out visitors from protected pages to login', async () => {

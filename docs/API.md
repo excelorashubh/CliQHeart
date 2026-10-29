@@ -64,8 +64,12 @@ browser clients use the cookie transport and the response clears the cookie.
 Logout-all requires an access token and revokes every session for that user.
 
 Browser cookie requests require `X-Session-Transport: cookie`, an exact
-configured `Origin`, credentialed CORS, and HTTPS in production. The cookie is
-`HttpOnly; Secure; SameSite=None` in production and scoped to `/api/v1/auth`.
+configured `Origin`, credentialed CORS, and HTTPS. The backend always
+permits `http://localhost:5173` and `http://127.0.0.1:5173` for local
+development; production website origins must be explicitly configured in
+`CORS_ORIGINS`. The cookie is always
+`HttpOnly; Secure; SameSite=None` and scoped to `/api/v1/auth`, including when
+the Render service's `NODE_ENV` is accidentally left at `development`.
 
 ## Authenticated user endpoints
 

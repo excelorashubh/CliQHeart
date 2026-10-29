@@ -24,12 +24,14 @@ export class ApiError extends Error {
   }
 }
 
-export function resolveApiUrl(apiBaseUrl, path, useDevelopmentProxy = import.meta.env.DEV) {
-  const normalizedPath = path.replace(/^\/+/, '');
-  if (!useDevelopmentProxy) return `${apiBaseUrl}/${normalizedPath}`;
+function isConfirmedInvalidSession(error) {
+  return error?.status === 401 ||
+    (error?.status === 403 && error.message === 'Account is not available.');
+}
 
-  const apiPath = new URL(apiBaseUrl).pathname.replace(/\/+$/, '');
-  return `${apiPath}/${normalizedPath}`;
+export function resolveApiUrl(apiBaseUrl, path) {
+  const normalizedPath = path.replace(/^\/+/, '');
+  return `${apiBaseUrl}/${normalizedPath}`;
 }
 
 export async function apiRequest(path, options = {}) {
@@ -91,7 +93,7 @@ export async function apiRequest(path, options = {}) {
       sessionRestoredHandler(session.user);
       return apiRequest(path, { ...options, retryAuth: false });
     } catch (reason) {
-      if (reason?.status === 401 || reason?.status === 403) {
+      if (isConfirmedInvalidSession(reason)) {
         setAccessToken(null);
         unauthorizedHandler();
       }

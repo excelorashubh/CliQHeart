@@ -22,11 +22,9 @@ VITE_API_BASE_URL=https://cliqheart.onrender.com/api/v1
 ```
 
 For local-backend development, change that one value to
-`http://localhost:4000/api/v1`. Vite proxies `/api/v1` requests to the host in
-this setting, so browser requests are same-origin during development. This
-avoids requiring production CORS to allow localhost. A direct preflight to the
-current production API did not return `Access-Control-Allow-Origin` for
-`http://localhost:5173`; the Vite proxy is the local-development workaround.
+`http://localhost:4000/api/v1`. The web client sends requests directly to the
+configured API host, including during local development, so the backend must
+allow `http://localhost:5173` in both CORS and its cookie-auth origin check.
 
 Run the frontend:
 
@@ -34,11 +32,12 @@ Run the frontend:
 npm run dev
 ```
 
-Vite prints the local URL, normally `http://localhost:5173`. The proxy forwards
-the browser's origin so cookie-auth requests can be checked against the
-backend's exact-origin allowlist. A configured `CORS_ORIGINS` replaces defaults;
-include `http://localhost:5173` for local browser development and the exact
-deployed website origin. Do not use wildcard origins.
+Vite prints the local URL, normally `http://localhost:5173`. The backend
+configuration always includes `http://localhost:5173` and
+`http://127.0.0.1:5173`, and also honors production origins listed in
+`CORS_ORIGINS`. On Render, set `CORS_ORIGINS` to the verified
+production website origin; no production frontend hostname is assumed here.
+Do not use wildcard origins.
 
 ## Build and static deployment
 
@@ -51,9 +50,8 @@ npm run preview
 ```
 
 Deploy the contents of `web/dist/` to a static host. Configure
-`VITE_API_BASE_URL` as a build-time environment variable. Static builds call
-the configured API directly, so the production backend must allow the exact
-deployed website origin in `CORS_ORIGINS`. Configure SPA
+`VITE_API_BASE_URL` as a build-time environment variable. Static builds call the configured API directly, so the production backend must
+allow the exact deployed website origin in `CORS_ORIGINS`. Configure SPA
 fallback/rewrite rules so application paths such as `/profile/<id>` and
 `/messages/<id>` serve `index.html`. Add the site's exact origin to backend
 `CORS_ORIGINS`. Never put backend secrets in Vite environment variables; every
@@ -81,11 +79,10 @@ set it to `365d` in Render to meet the full product lifetime. Access tokens
 include a session ID and are rejected after that session is revoked. Session
 expiry is checked in application queries; MongoDB TTL is cleanup only.
 
-Browser cookie auth requires HTTPS in production, credentialed CORS, and exact
-frontend origins. Set Render `CORS_ORIGINS` to the actual website origin plus
-`http://localhost:5173` when local browser auth will proxy to Render. Production
-uses `Secure; HttpOnly; SameSite=None` because the current API and website may
-be on different sites. Browser privacy settings can block third-party cookies;
+Browser cookie auth requires HTTPS, credentialed CORS, and exact frontend
+origins. Set Render `CORS_ORIGINS` to the verified website origin. Production
+uses `Secure; HttpOnly; SameSite=None` independently of `NODE_ENV` because the
+API and website may be on different sites. Browser privacy settings can block third-party cookies;
 for reliable production login persistence, deploy the API on a same-site custom
 domain or reverse proxy it under the website origin. No deployed website origin
 was provided or configured by this change.

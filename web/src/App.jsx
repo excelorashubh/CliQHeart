@@ -18,7 +18,10 @@ function Protected({ children }) {
       <ErrorState error={authError} onRetry={() => refreshSession().catch(() => {})} />
     </main>;
   }
-  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (!user) {
+    const from = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to="/login" replace state={{ from }} />;
+  }
   return <AppLayout>{children}</AppLayout>;
 }
 

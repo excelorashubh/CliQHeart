@@ -33,6 +33,8 @@ test('loads application, database, CORS, token lifetime, and logging configurati
   assert.deepEqual(config.CORS_ORIGINS, [
     'https://example.test',
     'https://admin.example.test',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
   ]);
   assert.equal(config.LOG_LEVEL, 'debug');
   assert.equal(config.ACCESS_TOKEN_TTL, '20m');
@@ -48,7 +50,11 @@ test('uses safe defaults for optional configuration', () => {
   assert.equal(config.PORT, 4000);
   assert.equal(config.APP_NAME, 'CliQHeart');
   assert.equal(config.MONGODB_DB_NAME, 'cliqheart');
-  assert.deepEqual(config.CORS_ORIGINS, ['http://localhost:3000', 'http://localhost:5173']);
+  assert.deepEqual(config.CORS_ORIGINS, [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ]);
   assert.equal(config.LOG_LEVEL, 'info');
 });
 

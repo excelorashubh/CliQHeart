@@ -105,9 +105,14 @@ test('browser cookie auth rejects untrusted origins and never returns refresh to
     .post('/api/v1/auth/refresh')
     .set('Origin', 'http://localhost:5173')
     .set('X-Session-Transport', 'cookie');
+  const loopbackMissingSession = await request(app)
+    .post('/api/v1/auth/refresh')
+    .set('Origin', 'http://127.0.0.1:5173')
+    .set('X-Session-Transport', 'cookie');
 
   assert.equal(rejected.status, 403);
   assert.equal(missingSession.status, 401);
+  assert.equal(loopbackMissingSession.status, 401);
   assert.equal(missingSession.body.refreshToken, undefined);
 });
 
@@ -122,6 +127,9 @@ test('browser logout clears the HttpOnly cookie and native logout stays idempote
 
   assert.equal(browserLogout.status, 204);
   assert.ok(clearedCookie.includes('HttpOnly'));
+  assert.ok(clearedCookie.includes('Secure'));
+  assert.ok(clearedCookie.includes('SameSite=None'));
   assert.ok(clearedCookie.includes('cliqheart_refresh=;'));
+  assert.ok(clearedCookie.includes('Path=/api/v1/auth'));
   assert.equal(nativeLogout.status, 204);
 });

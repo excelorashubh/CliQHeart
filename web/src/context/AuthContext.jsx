@@ -6,8 +6,35 @@ import {
 const AuthContext = createContext(null);
 const pendingLogoutKey = 'cliqheart.pendingLogout';
 
+function logAuthDiagnostic(event, status) {
+  if (!import.meta.env.DEV) return;
+  console.debug('[CliQHeart auth]', event, ...(status ? [`HTTP ${status}`] : []));
+}
+
+function hasPendingLogout() {
+  try {
+    return localStorage.getItem(pendingLogoutKey) === 'true';
+  } catch {
+    logAuthDiagnostic('browser storage unavailable; continuing cookie restoration');
+    return false;
+  }
+}
+
+function clearPendingLogout() {
+  try {
+    localStorage.removeItem(pendingLogoutKey);
+  } catch {
+    logAuthDiagnostic('could not clear the pending logout marker');
+  }
+}
+
 function isCompleteUser(user) {
   return typeof user?.id === 'string' && typeof user.username === 'string';
+}
+
+function isConfirmedInvalidSession(error) {
+  return error?.status === 401 ||
+    (error?.status === 403 && error.message === 'Account is not available.');
 }
 
 export function AuthProvider({ children }) {
@@ -27,13 +54,15 @@ export function AuthProvider({ children }) {
       setLoading(true);
       setAuthError('');
       try {
-        if (localStorage.getItem(pendingLogoutKey)) {
+        if (hasPendingLogout()) {
+          logAuthDiagnostic('retrying pending logout');
           await authApi.logout();
-          localStorage.removeItem(pendingLogoutKey);
+          clearPendingLogout();
           clearSession();
           return null;
         }
 
+        logAuthDiagnostic('restoring browser session');
         const result = await authApi.refresh();
         if (typeof result?.accessToken !== 'string' || !result.accessToken.trim()) {
           throw new Error('The API returned an incomplete refreshed session.');
@@ -44,9 +73,16 @@ export function AuthProvider({ children }) {
           throw new Error('The API returned an incomplete authenticated profile.');
         }
         setUser(profile.user);
+        logAuthDiagnostic('browser session restored');
         return profile.user;
       } catch (error) {
-        if (error?.status === 401 || error?.status === 403) {
+        logAuthDiagnostic(
+          isConfirmedInvalidSession(error)
+            ? 'no valid browser session'
+            : 'session restoration unavailable',
+          error?.status,
+        );
+        if (isConfirmedInvalidSession(error)) {
           clearSession();
           setAuthError('');
         } else {
@@ -74,6 +110,7 @@ export function AuthProvider({ children }) {
       }
       setUser(profile.user);
       setAuthError('');
+      clearPendingLogout();
       return profile.user;
     } catch (error) {
       setAccessToken(null);
@@ -106,7 +143,7 @@ export function AuthProvider({ children }) {
     try {
       await authApi.logout();
       remoteRevoked = true;
-      localStorage.removeItem(pendingLogoutKey);
+      clearPendingLogout();
     } catch (error) {
       remoteError = error.message || 'The server could not confirm session revocation.';
     } finally {

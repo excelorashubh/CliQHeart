@@ -71,6 +71,8 @@ export function createApp({
   app.use(
     cors({
       credentials: true,
+      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Accept', 'Authorization', 'Content-Type', 'X-Session-Transport'],
       origin: (origin, callback) => {
         callback(
           null,

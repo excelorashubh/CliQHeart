@@ -149,7 +149,7 @@ export class AuthService {
     const refreshToken = createRefreshToken(String(sessionId));
     const now = new Date();
     const expiresAt = new Date(now.getTime() + getSessionLifetimeMs(this.config.REFRESH_TOKEN_TTL));
-    const session = await SessionModel.create({
+    await SessionModel.create({
       _id: sessionId,
       userId: user._id,
       refreshTokenHash: hashRefreshToken(refreshToken),

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ApiError, apiRequest, resolveApiUrl, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
+  ApiError, apiRequest, authApi, resolveApiUrl, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
 } from './api.js';
 
 describe('apiRequest', () => {
@@ -32,11 +32,33 @@ describe('apiRequest', () => {
     expect(options.body).toBe('{"enabled":true}');
   });
 
-  it('uses the Vite same-origin proxy in development and the configured API in production', () => {
-    expect(resolveApiUrl('https://api.example.test/api/v1', 'auth/login', true))
-      .toBe('/api/v1/auth/login');
-    expect(resolveApiUrl('https://api.example.test/api/v1', 'auth/login', false))
+  it('uses the configured API host in development and production', () => {
+    expect(resolveApiUrl('https://api.example.test/api/v1', 'auth/login'))
       .toBe('https://api.example.test/api/v1/auth/login');
+    expect(resolveApiUrl('https://api.example.test/api/v1', 'auth/login'))
+      .toBe('https://api.example.test/api/v1/auth/login');
+  });
+
+  it('sends login to the deployed backend with cookie credentials and the existing JSON body', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'https://cliqheart.onrender.com/api/v1');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({
+        accessToken: 'access-token',
+        user: { id: 'user-id', username: 'test_user' },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ));
+
+    await authApi.login({ identifier: 'test@example.com', password: 'Password123!' });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://cliqheart.onrender.com/api/v1/auth/login',
+    );
+    expect(fetchMock.mock.calls[0][1].credentials).toBe('include');
+    expect(fetchMock.mock.calls[0][1].headers.get('x-session-transport')).toBe('cookie');
+    expect(fetchMock.mock.calls[0][1].body).toBe(
+      '{"identifier":"test@example.com","password":"Password123!"}',
+    );
   });
 
   it('normalizes API errors and clears an expired access token', async () => {
@@ -56,6 +78,31 @@ describe('apiRequest', () => {
 
     expect(unauthorized).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not clear a saved session when refresh is forbidden for an origin/configuration issue', async () => {
+    const unauthorized = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Authentication required.' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Browser origin is not allowed.' }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ user: { id: 'user-id' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+    setAccessToken('possibly-valid-token');
+    setUnauthorizedHandler(unauthorized);
+
+    await expect(apiRequest('users/me')).rejects.toMatchObject({ status: 403 });
+    await expect(apiRequest('users/me', { retryAuth: false })).resolves.toEqual({ user: { id: 'user-id' } });
+
+    expect(unauthorized).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[2][1].headers.get('authorization')).toBeTruthy();
   });
 
   it('shares one refresh between concurrent requests and retries each request once', async () => {

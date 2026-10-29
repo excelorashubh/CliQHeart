@@ -22,7 +22,7 @@ export function createAuthRouter(config: AppConfig): Router {
       }
       const payload = registerSchema.parse(request.body);
       const result = await service.register(payload);
-      sendSession(response, result, config, usesCookieTransport(request), 201, 'Registration successful.');
+      sendSession(response, result, usesCookieTransport(request), 201, 'Registration successful.');
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({
@@ -52,7 +52,7 @@ export function createAuthRouter(config: AppConfig): Router {
       }
       const payload = loginSchema.parse(request.body);
       const result = await service.login(payload);
-      sendSession(response, result, config, usesCookieTransport(request), 200);
+      sendSession(response, result, usesCookieTransport(request), 200);
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid login request.' });
@@ -96,7 +96,7 @@ export function createAuthRouter(config: AppConfig): Router {
         return;
       }
       const result = await service.refresh(refreshToken);
-      sendSession(response, result, config, cookieTransport);
+      sendSession(response, result, cookieTransport);
     } catch (error) {
       if (error instanceof ZodError || isSessionError(error)) {
         response.status(401).json({ error: 'Refresh session is invalid or expired.' });
@@ -121,7 +121,7 @@ export function createAuthRouter(config: AppConfig): Router {
         ? readRefreshCookie(request)
         : request.body?.refreshToken;
       await service.logout(typeof refreshToken === 'string' ? refreshToken : undefined);
-      if (cookieTransport) clearRefreshCookie(response, config);
+      if (cookieTransport) clearRefreshCookie(response);
       response.status(204).end();
     } catch (error) {
       if (error instanceof ZodError) {
@@ -147,12 +147,11 @@ export function createAuthRouter(config: AppConfig): Router {
 function sendSession(
   response: Response,
   result: AuthSessionResult,
-  config: AppConfig,
   cookieTransport: boolean,
   status = 200,
   message?: string,
 ): void {
-  if (cookieTransport) setRefreshCookie(response, result.refreshToken, result.expiresAt, config);
+  if (cookieTransport) setRefreshCookie(response, result.refreshToken, result.expiresAt);
   response.status(status).json({
     ...(message ? { message } : {}),
     accessToken: result.accessToken,
@@ -185,21 +184,21 @@ function readRefreshCookie(request: Request): string | undefined {
   return undefined;
 }
 
-function setRefreshCookie(response: Response, token: string, expiresAt: Date, config: AppConfig): void {
+function setRefreshCookie(response: Response, token: string, expiresAt: Date): void {
   response.cookie(refreshCookieName, token, {
     httpOnly: true,
-    secure: config.NODE_ENV === 'production',
-    sameSite: config.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: true,
+    sameSite: 'none',
     path: refreshCookiePath,
     maxAge: Math.max(0, expiresAt.getTime() - Date.now()),
   });
 }
 
-function clearRefreshCookie(response: Response, config: AppConfig): void {
+function clearRefreshCookie(response: Response): void {
   response.clearCookie(refreshCookieName, {
     httpOnly: true,
-    secure: config.NODE_ENV === 'production',
-    sameSite: config.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: true,
+    sameSite: 'none',
     path: refreshCookiePath,
   });
 }
