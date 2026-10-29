@@ -64,6 +64,25 @@ export function createContentRouter(config: AppConfig): Router {
     }
   });
 
+  router.get('/posts/:postId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const postId = request.params.postId;
+      if (!postId || !Types.ObjectId.isValid(postId)) {
+        response.status(400).json({ error: 'Invalid post ID.' });
+        return;
+      }
+      const post = await PostModel.findById(postId).lean();
+      const [visiblePost] = post ? await contentListPayload([post]) : [];
+      if (!visiblePost) {
+        response.status(404).json({ error: 'Post not found.' });
+        return;
+      }
+      response.json({ post: visiblePost });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/users/:userId/posts', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const userId = request.params.userId;
@@ -210,6 +229,25 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid page size.' });
         return;
       }
+      next(error);
+    }
+  });
+
+  router.get('/reels/:reelId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const reelId = request.params.reelId;
+      if (!reelId || !Types.ObjectId.isValid(reelId)) {
+        response.status(400).json({ error: 'Invalid Reel ID.' });
+        return;
+      }
+      const reel = await ReelModel.findById(reelId).lean();
+      const [visibleReel] = reel ? await contentListPayload([reel]) : [];
+      if (!visibleReel) {
+        response.status(404).json({ error: 'Reel not found.' });
+        return;
+      }
+      response.json({ reel: visibleReel });
+    } catch (error) {
       next(error);
     }
   });

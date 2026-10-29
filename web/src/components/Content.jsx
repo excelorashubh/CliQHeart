@@ -5,7 +5,7 @@ import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, Skeleton } from './Feedback.jsx';
 import { contentApi } from '../services/api.js';
 
-export function ContentFeed({ kind = 'posts', userId, onLoaded }) {
+export function ContentFeed({ kind = 'posts', userId, layout = 'feed' }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -14,21 +14,22 @@ export function ContentFeed({ kind = 'posts', userId, onLoaded }) {
     setError('');
     try {
       const result = userId
-        ? await contentApi.userPosts(userId, 30, { signal })
+        ? kind === 'reels'
+          ? await contentApi.userReels(userId, 30, { signal })
+          : await contentApi.userPosts(userId, 30, { signal })
         : kind === 'reels'
           ? await contentApi.reels(30, { signal })
           : await contentApi.posts(30, { signal });
       if (signal?.aborted) return;
       const nextItems = result[kind] || result.posts || [];
       setItems(nextItems);
-      onLoaded?.(nextItems.length);
     } catch (reason) {
       if (signal?.aborted || reason.name === 'AbortError') return;
       setError(reason.message || 'Could not load content.');
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [kind, onLoaded, userId]);
+  }, [kind, userId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -41,12 +42,14 @@ export function ContentFeed({ kind = 'posts', userId, onLoaded }) {
   if (items.length === 0) {
     return <EmptyState
       title={kind === 'reels' ? 'No Reels to show yet' : 'No posts to show yet'}
-      description={userId ? 'Published posts from this profile will appear here.' : 'Follow people and share a post to get started.'}
+      description={userId
+        ? `Published ${kind === 'reels' ? 'Reels' : 'posts'} from this profile will appear here.`
+        : 'Follow people and share a post to get started.'}
       icon={kind === 'reels' ? Play : Heart}
     />;
   }
-  return <div className={`content-feed${kind === 'reels' ? ' content-feed--reels' : ''}`}>
-    {items.map((item) => <ContentCard key={item.id} item={item} />)}
+  return <div className={`content-feed${kind === 'reels' ? ' content-feed--reels' : ''}${layout === 'grid' ? ' content-feed--grid' : ''}`}>
+    {items.map((item) => <ContentCard key={item.id} item={item} layout={layout} kind={kind} />)}
   </div>;
 }
 
@@ -95,8 +98,19 @@ export function StoryFeed() {
   </section>;
 }
 
-function ContentCard({ item }) {
+function ContentCard({ item, layout, kind }) {
   const isVideo = item.media?.resourceType === 'video';
+  if (layout === 'grid') {
+    return <Link
+      className="content-grid-item"
+      to={`/${kind === 'reels' ? 'reel' : 'post'}/${item.id}`}
+      aria-label={`View post by ${item.owner?.username || 'CliQHeart member'}${item.caption ? `: ${item.caption}` : ''}`}
+    >
+      <img src={item.media?.thumbnailUrl || item.media?.secureUrl} alt="" loading="lazy" />
+      {isVideo && <span className="content-grid-video" aria-label="Video"><Play size={18} fill="currentColor" /></span>}
+      <span className="content-grid-overlay">{item.caption || `Post by @${item.owner?.username || 'member'}`}</span>
+    </Link>;
+  }
   return <article className="content-card">
     <header className="content-card-header">
       <Link to={`/profile/${item.owner?.id}`} className="content-card-owner">

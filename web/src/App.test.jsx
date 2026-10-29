@@ -257,4 +257,65 @@ describe('route handling', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toContain('/auth/refresh');
   });
+
+  it('loads profiles by username, switches between real post and Reel grids, and opens post details', async () => {
+    const profile = {
+      id: 'profile-id',
+      username: 'test_user',
+      displayName: 'Test User',
+      followersCount: 4,
+      followingCount: 2,
+      postsCount: 1,
+      reelsCount: 0,
+    };
+    const post = {
+      id: 'post-id',
+      caption: 'A real shared moment',
+      owner: { id: profile.id, username: profile.username, displayName: profile.displayName },
+      media: { resourceType: 'image', secureUrl: 'https://media.example/post.jpg' },
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const path = String(url);
+      if (path.includes('/auth/refresh')) {
+        return new Response(JSON.stringify({ accessToken: 'access-token', user: profile }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/users/me') || path.includes('/users/test_user')) {
+        return new Response(JSON.stringify({ user: profile }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/users/profile-id/posts')) {
+        return new Response(JSON.stringify({ posts: [post] }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/users/profile-id/reels')) {
+        return new Response(JSON.stringify({ reels: [] }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/posts/post-id')) {
+        return new Response(JSON.stringify({ post }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+
+    renderApp('/profile/test_user');
+    expect(await screen.findByRole('heading', { name: 'test_user' })).toBeInTheDocument();
+    const mainNavigation = screen.getByRole('navigation', { name: 'Main navigation' });
+    expect(mainNavigation.querySelector('a[href="/profile"]')).toHaveClass('is-active');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/test_user'))).toBe(true);
+    const postLink = await screen.findByRole('link', { name: /view post by test_user: a real shared moment/i });
+    expect(postLink).toHaveAttribute('href', '/post/post-id');
+    fireEvent.click(screen.getByRole('tab', { name: /reels/i }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/profile-id/reels'))).toBe(true));
+    fireEvent.click(screen.getByRole('tab', { name: /posts/i }));
+    fireEvent.click(await screen.findByRole('link', { name: /view post by test_user: a real shared moment/i }));
+    expect(await screen.findByText('A real shared moment')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/posts/post-id'))).toBe(true);
+  });
 });

@@ -4,6 +4,8 @@ import type { AppConfig } from '../../config/env';
 import { UserModel } from '../../models/user';
 import { MediaModel } from '../media/media.model';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
+import { PostModel } from '../content/post.model';
+import { ReelModel } from '../content/reel.model';
 import { FollowModel } from './follow.model';
 import { userProfileUpdateSchema } from './user.validation';
 
@@ -193,12 +195,15 @@ export function createUserRouter(config: AppConfig): Router {
   router.get('/users/:userId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const { userId } = request.params;
-      if (!userId || !/^[a-f\d]{24}$/i.test(userId)) {
-        response.status(400).json({ error: 'Invalid user ID.' });
+      if (!userId || (!/^[a-f\d]{24}$/i.test(userId) && !/^[a-z0-9._]{3,30}$/i.test(userId))) {
+        response.status(400).json({ error: 'Invalid user ID or username.' });
         return;
       }
       const viewerId = (request as AuthenticatedRequest).authenticatedUserId!;
-      const user = await UserModel.findOne({ _id: userId, accountStatus: 'active' })
+      const user = await UserModel.findOne({
+        ...( /^[a-f\d]{24}$/i.test(userId) ? { _id: userId } : { username: userId.toLowerCase() }),
+        accountStatus: 'active',
+      })
         .select(publicProfileFields)
         .lean();
       if (!user) {
@@ -307,9 +312,11 @@ export function createUserRouter(config: AppConfig): Router {
 
 async function profilePayload(user: { _id: unknown; [key: string]: unknown }, viewerId: string) {
   const userId = String(user._id);
-  const [followersCount, followingCount, isFollowing] = await Promise.all([
+  const [followersCount, followingCount, postsCount, reelsCount, isFollowing] = await Promise.all([
     FollowModel.countDocuments({ followedId: userId }),
     FollowModel.countDocuments({ followerId: userId }),
+    PostModel.countDocuments({ ownerId: userId }),
+    ReelModel.countDocuments({ ownerId: userId }),
     userId === viewerId
       ? Promise.resolve(false)
       : FollowModel.exists({ followerId: viewerId, followedId: userId }),
@@ -319,6 +326,8 @@ async function profilePayload(user: { _id: unknown; [key: string]: unknown }, vi
     ...user,
     followersCount,
     followingCount,
+    postsCount,
+    reelsCount,
     isFollowing: Boolean(isFollowing),
   };
 }

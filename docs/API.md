@@ -80,8 +80,8 @@ the Render service's `NODE_ENV` is accidentally left at `development`.
 ### `GET /api/v1/users/me`
 
 Returns the authenticated user's public profile fields (`id`, `username`,
-`displayName`, `bio`, and `avatarUrl`). Email and account internals are not
-returned by this endpoint.
+`displayName`, `bio`, and `avatarUrl`) and real post, Reel, follower, and
+following counts. Email and account internals are not returned by this endpoint.
 
 ### `PATCH /api/v1/users/me`
 
@@ -101,9 +101,9 @@ authenticated viewer. Private email and account status are excluded.
 
 ### `GET /api/v1/users/:userId`
 
-Returns an active user's public profile, real follower/following counts, and
-whether the authenticated viewer follows that user. Email and other private
-fields are excluded.
+Accepts an active user's MongoDB ID or username. Returns the public profile,
+real post, Reel, follower, and following counts, and whether the authenticated
+viewer follows that user. Email and other private fields are excluded.
 
 ### `POST /api/v1/users/:userId/follow` and `DELETE /api/v1/users/:userId/follow`
 
@@ -134,6 +134,7 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
 
 - `POST /api/v1/posts` publishes an owned verified image or video with an
   optional caption. `GET /api/v1/posts` returns the authenticated feed;
+  `GET /api/v1/posts/:postId` returns a post detail;
   `GET /api/v1/users/:userId/posts` returns a user's posts; the owner can
   remove a post with `DELETE /api/v1/posts/:postId`.
 - `POST /api/v1/stories` publishes a verified image or video. Stories expire
@@ -142,6 +143,7 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
   own stories with `DELETE /api/v1/stories/:storyId`.
 - `POST /api/v1/reels` publishes a verified video of up to 180 seconds.
   `GET /api/v1/reels` returns the authenticated feed;
+  `GET /api/v1/reels/:reelId` returns a Reel detail;
   `GET /api/v1/users/:userId/reels` returns a user's Reels; owners can remove
   their own Reels with `DELETE /api/v1/reels/:reelId`.
 

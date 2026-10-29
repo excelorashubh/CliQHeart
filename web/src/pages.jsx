@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Compass, Eye, EyeOff, Heart,
+  ArrowLeft, ArrowRight, ArrowUpRight, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart,
   LockKeyhole, MessageCircle, Search, ShieldCheck, Sparkles,
+  Share2,
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import { Avatar, Brand } from './components/Brand.jsx';
@@ -351,10 +352,9 @@ export function ProfilePage({ editOnOpen = false }) {
   const [listError, setListError] = useState('');
   const [cursor, setCursor] = useState(null);
   const [form, setForm] = useState({ username: '', displayName: '', bio: '', avatarMediaId: '' });
-  const [postCount, setPostCount] = useState('—');
+  const [activeContentTab, setActiveContentTab] = useState('posts');
+  const [shareMessage, setShareMessage] = useState('');
   const navigate = useNavigate();
-  const updatePostCount = useCallback((count) => setPostCount(count), []);
-
   const loadProfile = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -464,6 +464,32 @@ export function ProfilePage({ editOnOpen = false }) {
     }
   }
 
+  async function shareProfile() {
+    const url = `${window.location.origin}/profile/${encodeURIComponent(profile.username)}`;
+    setShareMessage('');
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${profile.displayName} on CliQHeart`, url });
+        setShareMessage('Profile shared.');
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setShareMessage('Profile link copied.');
+      } else {
+        throw new Error('Sharing is not supported by this browser.');
+      }
+    } catch (reason) {
+      if (reason.name !== 'AbortError') setShareMessage(reason.message || 'Could not share this profile.');
+    }
+  }
+
+  function handleContentTabKey(event) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const nextTab = activeContentTab === 'posts' ? 'reels' : 'posts';
+    setActiveContentTab(nextTab);
+    document.getElementById(`profile-tab-${nextTab}`)?.focus();
+  }
+
   if (loading) return <div className="page-content"><Skeleton rows={4} /></div>;
   if (error && !profile) return <div className="page-content"><ErrorState error={error} onRetry={loadProfile} /></div>;
   if (!profile) return null;
@@ -474,9 +500,11 @@ export function ProfilePage({ editOnOpen = false }) {
       <div className="profile-info">
         <div className="profile-title"><h1>{profile.username}</h1>{isOwn
           ? <button className="button button--outline" onClick={() => setEditOpen(true)}>Edit profile</button>
-          : <><button className={`button ${profile.isFollowing ? 'button--outline' : 'button--primary'}`} onClick={toggleFollow} disabled={busy}>{profile.isFollowing ? 'Following' : 'Follow'}</button><button className="button button--outline" onClick={messageUser}>Message</button></>}</div>
+          : <><button className={`button ${profile.isFollowing ? 'button--outline' : 'button--primary'}`} onClick={toggleFollow} disabled={busy}>{profile.isFollowing ? 'Following' : 'Follow'}</button><button className="button button--outline" onClick={messageUser}>Message</button></>}
+          <button className="button button--outline profile-share-button" onClick={shareProfile} aria-label="Share profile"><Share2 size={15} /><span>Share</span></button>
+        </div>
         <div className="profile-counts">
-            <span><b>{postCount}</b> posts</span>
+            <span><b>{profile.postsCount ?? '—'}</b> posts</span>
           <button onClick={() => openList('followers')}><b>{profile.followersCount || 0}</b> followers</button>
           <button onClick={() => openList('following')}><b>{profile.followingCount || 0}</b> following</button>
         </div>
@@ -484,8 +512,17 @@ export function ProfilePage({ editOnOpen = false }) {
       </div>
     </header>
     {error && <p className="inline-error">{error}</p>}
-    <div className="profile-content"><div className="profile-tabs"><span className="profile-tab is-active"><Heart size={15} /> POSTS</span></div>
-      <ContentFeed userId={profile.id} onLoaded={updatePostCount} />
+    {shareMessage && <p className="profile-share-status" role="status">{shareMessage}</p>}
+    <div className="profile-content">
+      <div className="profile-tabs" role="tablist" aria-label="Profile content">
+        <button id="profile-tab-posts" type="button" className={`profile-tab${activeContentTab === 'posts' ? ' is-active' : ''}`} role="tab" aria-controls="profile-panel-posts" aria-selected={activeContentTab === 'posts'} onClick={() => setActiveContentTab('posts')} onKeyDown={handleContentTabKey}><Grid3X3 size={15} /> POSTS</button>
+        <button id="profile-tab-reels" type="button" className={`profile-tab${activeContentTab === 'reels' ? ' is-active' : ''}`} role="tab" aria-controls="profile-panel-reels" aria-selected={activeContentTab === 'reels'} onClick={() => setActiveContentTab('reels')} onKeyDown={handleContentTabKey}><Clapperboard size={15} /> REELS</button>
+      </div>
+      <div id={`profile-panel-${activeContentTab}`} role="tabpanel" aria-labelledby={`profile-tab-${activeContentTab}`} tabIndex={0}>
+        {activeContentTab === 'posts'
+          ? <ContentFeed key={`${profile.id}-posts`} userId={profile.id} layout="grid" />
+          : <ContentFeed key={`${profile.id}-reels`} kind="reels" userId={profile.id} layout="grid" />}
+      </div>
     </div>
     {editOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditOpen(false); }}>
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title">
@@ -623,6 +660,53 @@ export function ReelsPage() {
     <header className="page-heading"><div><p className="eyebrow">SHORT VIDEOS</p><h1>Reels</h1><p className="heading-subtitle">Discover video moments from the CliQHeart community.</p></div><Link className="button button--primary" to="/create">Create a Reel</Link></header>
     <ContentFeed kind="reels" />
   </div>;
+}
+
+export function ContentDetailPage({ kind }) {
+  const { postId, reelId } = useParams();
+  const id = kind === 'reel' ? reelId : postId;
+  const [item, setItem] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const result = kind === 'reel'
+          ? await contentApi.reel(id, { signal: controller.signal })
+          : await contentApi.post(id, { signal: controller.signal });
+        if (!controller.signal.aborted) setItem(result[kind]);
+      } catch (reason) {
+        if (!controller.signal.aborted && reason.name !== 'AbortError') setError(reason.message || 'Could not load this content.');
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+    load();
+    return () => controller.abort();
+  }, [id, kind]);
+
+  if (loading) return <div className="page-content"><Skeleton rows={3} /></div>;
+  if (error) return <div className="page-content"><ErrorState error={error} /></div>;
+  if (!item) return <div className="page-content"><EmptyState title="Content not found" description="This content may have been removed." icon={Heart} /></div>;
+  const isVideo = item.media?.resourceType === 'video';
+  return <article className="page-content content-detail">
+    <header className="content-card-header">
+      <Link to={`/profile/${item.owner.id}`} className="content-card-owner">
+        <Avatar name={item.owner.displayName} src={item.owner.avatarUrl} size="small" />
+        <span><strong>{item.owner.displayName}</strong><small>@{item.owner.username}</small></span>
+      </Link>
+      <Link to={`/profile/${item.owner.id}`} className="text-link">View profile</Link>
+    </header>
+    <div className="content-detail-media">
+      {isVideo
+        ? <video src={item.media.secureUrl} poster={item.media.thumbnailUrl} controls playsInline preload="metadata" />
+        : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.caption || 'Shared CliQHeart media'} />}
+    </div>
+    {item.caption && <p className="content-card-caption"><strong>@{item.owner.username}</strong> {item.caption}</p>}
+  </article>;
 }
 
 export function NotFoundPage() {

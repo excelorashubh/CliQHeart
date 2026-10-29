@@ -176,6 +176,12 @@ export const contentApi = {
     `users/${encodeURIComponent(id)}/posts?${new URLSearchParams({ limit: String(limit) })}`,
     options,
   ),
+  userReels: (id, limit = 30, options = {}) => apiRequest(
+    `users/${encodeURIComponent(id)}/reels?${new URLSearchParams({ limit: String(limit) })}`,
+    options,
+  ),
+  post: (id, options) => apiRequest(`posts/${encodeURIComponent(id)}`, options),
+  reel: (id, options) => apiRequest(`reels/${encodeURIComponent(id)}`, options),
   createPost: (body) => apiRequest('posts', { method: 'POST', body }),
   deletePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   stories: (options = {}) => apiRequest('stories', options),

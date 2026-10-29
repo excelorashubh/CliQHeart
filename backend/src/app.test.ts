@@ -56,6 +56,17 @@ test('versioned API root returns application metadata', async () => {
   });
 });
 
+test('post and Reel detail endpoints remain protected by access-token authentication', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const postResponse = await request(app).get('/api/v1/posts/507f1f77bcf86cd799439011');
+  const reelResponse = await request(app).get('/api/v1/reels/507f1f77bcf86cd799439011');
+
+  assert.equal(postResponse.status, 401);
+  assert.equal(reelResponse.status, 401);
+  assert.deepEqual(postResponse.body, { error: 'Authentication required.' });
+  assert.deepEqual(reelResponse.body, { error: 'Authentication required.' });
+});
+
 test('malformed JSON returns a safe 400 response', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   const response = await request(app)

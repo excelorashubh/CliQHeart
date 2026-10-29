@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
-  Heart, Home, LogOut, MessageCircle, PlusSquare, Search,
+  Heart, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
   Settings, Video, Menu, X,
 } from 'lucide-react';
 import { Brand, Avatar } from './Brand.jsx';
@@ -14,6 +14,7 @@ const links = [
   { name: 'Messages', to: '/messages', Icon: MessageCircle },
   { name: 'Notifications', to: '/notifications', Icon: Heart, disabled: true },
   { name: 'Create post', to: '/create', Icon: PlusSquare },
+  { name: 'Profile', to: '/profile', Icon: UserRound, profile: true },
 ];
 
 export function AppLayout({ children }) {
@@ -46,16 +47,20 @@ export function AppLayout({ children }) {
     <aside className={`sidebar${menuOpen ? ' sidebar--open' : ''}`}>
       <Link to="/" className="sidebar-brand" onClick={() => setMenuOpen(false)}><Brand /></Link>
       <nav className="nav-list" aria-label="Main navigation">
-        {links.map(({ name, to, Icon, disabled }) => disabled
+        {links.map(({ name, to, Icon, disabled, profile }) => disabled
           ? <Link className="nav-link nav-link--disabled" title={`${name} isn't supported by the current API`} to={to} key={name}>
               <Icon size={21} strokeWidth={1.8} /><span>{name}</span><small>Coming soon</small>
             </Link>
+          : profile
+            ? <NavLink className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
+                <Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /><span>{name}</span>
+              </NavLink>
           : <NavLink end={to === '/'} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
               <Icon size={21} strokeWidth={1.8} /><span>{name}</span>
             </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
-        <NavLink className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to="/settings"><Settings size={21} /><span>Settings</span></NavLink>
+        <NavLink className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to="/settings" onClick={() => setMenuOpen(false)}><Settings size={21} /><span>Settings</span></NavLink>
         <button className="nav-link logout-link" onClick={logout} disabled={logoutBusy}><LogOut size={21} /><span>{logoutBusy ? 'Logging out…' : 'Log out'}</span></button>
         {user && <Link to="/profile" className="account-shortcut">
           <Avatar name={user.displayName} src={user.avatarUrl} size="small" />
