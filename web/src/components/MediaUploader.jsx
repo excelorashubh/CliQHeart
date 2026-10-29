@@ -240,7 +240,7 @@ export function MediaUploader({ purpose, onReady, currentImageUrl = '', disabled
       onChange={chooseFile}
     />
     <div
-      className={`media-uploader-preview${dragging ? ' is-dragging' : ''}`}
+      className={`media-uploader-preview${purpose === 'reel' || purpose === 'story' ? ' media-uploader-preview--vertical' : ''}${dragging ? ' is-dragging' : ''}`}
       onDragEnter={(event) => { event.preventDefault(); if (!disabled && !busy) setDragging(true); }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => {

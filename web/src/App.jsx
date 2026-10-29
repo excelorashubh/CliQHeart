@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import { AppLayout } from './components/Layout.jsx';
 import { ErrorState, PageSpinner } from './components/Feedback.jsx';
@@ -46,6 +46,11 @@ function ProfessionalOnboardingRoute() {
     : <ProfessionalOnboardingPage />;
 }
 
+function LegacyReelRedirect() {
+  const { reelId } = useParams();
+  return <Navigate to={reelId ? `/reels/${encodeURIComponent(reelId)}` : '/reels'} replace />;
+}
+
 export default function App() {
   const { user, loading, authError, authRetryAfterSeconds, refreshSession } = useAuth();
   if (loading) return <PageSpinner />;
@@ -83,9 +88,10 @@ export default function App() {
     <Route path="/professional/promotions" element={<Protected><ProfessionalPromotionsPage /></Protected>} />
     <Route path="/create" element={<Protected><CreatePage /></Protected>} />
     <Route path="/reels" element={<Protected><ReelsPage /></Protected>} />
+    <Route path="/reels/:reelId" element={<Protected><ReelsPage /></Protected>} />
     <Route path="/notifications" element={<Protected><NotificationsPage /></Protected>} />
     <Route path="/post/:postId" element={<Protected><ContentDetailPage kind="post" /></Protected>} />
-    <Route path="/reel/:reelId" element={<Protected><ContentDetailPage kind="reel" /></Protected>} />
+    <Route path="/reel/:reelId" element={<LegacyReelRedirect />} />
     <Route path="*" element={<NotFoundPage />} />
   </Routes>;
 }

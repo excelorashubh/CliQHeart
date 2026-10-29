@@ -5,6 +5,7 @@ import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './Feedback.jsx';
 import { contentApi, userApi } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { getReelPath } from '../services/reelUrl.js';
 
 export function ContentFeed({
   kind = 'posts',
@@ -329,7 +330,7 @@ function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, on
     return <div className="content-grid-cell">
       <Link
         className="content-grid-item"
-        to={`/${kind === 'reels' ? 'reel' : 'post'}/${item.id}`}
+        to={kind === 'reels' ? getReelPath(item.id) : `/post/${encodeURIComponent(item.id)}`}
         aria-label={`View post by ${item.owner?.username || 'CliQHeart member'}${item.caption ? `: ${item.caption}` : ''}`}
       >
         <img src={item.media?.thumbnailUrl || item.media?.secureUrl} alt="" loading="lazy" />
@@ -343,7 +344,7 @@ function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, on
       {(bookmarkError || tagError) && <span className="content-action-error" role="alert">{bookmarkError || tagError}</span>}
     </div>;
   }
-  return <article className="content-card">
+  return <article className={`content-card${kind === 'reels' ? ' content-card--reel' : ''}`}>
     {showSuggestedLabel && item.owner?.id !== user?.id && !item.isFollowing && <div className="content-suggested-label">Suggested for you</div>}
     <header className="content-card-header">
       <Link to={`/profile/${item.owner?.id}`} className="content-card-owner">
@@ -361,7 +362,9 @@ function ContentCard({ item, layout, kind, showSuggestedLabel, onSavedChange, on
       {isVideo
         ? <video src={item.media.secureUrl} poster={item.media.thumbnailUrl} controls preload="metadata" />
         : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.altText || item.caption || 'Shared CliQHeart media'} loading="lazy" />}
-      {isVideo && <span className="content-video-badge"><Play size={14} fill="currentColor" /> {kind === 'reels' ? 'Reel' : 'Video'}</span>}
+      {isVideo && (kind === 'reels'
+        ? <Link className="content-video-badge content-video-badge--link" to={getReelPath(item.id)} aria-label="Open Reel"><Play size={14} fill="currentColor" /> Reel</Link>
+        : <span className="content-video-badge"><Play size={14} fill="currentColor" /> Video</span>)}
     </div>
     {item.caption && <ContentCaption
       username={item.owner?.username || 'member'}

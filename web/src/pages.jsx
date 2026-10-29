@@ -11,6 +11,7 @@ import { Avatar, Brand } from './components/Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './components/Feedback.jsx';
 import { ContentFeed, StoryFeed } from './components/Content.jsx';
 import { MediaUploader } from './components/MediaUploader.jsx';
+import { ReelsExperience } from './components/ReelsExperience.jsx';
 import { authApi, contentApi, mediaApi, messageApi, notificationApi, userApi } from './services/api.js';
 import { MessageWorkspace } from './components/Messages.jsx';
 
@@ -1603,10 +1604,8 @@ export function CreatePage() {
 }
 
 export function ReelsPage() {
-  return <div className="page-content reels-page">
-    <header className="page-heading"><div><p className="eyebrow">SHORT VIDEOS</p><h1>Reels</h1><p className="heading-subtitle">Discover video moments from the CliQHeart community.</p></div><Link className="button button--primary" to="/create">Create a Reel</Link></header>
-    <ContentFeed kind="reels" />
-  </div>;
+  const { user } = useAuth();
+  return <ReelsExperience viewer={user} />;
 }
 
 export function NotificationsPage() {
@@ -1828,7 +1827,7 @@ export function ContentDetailPage({ kind }) {
   if (error) return <div className="page-content"><ErrorState error={error} /></div>;
   if (!item) return <div className="page-content"><EmptyState title="Content not found" description="This content may have been removed." icon={Heart} /></div>;
   const isVideo = item.media?.resourceType === 'video';
-  return <article className="page-content content-detail">
+  return <article className={`page-content content-detail${kind === 'reel' ? ' content-detail--reel' : ''}`}>
     <header className="content-card-header">
       <Link to={`/profile/${item.owner.id}`} className="content-card-owner">
         <Avatar name={item.owner.displayName} src={item.owner.avatarUrl} size="small" />
