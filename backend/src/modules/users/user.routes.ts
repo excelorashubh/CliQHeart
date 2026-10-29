@@ -6,6 +6,7 @@ import { MediaModel } from '../media/media.model';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { PostModel } from '../content/post.model';
 import { ReelModel } from '../content/reel.model';
+import { createNotificationSafely } from '../notifications/notification.service';
 import { FollowModel } from './follow.model';
 import { userProfileUpdateSchema } from './user.validation';
 
@@ -192,6 +193,28 @@ export function createUserRouter(config: AppConfig): Router {
     }
   });
 
+  router.get('/users/by-username/:username', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const username = request.params.username?.toLowerCase();
+      if (!username || !/^[a-z0-9._]{3,30}$/i.test(username)) {
+        response.status(400).json({ error: 'Invalid username.' });
+        return;
+      }
+      const user = await UserModel.findOne({ username, accountStatus: 'active' })
+        .select(publicProfileFields)
+        .lean();
+      if (!user) {
+        response.status(404).json({ error: 'User not found.' });
+        return;
+      }
+      response.json({
+        user: await profilePayload(user, (request as AuthenticatedRequest).authenticatedUserId!),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/users/:userId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const { userId } = request.params;
@@ -233,11 +256,19 @@ export function createUserRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'User not found.' });
         return;
       }
-      await FollowModel.updateOne(
+      const followResult = await FollowModel.updateOne(
         { followerId, followedId: userId },
         { $setOnInsert: { followerId, followedId: userId } },
         { upsert: true },
       );
+      if (followResult.upsertedCount > 0) {
+        await createNotificationSafely({
+          recipientId: userId,
+          actorId: followerId,
+          type: 'follow',
+          deduplicationKey: `follow:${followResult.upsertedId}`,
+        });
+      }
       response.json({ following: true });
     } catch (error) {
       next(error);

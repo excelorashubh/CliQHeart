@@ -67,6 +67,24 @@ test('post and Reel detail endpoints remain protected by access-token authentica
   assert.deepEqual(reelResponse.body, { error: 'Authentication required.' });
 });
 
+test('saved, tagged, and notification endpoints require authenticated access', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const responses = await Promise.all([
+    request(app).get('/api/v1/users/me/saved'),
+    request(app).get('/api/v1/users/507f1f77bcf86cd799439011/tagged'),
+    request(app).post('/api/v1/posts/507f1f77bcf86cd799439011/save'),
+    request(app).post('/api/v1/posts/507f1f77bcf86cd799439011/tags').send({ userId: '507f1f77bcf86cd799439012' }),
+    request(app).delete('/api/v1/posts/507f1f77bcf86cd799439011/tags/me'),
+    request(app).get('/api/v1/notifications'),
+    request(app).get('/api/v1/notifications/unread-count'),
+    request(app).patch('/api/v1/notifications/read-all'),
+    request(app).patch('/api/v1/notifications/507f1f77bcf86cd799439011/read'),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status), [
+    401, 401, 401, 401, 401, 401, 401, 401, 401,
+  ]);
+});
+
 test('malformed JSON returns a safe 400 response', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   const response = await request(app)

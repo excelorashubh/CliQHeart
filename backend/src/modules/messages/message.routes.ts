@@ -6,6 +6,7 @@ import { UserModel } from '../../models/user';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { ConversationModel } from './conversation.model';
 import { MessageModel } from './message.model';
+import { createNotificationSafely } from '../notifications/notification.service';
 
 const createConversationSchema = z.object({ participantId: z.string().regex(/^[a-f\d]{24}$/i) }).strict();
 const createMessageSchema = z.object({ text: z.string().trim().min(1).max(4000) }).strict();
@@ -151,6 +152,16 @@ export function createMessageRouter(config: AppConfig): Router {
       const message = await MessageModel.create({ conversationId, senderId: userId, text });
       conversation.lastMessageAt = message.createdAt;
       await conversation.save();
+      const recipientId = conversation.participants.find((participantId) => String(participantId) !== userId);
+      if (recipientId) {
+        await createNotificationSafely({
+          recipientId: String(recipientId),
+          actorId: userId,
+          type: 'message',
+          conversationId,
+          deduplicationKey: `message:${message._id}`,
+        });
+      }
       response.status(201).json({
         message: {
           id: String(message._id),

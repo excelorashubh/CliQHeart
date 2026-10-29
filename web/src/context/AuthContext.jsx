@@ -39,6 +39,7 @@ function isConfirmedInvalidSession(error) {
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
   const restoreInFlight = useRef(null);
@@ -46,6 +47,7 @@ export function AuthProvider({ children }) {
   const clearSession = useCallback(() => {
     setAccessToken(null);
     setUser(null);
+    setUnreadNotificationCount(0);
   }, []);
 
   const refreshSession = useCallback(() => {
@@ -184,7 +186,9 @@ export function AuthProvider({ children }) {
     refreshSession,
     updateUser,
     setUser,
-  }), [user, loading, authError, signIn, signUp, signOut, refreshSession, updateUser]);
+    unreadNotificationCount,
+    setUnreadNotificationCount,
+  }), [user, loading, authError, signIn, signUp, signOut, refreshSession, updateUser, unreadNotificationCount]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

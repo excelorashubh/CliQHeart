@@ -136,7 +136,10 @@ describe('route handling', () => {
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         user: { id: 'user-id', username: 'test_user', displayName: 'Test User' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValue(new Response(JSON.stringify({ posts: [], stories: [], unreadCount: 0 }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }));
     renderApp(path);
     fireEvent.change(await screen.findByRole('textbox', { name: 'Email or username' }), {
       target: { value: 'test@example.com' },
@@ -193,7 +196,7 @@ describe('route handling', () => {
     expect(await screen.findByRole('heading', { name: /good to see you, test/i })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Search' })).toHaveLength(2);
     expect(screen.queryByRole('link', { name: 'Discover' })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
     expect(fetchMock.mock.calls[0][0]).toContain('/auth/refresh');
     expect(fetchMock.mock.calls[1][0]).toContain('/auth/login');
     expect(fetchMock.mock.calls[2][0]).toContain('/users/me');
@@ -201,6 +204,7 @@ describe('route handling', () => {
     expect(fetchMock.mock.calls.slice(3).map(([url]) => url)).toEqual(expect.arrayContaining([
       expect.stringContaining('/posts?'),
       expect.stringContaining('/stories'),
+      expect.stringContaining('/notifications/unread-count'),
     ]));
   });
 
@@ -229,7 +233,7 @@ describe('route handling', () => {
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     expect(await screen.findByRole('heading', { name: /good to see you, new/i })).toBeInTheDocument();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
     expect(fetchMock.mock.calls[1][0]).toContain('/auth/register');
     expect(fetchMock.mock.calls[2][0]).toContain('/users/me');
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
@@ -281,7 +285,7 @@ describe('route handling', () => {
           status: 200, headers: { 'content-type': 'application/json' },
         });
       }
-      if (path.includes('/users/me') || path.includes('/users/test_user')) {
+      if (path.includes('/users/me') || path.includes('/users/by-username/test_user')) {
         return new Response(JSON.stringify({ user: profile }), {
           status: 200, headers: { 'content-type': 'application/json' },
         });
@@ -296,6 +300,33 @@ describe('route handling', () => {
           status: 200, headers: { 'content-type': 'application/json' },
         });
       }
+      if (path.includes('/users/me/saved')) {
+        return new Response(JSON.stringify({ posts: [post], nextCursor: null }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/users/profile-id/tagged')) {
+        return new Response(JSON.stringify({ posts: [], nextCursor: null }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/users/search?')) {
+        return new Response(JSON.stringify({ users: [{
+          id: 'friend-id',
+          username: 'friend',
+          displayName: 'Friend',
+        }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (path.includes('/posts/post-id/tags')) {
+        return new Response(JSON.stringify({ tagged: true }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/posts/post-id/save')) {
+        return new Response(JSON.stringify({ saved: true }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
       if (path.includes('/posts/post-id')) {
         return new Response(JSON.stringify({ post }), {
           status: 200, headers: { 'content-type': 'application/json' },
@@ -306,16 +337,80 @@ describe('route handling', () => {
 
     renderApp('/profile/test_user');
     expect(await screen.findByRole('heading', { name: 'test_user' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /saved/i })).toBeInTheDocument();
     const mainNavigation = screen.getByRole('navigation', { name: 'Main navigation' });
     expect(mainNavigation.querySelector('a[href="/profile"]')).toHaveClass('is-active');
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/test_user'))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/by-username/test_user'))).toBe(true);
     const postLink = await screen.findByRole('link', { name: /view post by test_user: a real shared moment/i });
     expect(postLink).toHaveAttribute('href', '/post/post-id');
+    fireEvent.click(screen.getByRole('button', { name: 'Save post' }));
+    expect(await screen.findByRole('button', { name: 'Remove saved post' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).includes('/posts/post-id/save') && options.method === 'POST')).toBe(true);
+    fireEvent.click(screen.getByRole('tab', { name: /saved/i }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/me/saved'))).toBe(true));
+    fireEvent.click(screen.getByRole('tab', { name: /tagged/i }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/profile-id/tagged'))).toBe(true));
     fireEvent.click(screen.getByRole('tab', { name: /reels/i }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/profile-id/reels'))).toBe(true));
     fireEvent.click(screen.getByRole('tab', { name: /posts/i }));
     fireEvent.click(await screen.findByRole('link', { name: /view post by test_user: a real shared moment/i }));
     expect(await screen.findByText('A real shared moment')).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/posts/post-id'))).toBe(true);
+    fireEvent.change(screen.getByLabelText('Tag a person'), { target: { value: 'friend' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search', exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tag', exact: true }));
+    expect(await screen.findByRole('status')).toHaveTextContent('@friend was tagged in this post.');
+    expect(fetchMock.mock.calls.some(([url, options]) =>
+      String(url).includes('/posts/post-id/tags') && options.method === 'POST')).toBe(true);
+  });
+
+  it('loads real notifications and updates unread state when all are marked read', async () => {
+    const user = { id: 'viewer-id', username: 'viewer', displayName: 'Viewer' };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
+      const path = String(url);
+      if (path.includes('/auth/refresh')) {
+        return new Response(JSON.stringify({ accessToken: 'access-token', user }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/users/me')) {
+        return new Response(JSON.stringify({ user }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/notifications/unread-count')) {
+        return new Response(JSON.stringify({ unreadCount: 1 }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/notifications/read-all')) {
+        return new Response(JSON.stringify({ read: true }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/notifications?')) {
+        return new Response(JSON.stringify({
+          notifications: [{
+            id: 'notification-id',
+            type: 'follow',
+            read: false,
+            createdAt: new Date().toISOString(),
+            actor: { id: 'actor-id', username: 'new_friend', displayName: 'New Friend' },
+          }],
+          nextCursor: null,
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+
+    renderApp('/notifications');
+    expect(await screen.findByText(/New Friend/)).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })
+      .querySelector('a[href="/notifications"]')).toHaveClass('is-active');
+    expect(screen.getByText('1 unread')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all as read' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, options]) =>
+      String(url).includes('/notifications/read-all') && options.method === 'PATCH')).toBe(true));
+    expect(await screen.findByText('0 unread')).toBeInTheDocument();
   });
 });

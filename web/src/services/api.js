@@ -143,6 +143,10 @@ export const userApi = {
   me: (options) => apiRequest('users/me', options),
   updateMe: (body) => apiRequest('users/me', { method: 'PATCH', body }),
   profile: (id, options) => apiRequest(`users/${encodeURIComponent(id)}`, options),
+  profileByUsername: (username, options) => apiRequest(
+    `users/by-username/${encodeURIComponent(username)}`,
+    options,
+  ),
   search: (query, { after, signal } = {}) => {
     const params = new URLSearchParams({ q: query });
     if (after) params.set('after', after);
@@ -154,6 +158,16 @@ export const userApi = {
     const params = new URLSearchParams();
     if (after) params.set('after', after);
     return apiRequest(`users/${encodeURIComponent(id)}/${relation}?${params}`);
+  },
+  savedPosts: ({ after, signal } = {}) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    return apiRequest(`users/me/saved?${params}`, { signal });
+  },
+  taggedPosts: (id, { after, signal } = {}) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    return apiRequest(`users/${encodeURIComponent(id)}/tagged?${params}`, { signal });
   },
 };
 
@@ -193,6 +207,24 @@ export const contentApi = {
   ),
   createReel: (body) => apiRequest('reels', { method: 'POST', body }),
   deleteReel: (id) => apiRequest(`reels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  savePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}/save`, { method: 'POST' }),
+  unsavePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}/save`, { method: 'DELETE' }),
+  tagUser: (postId, userId) => apiRequest(`posts/${encodeURIComponent(postId)}/tags`, {
+    method: 'POST',
+    body: { userId },
+  }),
+  removeMyTag: (postId) => apiRequest(`posts/${encodeURIComponent(postId)}/tags/me`, { method: 'DELETE' }),
+};
+
+export const notificationApi = {
+  list: ({ after, signal } = {}) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    return apiRequest(`notifications?${params}`, { signal });
+  },
+  unreadCount: (options = {}) => apiRequest('notifications/unread-count', options),
+  markRead: (id) => apiRequest(`notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
+  markAllRead: () => apiRequest('notifications/read-all', { method: 'PATCH' }),
 };
 
 export const messageApi = {

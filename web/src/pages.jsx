@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart,
-  LockKeyhole, MessageCircle, Search, ShieldCheck, Sparkles,
+  ArrowLeft, ArrowRight, ArrowUpRight, Bell, Bookmark, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart,
+  LockKeyhole, MessageCircle, Search, ShieldCheck, Sparkles, UserRound,
   Share2,
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
@@ -10,7 +10,7 @@ import { Avatar, Brand } from './components/Brand.jsx';
 import { EmptyState, ErrorState, Skeleton } from './components/Feedback.jsx';
 import { ContentFeed, StoryFeed } from './components/Content.jsx';
 import { MediaUploader } from './components/MediaUploader.jsx';
-import { contentApi, mediaApi, messageApi, userApi } from './services/api.js';
+import { contentApi, mediaApi, messageApi, notificationApi, userApi } from './services/api.js';
 import { MessageWorkspace } from './components/Messages.jsx';
 
 export function LandingPage() {
@@ -353,22 +353,30 @@ export function ProfilePage({ editOnOpen = false }) {
   const [cursor, setCursor] = useState(null);
   const [form, setForm] = useState({ username: '', displayName: '', bio: '', avatarMediaId: '' });
   const [activeContentTab, setActiveContentTab] = useState('posts');
+  const [availableTabs, setAvailableTabs] = useState(['posts', 'reels', 'tagged']);
   const [shareMessage, setShareMessage] = useState('');
   const navigate = useNavigate();
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (signal) => {
     setLoading(true);
     setError('');
     try {
       let data;
       if (userId) {
-        data = await userApi.profile(userId);
+        data = /^[a-f\d]{24}$/i.test(userId)
+          ? await userApi.profile(userId, { signal })
+          : await userApi.profileByUsername(userId, { signal });
       } else {
-        const own = await userApi.me();
+        const own = await userApi.me({ signal });
         if (!own.user?.id) throw new Error('Your profile did not include an account ID.');
-        data = await userApi.profile(own.user.id);
+        data = await userApi.profile(own.user.id, { signal });
       }
+      if (signal?.aborted) return;
       if (!data.user) throw new Error('The API returned an incomplete profile.');
       setProfile(data.user);
+      setActiveContentTab('posts');
+      setAvailableTabs(data.user.id === signedInUser?.id
+        ? ['posts', 'reels', 'saved', 'tagged']
+        : ['posts', 'reels', 'tagged']);
       setForm({
         username: data.user.username || '',
         displayName: data.user.displayName || '',
@@ -376,13 +384,18 @@ export function ProfilePage({ editOnOpen = false }) {
         avatarMediaId: '',
       });
     } catch (reason) {
+      if (signal?.aborted || reason.name === 'AbortError') return;
       setError(reason.message || 'Could not load this profile.');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [userId]);
+  }, [signedInUser?.id, userId]);
 
-  useEffect(() => { loadProfile(); }, [loadProfile]);
+  useEffect(() => {
+    const controller = new AbortController();
+    loadProfile(controller.signal);
+    return () => controller.abort();
+  }, [loadProfile]);
   const isOwn = Boolean(profile && signedInUser && profile.id === signedInUser.id);
   useEffect(() => {
     if (editOnOpen && isOwn) setEditOpen(true);
@@ -409,7 +422,11 @@ export function ProfilePage({ editOnOpen = false }) {
       username: form.username,
       displayName: form.displayName,
       bio: form.bio,
-      ...(form.avatarMediaId ? { avatarMediaId: form.avatarMediaId } : {}),
+      ...(form.avatarMediaId === null
+        ? { avatarMediaId: null }
+        : form.avatarMediaId
+          ? { avatarMediaId: form.avatarMediaId }
+          : {}),
     };
     try {
       const result = await userApi.updateMe(payload);
@@ -483,15 +500,17 @@ export function ProfilePage({ editOnOpen = false }) {
   }
 
   function handleContentTabKey(event) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
     event.preventDefault();
-    const nextTab = activeContentTab === 'posts' ? 'reels' : 'posts';
+    const currentIndex = availableTabs.indexOf(activeContentTab);
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    const nextTab = availableTabs[(currentIndex + direction + availableTabs.length) % availableTabs.length];
     setActiveContentTab(nextTab);
     document.getElementById(`profile-tab-${nextTab}`)?.focus();
   }
 
   if (loading) return <div className="page-content"><Skeleton rows={4} /></div>;
-  if (error && !profile) return <div className="page-content"><ErrorState error={error} onRetry={loadProfile} /></div>;
+  if (error && !profile) return <div className="page-content"><ErrorState error={error} onRetry={() => loadProfile()} /></div>;
   if (!profile) return null;
 
   return <div className="page-content profile-page">
@@ -499,7 +518,7 @@ export function ProfilePage({ editOnOpen = false }) {
       <Avatar name={profile.displayName} src={profile.avatarUrl} size="profile" />
       <div className="profile-info">
         <div className="profile-title"><h1>{profile.username}</h1>{isOwn
-          ? <button className="button button--outline" onClick={() => setEditOpen(true)}>Edit profile</button>
+          ? <><button className="button button--outline" onClick={() => setEditOpen(true)}>Edit profile</button><button className="button button--outline" onClick={() => setEditOpen(true)}>Edit photo</button></>
           : <><button className={`button ${profile.isFollowing ? 'button--outline' : 'button--primary'}`} onClick={toggleFollow} disabled={busy}>{profile.isFollowing ? 'Following' : 'Follow'}</button><button className="button button--outline" onClick={messageUser}>Message</button></>}
           <button className="button button--outline profile-share-button" onClick={shareProfile} aria-label="Share profile"><Share2 size={15} /><span>Share</span></button>
         </div>
@@ -514,14 +533,29 @@ export function ProfilePage({ editOnOpen = false }) {
     {error && <p className="inline-error">{error}</p>}
     {shareMessage && <p className="profile-share-status" role="status">{shareMessage}</p>}
     <div className="profile-content">
-      <div className="profile-tabs" role="tablist" aria-label="Profile content">
-        <button id="profile-tab-posts" type="button" className={`profile-tab${activeContentTab === 'posts' ? ' is-active' : ''}`} role="tab" aria-controls="profile-panel-posts" aria-selected={activeContentTab === 'posts'} onClick={() => setActiveContentTab('posts')} onKeyDown={handleContentTabKey}><Grid3X3 size={15} /> POSTS</button>
-        <button id="profile-tab-reels" type="button" className={`profile-tab${activeContentTab === 'reels' ? ' is-active' : ''}`} role="tab" aria-controls="profile-panel-reels" aria-selected={activeContentTab === 'reels'} onClick={() => setActiveContentTab('reels')} onKeyDown={handleContentTabKey}><Clapperboard size={15} /> REELS</button>
+      <div className="profile-tabs" role="tablist" aria-label="Profile content" onKeyDown={handleContentTabKey}>
+        {availableTabs.map((tab) => <button
+          id={`profile-tab-${tab}`}
+          key={tab}
+          type="button"
+          className={`profile-tab${activeContentTab === tab ? ' is-active' : ''}`}
+          role="tab"
+          aria-controls={`profile-panel-${tab}`}
+          aria-selected={activeContentTab === tab}
+          onClick={() => setActiveContentTab(tab)}
+        >
+          {tab === 'posts' ? <Grid3X3 size={15} /> : tab === 'reels' ? <Clapperboard size={15} /> : tab === 'saved' ? <Bookmark size={15} /> : <UserRound size={15} />}
+          {tab.toUpperCase()}
+        </button>)}
       </div>
       <div id={`profile-panel-${activeContentTab}`} role="tabpanel" aria-labelledby={`profile-tab-${activeContentTab}`} tabIndex={0}>
         {activeContentTab === 'posts'
           ? <ContentFeed key={`${profile.id}-posts`} userId={profile.id} layout="grid" />
-          : <ContentFeed key={`${profile.id}-reels`} kind="reels" userId={profile.id} layout="grid" />}
+          : activeContentTab === 'reels'
+            ? <ContentFeed key={`${profile.id}-reels`} kind="reels" userId={profile.id} layout="grid" />
+            : activeContentTab === 'saved'
+              ? <ContentFeed key={`${profile.id}-saved`} kind="saved" layout="grid" />
+              : <ContentFeed key={`${profile.id}-tagged`} kind="tagged" userId={profile.id} layout="grid" />}
       </div>
     </div>
     {editOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditOpen(false); }}>
@@ -530,8 +564,9 @@ export function ProfilePage({ editOnOpen = false }) {
         <form className="form-stack" onSubmit={saveProfile}>
           <label>Display name<input maxLength="80" required value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} /></label>
           <label>Username<input minLength="3" maxLength="30" pattern="(?!.*\\.\\.)[a-zA-Z0-9._]{3,30}" required value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} /></label>
-          <label>Bio<textarea maxLength="500" rows="3" value={form.bio} onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))} /></label>
+          <label>Bio<textarea maxLength="500" rows="3" value={form.bio} onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))} /><small>{form.bio.length}/500 characters</small></label>
           <label>Profile photo</label>
+          {profile.avatarUrl && form.avatarMediaId !== null && <button type="button" className="text-link" onClick={() => setForm((current) => ({ ...current, avatarMediaId: null }))}>Remove current photo</button>}
           <MediaUploader purpose="profile" onReady={(media) => setForm((current) => ({ ...current, avatarMediaId: media?.id || '' }))} />
           {editError && <p className="form-error" role="alert">{editError}</p>}
           <button className="button button--primary button--wide" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
@@ -662,12 +697,147 @@ export function ReelsPage() {
   </div>;
 }
 
+export function NotificationsPage() {
+  const { unreadNotificationCount, setUnreadNotificationCount } = useAuth();
+  const navigate = useNavigate();
+  const [notifications, setNotifications] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [followBusy, setFollowBusy] = useState({});
+  const [followedActors, setFollowedActors] = useState({});
+
+  const loadNotifications = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await notificationApi.list();
+      setNotifications(result.notifications || []);
+      setNextCursor(result.nextCursor || null);
+      if (Number.isInteger(result.unreadCount)) setUnreadNotificationCount(result.unreadCount);
+    } catch (reason) {
+      setError(reason.message || 'Could not load notifications.');
+    } finally {
+      setLoading(false);
+    }
+  }, [setUnreadNotificationCount]);
+
+  useEffect(() => { loadNotifications(); }, [loadNotifications]);
+
+  async function markAllRead() {
+    setError('');
+    try {
+      await notificationApi.markAllRead();
+      setNotifications((current) => current.map((item) => ({ ...item, read: true })));
+      setUnreadNotificationCount(0);
+    } catch (reason) {
+      setError(reason.message || 'Could not mark notifications as read.');
+    }
+  }
+
+  async function openNotification(item) {
+    if (!item.read) {
+      try {
+        await notificationApi.markRead(item.id);
+        setNotifications((current) => current.map((notification) => notification.id === item.id
+          ? { ...notification, read: true }
+          : notification));
+        setUnreadNotificationCount(Math.max(0, unreadNotificationCount - 1));
+      } catch (reason) {
+        setError(reason.message || 'Could not mark this notification as read.');
+        return;
+      }
+    }
+    if (item.type === 'follow' && (item.actor?.username || item.actor?.id)) navigate(`/profile/${item.actor.username || item.actor.id}`);
+    else if (item.type === 'message' && item.conversationId) navigate(`/messages/${item.conversationId}`);
+    else if (item.postId) navigate(`/post/${item.postId}`);
+  }
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError('');
+    try {
+      const result = await notificationApi.list({ after: nextCursor });
+      setNotifications((current) => [...current, ...(result.notifications || [])]);
+      setNextCursor(result.nextCursor || null);
+    } catch (reason) {
+      setError(reason.message || 'Could not load more notifications.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  async function followBack(item) {
+    const actorId = item.actor?.id;
+    if (!actorId || followBusy[item.id]) return;
+    setFollowBusy((current) => ({ ...current, [item.id]: true }));
+    setError('');
+    try {
+      await userApi.follow(actorId);
+      setFollowedActors((current) => ({ ...current, [item.id]: true }));
+    } catch (reason) {
+      setError(reason.message || 'Could not follow this person.');
+    } finally {
+      setFollowBusy((current) => ({ ...current, [item.id]: false }));
+    }
+  }
+
+  const todayKey = new Date().toDateString();
+  const today = notifications.filter((item) => new Date(item.createdAt).toDateString() === todayKey);
+  const earlier = notifications.filter((item) => new Date(item.createdAt).toDateString() !== todayKey);
+
+  function renderNotification(item) {
+    const actor = item.actor;
+    const description = item.type === 'follow'
+      ? 'started following you.'
+      : item.type === 'tag'
+        ? 'tagged you in a post.'
+        : 'sent you a message.';
+    return <article className={`notification-item${item.read ? '' : ' is-unread'}`} key={item.id}>
+      <button className="notification-open" onClick={() => openNotification(item)}>
+        <Avatar name={actor?.displayName || actor?.username || 'CliQHeart member'} src={actor?.avatarUrl} size="medium" />
+        <span className="notification-copy">
+          <span><strong>{actor?.displayName || 'A CliQHeart member'}</strong> {description}</span>
+          <small>{new Date(item.createdAt).toLocaleString()}</small>
+        </span>
+        {item.thumbnailUrl && <img className="notification-thumbnail" src={item.thumbnailUrl} alt="" loading="lazy" />}
+      </button>
+      {item.type === 'follow' && actor?.id && <button className="button button--outline notification-follow" onClick={() => followBack(item)} disabled={followBusy[item.id] || followedActors[item.id]}>
+        {followBusy[item.id] ? '…' : followedActors[item.id] ? 'Following' : 'Follow back'}
+      </button>}
+    </article>;
+  }
+
+  return <div className="page-content notifications-page">
+    <header className="page-heading notifications-heading">
+      <div><p className="eyebrow">YOUR COMMUNITY</p><h1>Notifications</h1><p className="heading-subtitle">{unreadNotificationCount} unread</p></div>
+      {unreadNotificationCount > 0 && <button className="button button--outline" onClick={markAllRead}>Mark all as read</button>}
+    </header>
+    {error && <ErrorState error={error} onRetry={loadNotifications} />}
+    {loading && <Skeleton rows={5} />}
+    {!loading && !error && notifications.length === 0 && <EmptyState title="You're all caught up" description="New follows, tags, and messages will show up here." icon={Bell} />}
+    {!loading && today.length > 0 && <section className="notification-group"><h2>Today</h2>{today.map(renderNotification)}</section>}
+    {!loading && earlier.length > 0 && <section className="notification-group"><h2>Earlier</h2>{earlier.map(renderNotification)}</section>}
+    {!loading && nextCursor && <button className="button button--outline load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button>}
+  </div>;
+}
+
 export function ContentDetailPage({ kind }) {
+  const { user: currentUser } = useAuth();
   const { postId, reelId } = useParams();
   const id = kind === 'reel' ? reelId : postId;
   const [item, setItem] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [tagQuery, setTagQuery] = useState('');
+  const [tagResults, setTagResults] = useState([]);
+  const [tagStatus, setTagStatus] = useState('');
+  const [tagBusy, setTagBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     const load = async () => {
@@ -677,7 +847,10 @@ export function ContentDetailPage({ kind }) {
         const result = kind === 'reel'
           ? await contentApi.reel(id, { signal: controller.signal })
           : await contentApi.post(id, { signal: controller.signal });
-        if (!controller.signal.aborted) setItem(result[kind]);
+        if (!controller.signal.aborted) {
+          setItem(result[kind]);
+          setSaved(Boolean(result[kind]?.isSaved));
+        }
       } catch (reason) {
         if (!controller.signal.aborted && reason.name !== 'AbortError') setError(reason.message || 'Could not load this content.');
       } finally {
@@ -687,6 +860,57 @@ export function ContentDetailPage({ kind }) {
     load();
     return () => controller.abort();
   }, [id, kind]);
+
+  async function toggleSaved() {
+    if (!item || kind !== 'post' || saveBusy) return;
+    setSaveBusy(true);
+    setActionError('');
+    try {
+      const nextSaved = !saved;
+      if (nextSaved) await contentApi.savePost(item.id);
+      else await contentApi.unsavePost(item.id);
+      setSaved(nextSaved);
+    } catch (reason) {
+      setActionError(reason.message || 'Could not update the saved post.');
+    } finally {
+      setSaveBusy(false);
+    }
+  }
+
+  async function searchTagUsers(event) {
+    event.preventDefault();
+    const query = tagQuery.trim();
+    if (query.length < 2) {
+      setActionError('Enter at least 2 characters to search for someone.');
+      return;
+    }
+    setActionError('');
+    setTagStatus('');
+    setTagBusy(true);
+    try {
+      const result = await userApi.search(query);
+      setTagResults(result.users || []);
+    } catch (reason) {
+      setActionError(reason.message || 'Could not search for people to tag.');
+    } finally {
+      setTagBusy(false);
+    }
+  }
+
+  async function tagUser(person) {
+    setTagBusy(true);
+    setActionError('');
+    setTagStatus('');
+    try {
+      await contentApi.tagUser(item.id, person.id);
+      setTagStatus(`@${person.username} was tagged in this post.`);
+      setTagResults((current) => current.filter((entry) => entry.id !== person.id));
+    } catch (reason) {
+      setActionError(reason.message || 'Could not tag this person.');
+    } finally {
+      setTagBusy(false);
+    }
+  }
 
   if (loading) return <div className="page-content"><Skeleton rows={3} /></div>;
   if (error) return <div className="page-content"><ErrorState error={error} /></div>;
@@ -698,7 +922,12 @@ export function ContentDetailPage({ kind }) {
         <Avatar name={item.owner.displayName} src={item.owner.avatarUrl} size="small" />
         <span><strong>{item.owner.displayName}</strong><small>@{item.owner.username}</small></span>
       </Link>
-      <Link to={`/profile/${item.owner.id}`} className="text-link">View profile</Link>
+      <div className="content-card-actions">
+        {kind === 'post' && <button className={`content-bookmark-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={saveBusy} aria-label={saved ? 'Remove saved post' : 'Save post'}>
+          <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
+        </button>}
+        <Link to={`/profile/${item.owner.id}`} className="text-link">View profile</Link>
+      </div>
     </header>
     <div className="content-detail-media">
       {isVideo
@@ -706,6 +935,20 @@ export function ContentDetailPage({ kind }) {
         : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.caption || 'Shared CliQHeart media'} />}
     </div>
     {item.caption && <p className="content-card-caption"><strong>@{item.owner.username}</strong> {item.caption}</p>}
+    {actionError && <p className="inline-error" role="alert">{actionError}</p>}
+    {tagStatus && <p className="form-success" role="status">{tagStatus}</p>}
+    {kind === 'post' && currentUser?.id === item.owner.id && <section className="post-tag-editor" aria-label="Tag someone in this post">
+      <form className="post-tag-search" onSubmit={searchTagUsers}>
+        <label htmlFor="post-tag-user">Tag a person</label>
+        <input id="post-tag-user" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="Search by name or username" />
+        <button className="button button--outline" disabled={tagBusy}>{tagBusy ? 'Searching…' : 'Search'}</button>
+      </form>
+      {tagResults.map((person) => <div className="post-tag-result" key={person.id}>
+        <Avatar name={person.displayName} src={person.avatarUrl} size="small" />
+        <span>@{person.username}</span>
+        <button className="button button--outline" disabled={tagBusy} onClick={() => tagUser(person)}>Tag</button>
+      </div>)}
+    </section>}
   </article>;
 }
 

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Heart } from 'lucide-react';
 
 export function Brand({ compact = false }) {
@@ -8,7 +9,11 @@ export function Brand({ compact = false }) {
 }
 
 export function Avatar({ name = '', src, size = 'medium' }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [src]);
   return <span className={`avatar avatar--${size}`} aria-hidden="true">
-    {src ? <img src={src} alt="" /> : <span>{name.trim().charAt(0).toUpperCase() || '?'}</span>}
+    {src && !imageFailed
+      ? <img src={src} alt="" onError={() => setImageFailed(true)} />
+      : <span>{name.trim().charAt(0).toUpperCase() || '?'}</span>}
   </span>;
 }

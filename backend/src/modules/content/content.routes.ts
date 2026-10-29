@@ -9,11 +9,16 @@ import { MediaModel } from '../media/media.model';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
 import { StoryModel } from './story.model';
+import { BookmarkModel } from './bookmark.model';
+import { PostTagModel } from './post-tag.model';
+import { createNotificationSafely } from '../notifications/notification.service';
+import { NotificationModel } from '../notifications/notification.model';
 
 const publishSchema = z.object({
   mediaId: z.string().regex(/^[a-f\d]{24}$/i),
   caption: z.string().trim().max(2200).default(''),
 }).strict();
+const addTagSchema = z.object({ userId: z.string().regex(/^[a-f\d]{24}$/i) }).strict();
 
 const storySchema = z.object({
   mediaId: z.string().regex(/^[a-f\d]{24}$/i),
@@ -39,7 +44,9 @@ export function createContentRouter(config: AppConfig): Router {
       }
       try {
         const post = await PostModel.create({ _id: postId, ownerId, mediaId: media._id, caption });
-        response.status(201).json({ post: await contentPayload(post, media) });
+        response.status(201).json({
+          post: { ...await contentPayload(post, media), isSaved: false },
+        });
       } catch (error) {
         await releaseMedia(media._id, postId, 'post');
         throw error;
@@ -54,7 +61,7 @@ export function createContentRouter(config: AppConfig): Router {
     try {
       const limit = pageSizeSchema.parse(request.query.limit ?? 30);
       const posts = await PostModel.find().sort({ createdAt: -1 }).limit(limit).lean();
-      response.json({ posts: await contentListPayload(posts) });
+      response.json({ posts: await contentListPayload(posts, authenticatedUserId(request)) });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });
@@ -72,12 +79,187 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       const post = await PostModel.findById(postId).lean();
-      const [visiblePost] = post ? await contentListPayload([post]) : [];
+      const [visiblePost] = post ? await contentListPayload([post], authenticatedUserId(request)) : [];
       if (!visiblePost) {
         response.status(404).json({ error: 'Post not found.' });
         return;
       }
       response.json({ post: visiblePost });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/posts/:postId/save', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const postId = request.params.postId;
+      if (!postId || !Types.ObjectId.isValid(postId)) {
+        response.status(400).json({ error: 'Invalid post ID.' });
+        return;
+      }
+      const post = await PostModel.findById(postId).select('ownerId mediaId').lean();
+      const canView = post && await UserModel.exists({ _id: post.ownerId, accountStatus: 'active' }) &&
+        await MediaModel.exists({ _id: post.mediaId, status: 'ready' });
+      if (!canView) {
+        response.status(404).json({ error: 'Post not found.' });
+        return;
+      }
+      await BookmarkModel.updateOne(
+        { userId: authenticatedUserId(request), postId },
+        { $setOnInsert: { userId: authenticatedUserId(request), postId } },
+        { upsert: true },
+      );
+      response.json({ saved: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/posts/:postId/save', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const postId = request.params.postId;
+      if (!postId || !Types.ObjectId.isValid(postId)) {
+        response.status(400).json({ error: 'Invalid post ID.' });
+        return;
+      }
+      await BookmarkModel.deleteOne({ userId: authenticatedUserId(request), postId });
+      response.json({ saved: false });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/users/me/saved', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const after = typeof request.query.after === 'string' ? request.query.after : undefined;
+      if (after && !Types.ObjectId.isValid(after)) {
+        response.status(400).json({ error: 'Invalid pagination cursor.' });
+        return;
+      }
+      const limit = await parsePageSize(request);
+      const bookmarks = await BookmarkModel.find({
+        userId: authenticatedUserId(request),
+        ...(after ? { _id: { $lt: after } } : {}),
+      }).sort({ _id: -1 }).limit(limit + 1).lean();
+      const hasMore = bookmarks.length > limit;
+      const page = hasMore ? bookmarks.slice(0, limit) : bookmarks;
+      const foundPosts = await PostModel.find({ _id: { $in: page.map((item) => item.postId) } }).lean();
+      const postById = new Map(foundPosts.map((post) => [String(post._id), post]));
+      const posts = page.flatMap((bookmark) => {
+        const post = postById.get(String(bookmark.postId));
+        return post ? [post] : [];
+      });
+      response.json({
+        posts: await contentListPayload(posts, authenticatedUserId(request)),
+        nextCursor: hasMore ? String(page.at(-1)?._id) : null,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid page size.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.get('/users/:userId/tagged', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const userId = request.params.userId;
+      if (!userId || (!Types.ObjectId.isValid(userId) && !/^[a-z0-9._]{3,30}$/i.test(userId))) {
+        response.status(400).json({ error: 'Invalid user ID or username.' });
+        return;
+      }
+      const taggedUser = await UserModel.findOne({
+        ...(Types.ObjectId.isValid(userId) ? { _id: userId } : { username: userId.toLowerCase() }),
+        accountStatus: 'active',
+      }).select('_id').lean();
+      if (!taggedUser) {
+        response.status(404).json({ error: 'User not found.' });
+        return;
+      }
+      const after = typeof request.query.after === 'string' ? request.query.after : undefined;
+      if (after && !Types.ObjectId.isValid(after)) {
+        response.status(400).json({ error: 'Invalid pagination cursor.' });
+        return;
+      }
+      const limit = await parsePageSize(request);
+      const tags = await PostTagModel.find({
+        userId: taggedUser._id,
+        ...(after ? { _id: { $lt: after } } : {}),
+      }).sort({ _id: -1 }).limit(limit + 1).lean();
+      const hasMore = tags.length > limit;
+      const page = hasMore ? tags.slice(0, limit) : tags;
+      const foundPosts = await PostModel.find({ _id: { $in: page.map((tag) => tag.postId) } }).lean();
+      const postById = new Map(foundPosts.map((post) => [String(post._id), post]));
+      const posts = page.flatMap((tag) => {
+        const post = postById.get(String(tag.postId));
+        return post ? [post] : [];
+      });
+      response.json({
+        posts: await contentListPayload(posts, authenticatedUserId(request)),
+        nextCursor: hasMore ? String(page.at(-1)?._id) : null,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid page size.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.post('/posts/:postId/tags', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const postId = request.params.postId;
+      if (!postId || !Types.ObjectId.isValid(postId)) {
+        response.status(400).json({ error: 'Invalid post ID.' });
+        return;
+      }
+      const { userId: taggedUserId } = addTagSchema.parse(request.body);
+      const actorId = authenticatedUserId(request);
+      const post = await PostModel.findOne({ _id: postId, ownerId: actorId }).select('_id');
+      if (!post) {
+        response.status(404).json({ error: 'Post not found or not owned by this account.' });
+        return;
+      }
+      const target = await UserModel.findOne({ _id: taggedUserId, accountStatus: 'active' }).select('_id');
+      if (!target) {
+        response.status(404).json({ error: 'Tagged user not found.' });
+        return;
+      }
+      const tagResult = await PostTagModel.updateOne(
+        { postId, userId: taggedUserId },
+        { $setOnInsert: { postId, userId: taggedUserId, taggedById: actorId } },
+        { upsert: true },
+      );
+      if (tagResult.upsertedCount > 0) {
+        await createNotificationSafely({
+          recipientId: taggedUserId,
+          actorId,
+          type: 'tag',
+          postId,
+          deduplicationKey: `tag:${tagResult.upsertedId}`,
+        });
+      }
+      response.json({ tagged: true });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid tag request.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.delete('/posts/:postId/tags/me', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const postId = request.params.postId;
+      if (!postId || !Types.ObjectId.isValid(postId)) {
+        response.status(400).json({ error: 'Invalid post ID.' });
+        return;
+      }
+      await PostTagModel.deleteOne({ postId, userId: authenticatedUserId(request) });
+      response.json({ tagged: false });
     } catch (error) {
       next(error);
     }
@@ -99,7 +281,7 @@ export function createContentRouter(config: AppConfig): Router {
         .sort({ createdAt: -1 })
         .limit(await parsePageSize(request))
         .lean();
-      response.json({ posts: await contentListPayload(posts) });
+      response.json({ posts: await contentListPayload(posts, authenticatedUserId(request)) });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });
@@ -122,6 +304,11 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'Post not found.' });
         return;
       }
+      await Promise.all([
+        BookmarkModel.deleteMany({ postId }),
+        PostTagModel.deleteMany({ postId }),
+        NotificationModel.deleteMany({ postId }),
+      ]);
       await releaseMedia(post.mediaId, post._id, 'post');
       response.status(204).end();
     } catch (error) {
@@ -388,18 +575,23 @@ async function contentListPayload(
     createdAt?: Date;
     expiresAt?: Date;
   }>,
+  viewerId?: string,
 ) {
   if (!content.length) return [];
   const ownerIds = [...new Set(content.map((item) => String(item.ownerId)))];
   const mediaIds = [...new Set(content.map((item) => String(item.mediaId)))];
-  const [owners, media] = await Promise.all([
+  const [owners, media, bookmarks] = await Promise.all([
     UserModel.find({ _id: { $in: ownerIds }, accountStatus: 'active' })
       .select('username displayName avatarUrl')
       .lean(),
     MediaModel.find({ _id: { $in: mediaIds }, status: 'ready' }).lean(),
+    viewerId
+      ? BookmarkModel.find({ userId: viewerId, postId: { $in: content.map((item) => item._id) } }).select('postId').lean()
+      : Promise.resolve([]),
   ]);
   const ownerById = new Map(owners.map((owner) => [String(owner._id), owner]));
   const mediaById = new Map(media.map((item) => [String(item._id), item]));
+  const savedPostIds = new Set(bookmarks.map((bookmark) => String(bookmark.postId)));
   return content.flatMap((item) => {
     const owner = ownerById.get(String(item.ownerId));
     const asset = mediaById.get(String(item.mediaId));
@@ -426,6 +618,7 @@ async function contentListPayload(
         height: asset.height,
         duration: asset.duration,
       },
+      isSaved: savedPostIds.has(String(item._id)),
     }];
   });
 }

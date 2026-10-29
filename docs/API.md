@@ -90,6 +90,7 @@ Unknown fields are rejected. Username conflicts return `409`; invalid profile
 data returns `400`. `avatarUrl` accepts an HTTP(S) URL. To use a verified
 Cloudinary profile image, send its owned `avatarMediaId`; the API resolves the
 URL from verified media metadata and prevents reusing another account's upload.
+Send `avatarMediaId: null` to remove the current profile photo.
 
 ### `GET /api/v1/users/search?q=<text>&limit=<n>&after=<username>`
 
@@ -104,6 +105,8 @@ authenticated viewer. Private email and account status are excluded.
 Accepts an active user's MongoDB ID or username. Returns the public profile,
 real post, Reel, follower, and following counts, and whether the authenticated
 viewer follows that user. Email and other private fields are excluded.
+Use `GET /api/v1/users/by-username/:username` when resolving a username directly,
+including usernames that happen to look like a MongoDB ObjectId.
 
 ### `POST /api/v1/users/:userId/follow` and `DELETE /api/v1/users/:userId/follow`
 
@@ -114,6 +117,27 @@ the confirmed following state; repeated requests are safe.
 
 Return real public users in pages of 1–50 entries (default 30). Pass the
 returned `nextCursor` as `after` to fetch the next page.
+
+### Saved posts and profile tags
+
+- `POST /api/v1/posts/:postId/save` and `DELETE /api/v1/posts/:postId/save`
+  save or remove an authenticated user's private bookmark. `GET
+  /api/v1/users/me/saved?limit=<n>&after=<bookmarkId>` returns only the current
+  user's saved posts, with a page size of 1–50.
+- `GET /api/v1/users/:userId/tagged?limit=<n>&after=<tagId>` returns active
+  published posts tagging an active profile, identified by MongoDB ID or
+  username. The owner of a post may add an active user with
+  `POST /api/v1/posts/:postId/tags` and `{"userId":"<user ObjectId>"}`. A user
+  may remove their own tag with `DELETE /api/v1/posts/:postId/tags/me`.
+
+### Notifications
+
+`GET /api/v1/notifications?limit=<n>&after=<notificationId>` returns the
+authenticated user's paginated notification feed. `GET
+/api/v1/notifications/unread-count` returns its unread count. Use
+`PATCH /api/v1/notifications/:notificationId/read` or
+`PATCH /api/v1/notifications/read-all` to mark notifications read. The current
+supported events are new followers, post tags, and direct messages.
 
 ## Media and content endpoints
 

@@ -1,27 +1,53 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
-  Heart, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
+  Bell, Heart, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
   Settings, Video, Menu, X,
 } from 'lucide-react';
 import { Brand, Avatar } from './Brand.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { notificationApi } from '../services/api.js';
 
 const links = [
   { name: 'Home', to: '/', Icon: Home },
   { name: 'Search', to: '/search', Icon: Search },
   { name: 'Reels', to: '/reels', Icon: Video },
   { name: 'Messages', to: '/messages', Icon: MessageCircle },
-  { name: 'Notifications', to: '/notifications', Icon: Heart, disabled: true },
+  { name: 'Notifications', to: '/notifications', Icon: Bell },
   { name: 'Create post', to: '/create', Icon: PlusSquare },
   { name: 'Profile', to: '/profile', Icon: UserRound, profile: true },
 ];
 
 export function AppLayout({ children }) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, unreadNotificationCount, setUnreadNotificationCount } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let active = true;
+    let controller;
+    async function refreshUnreadCount() {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const result = await notificationApi.unreadCount({ signal: controller.signal });
+        if (active) setUnreadNotificationCount(result.unreadCount || 0);
+      } catch (error) {
+        if (active && error.name !== 'AbortError') console.error('Could not refresh notification count.', error);
+      }
+    }
+    refreshUnreadCount();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshUnreadCount();
+    }, 30000);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.clearInterval(timer);
+    };
+  }, [user?.id, setUnreadNotificationCount]);
 
   async function logout() {
     if (logoutBusy) return;
@@ -56,7 +82,7 @@ export function AppLayout({ children }) {
                 <Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /><span>{name}</span>
               </NavLink>
           : <NavLink end={to === '/'} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} to={to} key={name} onClick={() => setMenuOpen(false)}>
-              <Icon size={21} strokeWidth={1.8} /><span>{name}</span>
+              <span className="nav-icon-wrap"><Icon size={21} strokeWidth={1.8} />{name === 'Notifications' && unreadNotificationCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</span><span>{name}</span>
             </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
@@ -71,8 +97,10 @@ export function AppLayout({ children }) {
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <main className="main-column">{children}</main>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {links.filter(({ name }) => ['Home', 'Search', 'Reels', 'Create post', 'Messages'].includes(name)).map(({ name, to, Icon }) =>
-        <NavLink end={to === '/'} key={name} to={to} aria-label={name} className={({ isActive }) => isActive ? 'is-active' : ''}><Icon size={22} /></NavLink>)}
+      {links.filter(({ name }) => ['Home', 'Search', 'Reels', 'Create post', 'Messages', 'Notifications'].includes(name)).map(({ name, to, Icon }) =>
+        <NavLink end={to === '/'} key={name} to={to} aria-label={name} className={({ isActive }) => isActive ? 'is-active' : ''}>
+          <span className="nav-icon-wrap"><Icon size={22} />{name === 'Notifications' && unreadNotificationCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</span>
+        </NavLink>)}
       <NavLink to="/profile" aria-label="Profile" className={({ isActive }) => `mobile-profile${isActive ? ' is-active' : ''}`}><Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /></NavLink>
     </nav>
   </div>;
