@@ -19,21 +19,32 @@ export function requireAccessToken(config: AppConfig): RequestHandler {
       return;
     }
 
+    let payload: jwt.JwtPayload | string;
     try {
-      const payload = jwt.verify(token, config.JWT_ACCESS_SECRET, {
+      payload = jwt.verify(token, config.JWT_ACCESS_SECRET, {
         issuer: config.JWT_ISSUER,
         audience: config.JWT_AUDIENCE,
       });
-      if (
-        typeof payload === 'string' ||
-        payload.tokenType !== 'access' ||
-        typeof payload.sub !== 'string' ||
-        !Types.ObjectId.isValid(payload.sub)
-      ) {
-        response.status(401).json({ error: 'Invalid access token.' });
+    } catch (error) {
+      if (error instanceof jwt.JsonWebTokenError) {
+        response.status(401).json({ error: 'Access token is invalid or expired.' });
         return;
       }
+      next(error);
+      return;
+    }
 
+    if (
+      typeof payload === 'string' ||
+      payload.tokenType !== 'access' ||
+      typeof payload.sub !== 'string' ||
+      !Types.ObjectId.isValid(payload.sub)
+    ) {
+      response.status(401).json({ error: 'Invalid access token.' });
+      return;
+    }
+
+    try {
       if (payload.sid !== undefined) {
         if (typeof payload.sid !== 'string' || !Types.ObjectId.isValid(payload.sid)) {
           response.status(401).json({ error: 'Invalid access token.' });
@@ -63,9 +74,8 @@ export function requireAccessToken(config: AppConfig): RequestHandler {
 
       (request as AuthenticatedRequest).authenticatedUserId = payload.sub;
       next();
-    } catch {
-      if (response.headersSent) return;
-      next(new Error('Could not validate access token.'));
+    } catch (error) {
+      next(error);
     }
   };
 }

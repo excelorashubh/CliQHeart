@@ -63,6 +63,10 @@ JSON. Browser clients send the trusted-origin cookie transport header and
 receive a rotated HttpOnly cookie. A session's `expiresAt` is fixed at creation
 to `min(REFRESH_TOKEN_TTL, 365 days)` and is not extended by rotation. The
 backend rejects expired and revoked sessions even before TTL cleanup.
+Access tokens use `ACCESS_TOKEN_TTL` (15 minutes by default); expiration or
+signature failures on protected routes return `401`, which allows web and
+Android clients to attempt their existing refresh flow. Database and other
+unexpected authentication-validation failures remain server errors.
 
 ### `POST /api/v1/auth/logout` and `POST /api/v1/auth/logout-all`
 

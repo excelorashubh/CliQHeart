@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import request from 'supertest';
+import * as jwt from 'jsonwebtoken';
 import { loadConfig } from './config/env';
 import { createApp, type RequestLogEntry } from './app';
 
@@ -207,6 +208,35 @@ test('private user and message routes require a valid access token', async () =>
     .get('/api/v1/users/0123456789abcdef01234567/followers');
   assert.equal(publicProfileResponse.status, 401);
   assert.equal(followersResponse.status, 401);
+});
+
+test('expired and malformed access JWTs return 401 so clients can refresh', async () => {
+  const accessSecret = 'test-jwt-access-secret-at-least-32-chars-long';
+  const authConfig = loadConfig({
+    NODE_ENV: 'test',
+    MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
+    JWT_ACCESS_SECRET: accessSecret,
+  });
+  const app = createApp({ config: authConfig, databaseStatus: () => false });
+  const expiredToken = jwt.sign({
+    sub: '0123456789abcdef01234567',
+    tokenType: 'access',
+  }, accessSecret, {
+    expiresIn: -1,
+    issuer: authConfig.JWT_ISSUER,
+    audience: authConfig.JWT_AUDIENCE,
+  });
+  const expiredResponse = await request(app)
+    .get('/api/v1/users/me')
+    .set('Authorization', `Bearer ${expiredToken}`);
+  const malformedResponse = await request(app)
+    .get('/api/v1/users/me')
+    .set('Authorization', 'Bearer not-a-jwt');
+
+  assert.equal(expiredResponse.status, 401);
+  assert.deepEqual(expiredResponse.body, { error: 'Access token is invalid or expired.' });
+  assert.equal(malformedResponse.status, 401);
+  assert.deepEqual(malformedResponse.body, { error: 'Access token is invalid or expired.' });
 });
 
 test('media and content routes require access tokens while their preflights remain public', async () => {

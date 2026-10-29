@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import argon2 from 'argon2';
+import * as jwt from 'jsonwebtoken';
 import { UserModel } from '../../models/user';
 import { SessionModel } from './session.model';
 import { AuthService, hashRefreshToken } from './auth.service';
@@ -85,6 +86,11 @@ test('registration persists an active user with an Argon2 hash and no verificati
   assert.equal(await argon2.verify(String(createdUserData?.passwordHash), validInput.password), true);
   assert.equal('passwordHash' in result.user, false);
   assert.ok(result.accessToken);
+  const accessPayload = jwt.verify(result.accessToken, config.JWT_ACCESS_SECRET!, {
+    issuer: config.JWT_ISSUER,
+    audience: config.JWT_AUDIENCE,
+  });
+  assert.equal(typeof accessPayload === 'string' ? undefined : accessPayload.exp! - accessPayload.iat!, 15 * 60);
   assert.match(result.refreshToken, /^[a-f\d]{24}\.[a-f\d]{64}$/i);
   const createdAt = createdSessionData?.lastUsedAt as Date;
   assert.equal(

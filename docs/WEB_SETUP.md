@@ -44,6 +44,7 @@ For the current Render deployment, set these on the **backend API service**:
 ```text
 FRONTEND_URL=https://cliqhearts.onrender.com
 ALLOWED_ORIGINS=https://cliqhearts.onrender.com,http://localhost:5173,http://127.0.0.1:5173
+ACCESS_TOKEN_TTL=15m
 REFRESH_TOKEN_TTL=365d
 ```
 

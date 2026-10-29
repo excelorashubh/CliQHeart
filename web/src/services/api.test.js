@@ -139,6 +139,26 @@ describe('apiRequest', () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
+  it('keeps the in-memory session when refresh temporarily fails', async () => {
+    const unauthorized = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Access token is invalid or expired.' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Temporarily unavailable.' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      }));
+    setAccessToken('possibly-valid-session-token');
+    setUnauthorizedHandler(unauthorized);
+
+    await expect(apiRequest('users/me')).rejects.toMatchObject({ status: 503 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(unauthorized).not.toHaveBeenCalled();
+  });
+
   it('provides a clear message when the network is unavailable', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network failure'));
     await expect(apiRequest('users/me')).rejects.toEqual(
