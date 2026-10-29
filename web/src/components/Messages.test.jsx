@@ -135,6 +135,8 @@ describe('real-time message workspace', () => {
     mockConversationApi();
     renderWorkspace();
     const incoming = await screen.findByText('Earlier message');
+    expect(document.querySelector('.chat-header > .avatar')).toHaveClass('avatar--small');
+    expect(document.querySelector('.chat-header-user')).toBeInTheDocument();
     expect(incoming.closest('.message-bubble')).not.toHaveClass('message-bubble--mine');
     expect(incoming.closest('.message-row')).not.toHaveClass('message-row--mine');
 
