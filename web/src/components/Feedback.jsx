@@ -1,10 +1,68 @@
 import { AlertCircle, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-export function ErrorState({ error, onRetry }) {
+function retrySecondsFromMessage(message) {
+  const match = /Try again in (\d+) seconds?/i.exec(message || '');
+  return match ? Number(match[1]) : 0;
+}
+
+export function RetryButton({
+  error,
+  onRetry,
+  disabled = false,
+  className = 'button button--outline',
+  label = 'Try again',
+  showIcon = false,
+}) {
+  const retrySeconds = retrySecondsFromMessage(error);
+  const [retryUntil, setRetryUntil] = useState(0);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+
+  useEffect(() => {
+    if (retrySeconds <= 0) {
+      setRetryUntil(0);
+      setRemainingSeconds(0);
+      return;
+    }
+    const until = Date.now() + retrySeconds * 1000;
+    setRetryUntil(until);
+    setRemainingSeconds(retrySeconds);
+  }, [error, retrySeconds]);
+
+  useEffect(() => {
+    if (!retryUntil) return undefined;
+    const updateRemaining = () => {
+      const remaining = Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000));
+      setRemainingSeconds(remaining);
+      if (remaining === 0) setRetryUntil(0);
+    };
+    const timer = window.setInterval(updateRemaining, 250);
+    return () => window.clearInterval(timer);
+  }, [retryUntil]);
+
+  return <button
+    type="button"
+    className={className}
+    onClick={onRetry}
+    disabled={disabled || remainingSeconds > 0}
+  >
+    {showIcon && <RefreshCw size={15} aria-hidden="true" />}
+    {remainingSeconds > 0 ? `Try again in ${remainingSeconds}s` : label}
+  </button>;
+}
+
+export function ErrorState({ error, onRetry, retryDisabled = false, retryLabel = 'Try again' }) {
   return <div className="state-card state-card--error" role="alert">
     <AlertCircle size={22} />
     <p>{error || 'Something went wrong.'}</p>
-    {onRetry && <button className="button button--outline" onClick={onRetry}><RefreshCw size={15} /> Try again</button>}
+    {onRetry && <RetryButton
+      error={error}
+      onRetry={onRetry}
+      disabled={retryDisabled}
+      className="button button--outline"
+      label={retryLabel}
+      showIcon
+    />}
   </div>;
 }
 

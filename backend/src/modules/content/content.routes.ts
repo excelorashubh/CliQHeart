@@ -13,6 +13,7 @@ import { BookmarkModel } from './bookmark.model';
 import { PostTagModel } from './post-tag.model';
 import { createNotificationSafely } from '../notifications/notification.service';
 import { NotificationModel } from '../notifications/notification.model';
+import { recordContentView } from '../professional/professional.service';
 
 const publishSchema = z.object({
   mediaId: z.string().regex(/^[a-f\d]{24}$/i),
@@ -118,10 +119,11 @@ export function createContentRouter(config: AppConfig): Router {
       }
       const post = await PostModel.findById(postId).lean();
       const [visiblePost] = post ? await contentListPayload([post], authenticatedUserId(request)) : [];
-      if (!visiblePost) {
+      if (!post || !visiblePost) {
         response.status(404).json({ error: 'Post not found.' });
         return;
       }
+      recordContentView(String(post.ownerId), authenticatedUserId(request), 'post', String(post._id));
       response.json({ post: visiblePost });
     } catch (error) {
       next(error);
@@ -505,10 +507,11 @@ export function createContentRouter(config: AppConfig): Router {
       }
       const reel = await ReelModel.findById(reelId).lean();
       const [visibleReel] = reel ? await contentListPayload([reel]) : [];
-      if (!visibleReel) {
+      if (!reel || !visibleReel) {
         response.status(404).json({ error: 'Reel not found.' });
         return;
       }
+      recordContentView(String(reel.ownerId), authenticatedUserId(request), 'reel', String(reel._id));
       response.json({ reel: visibleReel });
     } catch (error) {
       next(error);

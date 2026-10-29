@@ -16,18 +16,50 @@ export function setSessionRestoredHandler(handler) {
 }
 
 export class ApiError extends Error {
-  constructor(message, status, details, field) {
+  constructor(message, status, details, field, retryAfterSeconds = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.details = details;
     this.field = field;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+function parseRetryAfter(value) {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, Math.ceil(seconds));
+  const retryAt = Date.parse(value);
+  return Number.isNaN(retryAt)
+    ? null
+    : Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
 }
 
 function isConfirmedInvalidSession(error) {
   return error?.status === 401 ||
     (error?.status === 403 && error.message === 'Account is not available.');
+}
+
+function professionalErrorMessage(status, errorMessage) {
+  const message = typeof errorMessage === 'string' ? errorMessage : '';
+  if (status === 400) return 'Some professional account details are invalid. Review the form and try again.';
+  if (status === 401) return 'Your session could not be verified. Sign in again and retry.';
+  if (status === 403) return 'Your account is not permitted to change this professional setting.';
+  if (status === 404) {
+    if (/user not found/i.test(message)) {
+      return 'Your CliQHeart account could not be found. Sign in again and retry.';
+    }
+    if (message && !/^not found$/i.test(message.trim())) return message;
+    return 'The professional account service was not found. The backend may need its professional-account update deployed.';
+  }
+  if (status === 409) {
+    if (/already professional|complete.*onboarding|promotion draft not found/i.test(message)) return message;
+    return 'This account has changed. Refresh the page and try again.';
+  }
+  if (status === 429) return message || 'Too many requests. Wait before trying again.';
+  if (status >= 500) return 'The professional account service is temporarily unavailable. Try again shortly.';
+  return message || `Professional account request failed (${status}).`;
 }
 
 export function resolveApiUrl(apiBaseUrl, path) {
@@ -106,14 +138,23 @@ export async function apiRequest(path, options = {}) {
       setAccessToken(null);
       unauthorizedHandler();
     }
-    const message = typeof data?.error === 'string'
-      ? data.error
-      : response.status === 429
-        ? 'Too many requests. Please wait a moment and try again.'
+    const retryAfterSeconds = response.status === 429
+      ? parseRetryAfter(response.headers.get('retry-after'))
+      : null;
+    const isProfessionalEndpoint = path.replace(/^\/+/, '').startsWith('professional/');
+    let message = isProfessionalEndpoint
+      ? professionalErrorMessage(response.status, data?.error)
+      : typeof data?.error === 'string'
+        ? data.error
+        : response.status === 429
+        ? 'Too many requests.'
         : response.status >= 500
           ? 'CliQHeart is temporarily unavailable. Please try again shortly.'
           : `Request failed (${response.status}).`;
-    throw new ApiError(message, response.status, data?.details, data?.field);
+    if (response.status === 429 && retryAfterSeconds !== null) {
+      message += ` Try again in ${retryAfterSeconds} seconds.`;
+    }
+    throw new ApiError(message, response.status, data?.details, data?.field, retryAfterSeconds);
   }
   if (response.status === 204) return null;
   if (!contentType.includes('application/json')) {
@@ -187,6 +228,19 @@ export const userApi = {
     if (after) params.set('after', after);
     return apiRequest(`users/${encodeURIComponent(id)}/tagged?${params}`, { signal });
   },
+};
+
+export const professionalApi = {
+  me: (options) => apiRequest('professional/me', options),
+  saveOnboardingStep: (body) => apiRequest('professional/onboarding', { method: 'PATCH', body }),
+  convert: (body) => apiRequest('professional/convert', { method: 'POST', body }),
+  updateProfile: (body) => apiRequest('professional/profile', { method: 'PATCH', body }),
+  switchToPersonal: () => apiRequest('professional/switch-to-personal', { method: 'POST', body: {} }),
+  dashboard: (days = 30, options = {}) => apiRequest(`professional/dashboard?${new URLSearchParams({ days: String(days) })}`, options),
+  campaigns: (options) => apiRequest('professional/campaigns', options),
+  createCampaign: (body) => apiRequest('professional/campaigns', { method: 'POST', body }),
+  updateCampaign: (id, body) => apiRequest(`professional/campaigns/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
+  deleteCampaign: (id) => apiRequest(`professional/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 export const mediaApi = {

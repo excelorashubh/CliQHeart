@@ -31,4 +31,20 @@ class AuthResponseParsingTest {
         assertEquals("Registration successful.", response.message)
         assertEquals("active", response.user?.accountStatus)
     }
+
+    @Test
+    fun professionalAccountFieldsRemainOptionalForExistingAccounts() {
+        val personal = Gson().fromJson(
+            """{"user":{"id":"personal-id","username":"personal"}}""",
+            AuthResponse::class.java,
+        )
+        val professional = Gson().fromJson(
+            """{"user":{"id":"creator-id","username":"creator","accountType":"CREATOR","professionalCategory":"ARTIST"}}""",
+            AuthResponse::class.java,
+        )
+
+        assertEquals(null, personal.user?.accountType)
+        assertEquals("CREATOR", professional.user?.accountType)
+        assertEquals("ARTIST", professional.user?.professionalCategory)
+    }
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import App from './App.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
@@ -30,28 +31,23 @@ function refreshRejectedResponse() {
 }
 
 describe('route handling', () => {
-  it('restores a browser session from the HttpOnly refresh cookie and verifies the profile', async () => {
+  it('restores once in Strict Mode using the user returned with the HttpOnly refresh cookie', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({
         accessToken: 'restored-access-token',
-        user: { id: 'user-id', username: 'test_user' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
         user: { id: 'user-id', username: 'test_user', displayName: 'Test User' },
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValue(new Response(JSON.stringify({ posts: [], stories: [] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }));
-    render(<AuthProvider><AuthStatus /></AuthProvider>);
+    render(<StrictMode><AuthProvider><AuthStatus /></AuthProvider></StrictMode>);
 
     expect(await screen.findByText('@test_user')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toContain('/auth/refresh');
     expect(fetchMock.mock.calls[0][1].headers.get('x-session-transport')).toBe('cookie');
     expect(fetchMock.mock.calls[0][1].credentials).toBe('include');
-    expect(fetchMock.mock.calls[1][0]).toContain('/users/me');
-    expect(fetchMock.mock.calls[1][1].headers.get('authorization')).toContain('restored-access-token');
   });
 
   it('continues cookie restoration if browser storage is unavailable', async () => {
@@ -59,11 +55,8 @@ describe('route handling', () => {
       throw new Error('Storage access denied.');
     });
     vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response(JSON.stringify({ accessToken: 'restored-token' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: 'restored-token',
         user: { id: 'user-id', username: 'test_user' },
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     render(<AuthProvider><AuthStatus /></AuthProvider>);
@@ -79,6 +72,53 @@ describe('route handling', () => {
     render(<AuthProvider><AuthStatus /></AuthProvider>);
 
     expect(await screen.findByText('Retry needed')).toBeInTheDocument();
+  });
+
+  it('preserves the session after a 429 and allows one retry after Retry-After', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Too many session refresh attempts.' }), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '1' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: 'restored-access-token',
+        user: { id: 'user-id', username: 'test_user' },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValue(new Response(JSON.stringify({ conversations: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+    renderApp('/');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('rate limited');
+    const cooldownButton = screen.getByRole('button', { name: 'Try again in 1s' });
+    expect(cooldownButton).toBeDisabled();
+    fireEvent.click(cooldownButton);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const retryButton = await screen.findByRole('button', { name: 'Try again' }, { timeout: 3000 });
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+    expect(await screen.findByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/auth/refresh'))).toHaveLength(2);
+  });
+
+  it('preserves session state with a distinct server outage message', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Internal server error.' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      }));
+    renderApp('/');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('temporarily unavailable');
+  });
+
+  it('preserves session state with a distinct network failure message', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch.'));
+    renderApp('/');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach CliQHeart');
   });
 
   it('preserves the full protected URL through login', async () => {
@@ -162,9 +202,6 @@ describe('route handling', () => {
         accessToken: 'access-token',
         user: { id: 'user-id', username: 'test_user' },
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        user: { id: 'user-id', username: 'test_user', displayName: 'Test User' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValue(new Response(JSON.stringify({ posts: [], stories: [], unreadCount: 0 }), {
         status: 200, headers: { 'content-type': 'application/json' },
       }));
@@ -200,19 +237,39 @@ describe('route handling', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email/username or password.');
+  });
+
+  it('respects a login Retry-After response and disables resubmission during the wait', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(refreshRejectedResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: 'Too many sign-in attempts.',
+      }), {
+        status: 429,
+        headers: {
+          'content-type': 'application/json',
+          'retry-after': '30',
+        },
+      }));
+    renderApp('/login');
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email or username' }), {
+      target: { value: 'test_user' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'Password123!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Try again in 30 seconds.');
+    expect(screen.getByRole('button', { name: 'Try again in 30s' })).toBeDisabled();
     expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeInTheDocument();
   });
 
-  it('only authenticates after login and the authenticated profile both succeed', async () => {
+  it('uses the returned user after login without an extra profile request', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(refreshRejectedResponse())
       .mockResolvedValueOnce(new Response(JSON.stringify({
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
         user: { id: 'user-id', username: 'test_user' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        user: { id: 'user-id', username: 'test_user', displayName: 'Test User' },
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ posts: [], nextCursor: null }), {
         status: 200, headers: { 'content-type': 'application/json' },
@@ -240,12 +297,11 @@ describe('route handling', () => {
     expect(screen.getAllByText('@test_user').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Search' })).toHaveLength(2);
     expect(screen.queryByRole('link', { name: 'Discover' })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(8));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7));
     expect(fetchMock.mock.calls[0][0]).toContain('/auth/refresh');
     expect(fetchMock.mock.calls[1][0]).toContain('/auth/login');
-    expect(fetchMock.mock.calls[2][0]).toContain('/users/me');
-    expect(fetchMock.mock.calls[2][1].headers.get('authorization')).toContain('access-token');
-    expect(fetchMock.mock.calls.slice(3).map(([url]) => url)).toEqual(expect.arrayContaining([
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/me'))).toBe(false);
+    expect(fetchMock.mock.calls.slice(2).map(([url]) => url)).toEqual(expect.arrayContaining([
       expect.stringContaining('/posts?'),
       expect.stringContaining('/reels?'),
       expect.stringContaining('/stories'),
@@ -266,9 +322,6 @@ describe('route handling', () => {
         accessToken: 'access-token',
         user: { id: 'new-user-id', username: 'new_user' },
       }), { status: 201, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        user: { id: 'new-user-id', username: 'new_user', displayName: 'New User' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockImplementation(async () => new Response(JSON.stringify({
         posts: [],
         reels: [],
@@ -290,10 +343,10 @@ describe('route handling', () => {
 
     expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument();
     expect(screen.getAllByText('@new_user').length).toBeGreaterThan(0);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(9));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(8));
     expect(fetchMock.mock.calls[1][0]).toContain('/auth/username-availability?username=new_user');
     expect(fetchMock.mock.calls[2][0]).toContain('/auth/register');
-    expect(fetchMock.mock.calls[3][0]).toContain('/users/me');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/me'))).toBe(false);
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
       displayName: 'New User',
       username: 'new_user',
@@ -345,7 +398,7 @@ describe('route handling', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/username-availability'))).toBe(false);
 
     fireEvent.change(username, { target: { value: 'valid_name' } });
-    expect(await screen.findByText('Unable to check username. Please try again.')).toBeInTheDocument();
+    expect(await screen.findByText(/Could not communicate with the CliQHeart API/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/auth/username-availability'))).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/register'))).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Retry username availability check' }));
@@ -518,5 +571,48 @@ describe('route handling', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, options]) =>
       String(url).includes('/notifications/read-all') && options.method === 'PATCH')).toBe(true));
     expect(await screen.findByText('0 unread')).toBeInTheDocument();
+  });
+
+  it('opens the professional dashboard directly with a saved professional account', async () => {
+    const user = {
+      id: 'creator-id',
+      username: 'test_creator',
+      displayName: 'Test Creator',
+      accountType: 'CREATOR',
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const path = String(url);
+      if (path.includes('/auth/refresh')) {
+        return new Response(JSON.stringify({ accessToken: 'access-token', user }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.includes('/professional/dashboard')) {
+        return new Response(JSON.stringify({
+          analytics: {
+            rangeDays: 30,
+            totals: { followers: 17, following: 4, posts: 3, reels: 1 },
+            dailyUniqueEvents: [],
+            topContent: [],
+            recentActivity: [],
+            metricDefinition: 'Unique signed-in viewers per UTC day.',
+          },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (path.includes('/professional/me')) {
+        return new Response(JSON.stringify({
+          professional: { accountType: 'CREATOR', category: 'ARTIST', profile: null },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ unreadCount: 0 }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    renderApp('/professional/dashboard');
+
+    expect(await screen.findByRole('heading', { name: 'Welcome, Test Creator' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/professional/dashboard');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/professional/dashboard?days=30'))).toBe(true);
   });
 });

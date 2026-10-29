@@ -57,7 +57,9 @@ still enforces the unique username index to prevent concurrent duplicates.
 
 ### `POST /api/v1/auth/refresh`
 
-Rotates the session refresh token and issues a new access token. Native clients
+Rotates the session refresh token and issues a new access token together with
+the current public user profile; browser session restoration does not need a
+second `GET /users/me` request. Native clients
 send `{"refreshToken":"<refresh token>"}` and receive the replacement token in
 JSON. Browser clients send the trusted-origin cookie transport header and
 receive a rotated HttpOnly cookie. A session's `expiresAt` is fixed at creation
@@ -86,14 +88,67 @@ Requests with no `Origin` remain available to native and server clients, which
 still require normal authentication where applicable. The cookie is always
 `HttpOnly; Secure; SameSite=None` and scoped to `/api/v1/auth`, including when
 the Render service's `NODE_ENV` is accidentally left at `development`.
+The API applies a shared limit of 600 requests per IP per 15 minutes to versioned
+API routes; health checks, CORS preflights, and authentication routes with
+dedicated limits are excluded. Authentication and other sensitive operations
+also have stricter route-specific limits: login is
+limited to 10 failed attempts per 15 minutes, registration to 10 attempts per
+hour, refresh to 30 failed attempts per 15 minutes, and username availability
+to 30 requests per 15 minutes. Refresh checks without a supplied browser cookie
+or native refresh token do not consume the refresh failure budget. Successful
+login and refresh requests are excluded from failed-attempt budgets. The
+limiters use the process-local express-rate-limit memory store;
+if the service is scaled to multiple instances, configure a shared store before
+relying on a single cluster-wide quota.
+
+On Render, the app trusts exactly one proxy hop for client IP resolution;
+local and test environments do not trust forwarded IP headers.
+
+## Professional accounts
+
+Users created before professional account support and new registrations remain
+`PERSONAL` by default. Professional account types are `CREATOR` and `BUSINESS`;
+they are account categories and do not grant system or moderation privileges.
+The existing user identity, posts, messages, and follow relationships remain
+attached to the same user record when its account type changes.
+
+All professional endpoints below require the current access token. The server
+uses the token subject as the owner; client-supplied owner IDs are not accepted.
+
+- `GET /api/v1/professional/me` returns the current account type and resumable
+  onboarding draft.
+- `PATCH /api/v1/professional/onboarding` saves one strict step at a time:
+  `type`, `category`, `profile`, or `confirmation`.
+- `POST /api/v1/professional/convert` requires
+  `{"confirmPublicProfile":true}` and a complete saved onboarding draft.
+- `PATCH /api/v1/professional/profile` updates only validated business contact
+  and display preferences. Contact details are private unless the owner enables
+  `displayContactInfo`; public-profile responses never include the saved draft.
+- `POST /api/v1/professional/switch-to-personal` switches the same account back
+  without deleting posts or connections.
+- `GET /api/v1/professional/dashboard?days=7|30|90` returns live follower,
+  following, post, and reel totals with privacy-safe daily activity.
+- `GET|POST|PATCH|DELETE /api/v1/professional/campaigns` lists, creates, edits,
+  or deletes owner-scoped promotion drafts. Only draft campaigns are supported.
+
+Analytics store at most one event per signed-in viewer, professional profile or
+content item, and UTC day for views. Follow/unfollow events are recorded when
+the corresponding relationship mutation commits. The dashboard does not
+backfill historical views or follower changes; it does not claim impressions,
+reach, audience demographics, or daily active users. No payment provider,
+campaign approval, or ad-delivery integration is configured, so promotion
+drafts do not charge, activate, or deliver ads. Raw analytics events are
+automatically removed after 120 days.
 
 ## Authenticated user endpoints
 
 ### `GET /api/v1/users/me`
 
-Returns the authenticated user's public profile fields (`id`, `username`,
-`displayName`, `bio`, and `avatarUrl`) and real post, Reel, follower, and
-following counts. Email and account internals are not returned by this endpoint.
+Returns the authenticated user's profile fields (`id`, `username`,
+`displayName`, `bio`, `avatarUrl`, and account type) and real post, Reel,
+follower, and following counts. Professional category and contact details are
+returned only according to the professional profile's public display settings.
+Email, onboarding drafts, and other account internals are not returned.
 
 ### `PATCH /api/v1/users/me`
 

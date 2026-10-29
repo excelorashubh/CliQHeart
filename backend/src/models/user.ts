@@ -1,4 +1,10 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
+import {
+  professionalAccountTypes,
+  professionalCategories,
+  professionalOnboardingDraftSchema,
+  professionalProfileSchema,
+} from '../modules/professional/professional.fields';
 
 const userSchema = new Schema(
   {
@@ -66,6 +72,27 @@ const userSchema = new Schema(
       default: 'active',
       required: true,
     },
+    accountType: {
+      type: String,
+      enum: ['PERSONAL', ...professionalAccountTypes],
+      default: 'PERSONAL',
+      required: true,
+    },
+    professionalCategory: {
+      type: String,
+      enum: professionalCategories,
+    },
+    professionalProfile: {
+      type: professionalProfileSchema,
+      default: undefined,
+    },
+    professionalOnboardingDraft: {
+      type: professionalOnboardingDraftSchema,
+      default: undefined,
+    },
+    professionalOnboardingCompletedAt: {
+      type: Date,
+    },
     relationshipRevision: {
       type: Number,
       default: 0,
@@ -84,6 +111,9 @@ const userSchema = new Schema(
         const safeResult: Record<string, unknown> = { ...result };
         delete safeResult.passwordHash;
         delete safeResult.__v;
+        delete safeResult.professionalProfile;
+        delete safeResult.professionalOnboardingDraft;
+        delete safeResult.professionalOnboardingCompletedAt;
         if (safeResult._id) {
           safeResult.id = String(safeResult._id);
           delete safeResult._id;
@@ -96,6 +126,9 @@ const userSchema = new Schema(
         const safeResult: Record<string, unknown> = { ...result };
         delete safeResult.passwordHash;
         delete safeResult.__v;
+        delete safeResult.professionalProfile;
+        delete safeResult.professionalOnboardingDraft;
+        delete safeResult.professionalOnboardingCompletedAt;
         if (safeResult._id) {
           safeResult.id = String(safeResult._id);
           delete safeResult._id;

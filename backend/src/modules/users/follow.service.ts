@@ -2,6 +2,7 @@ import mongoose, { type ClientSession } from 'mongoose';
 import { UserModel } from '../../models/user';
 import { NotificationModel } from '../notifications/notification.model';
 import { FollowModel } from './follow.model';
+import { recordProfessionalEvent } from '../professional/professional.service';
 
 export interface FollowMutationDependencies {
   startSession: () => Promise<ClientSession>;
@@ -11,12 +12,18 @@ export interface FollowMutationDependencies {
     followedId: string,
     session: ClientSession,
   ) => Promise<{ createdId?: string }>;
-  deleteFollow: (followerId: string, followedId: string, session: ClientSession) => Promise<void>;
+  deleteFollow: (followerId: string, followedId: string, session: ClientSession) => Promise<unknown>;
   createFollowNotification: (
     recipientId: string,
     actorId: string,
     createdId: string,
     session: ClientSession,
+  ) => Promise<void>;
+  recordRelationshipEvent?: (
+    ownerId: string,
+    viewerId: string,
+    eventType: 'follow' | 'unfollow',
+    mutationKey: string,
   ) => Promise<void>;
 }
 
@@ -42,7 +49,8 @@ const defaultDependencies: FollowMutationDependencies = {
     return result.upsertedCount > 0 ? { createdId: String(result.upsertedId) } : {};
   },
   deleteFollow: async (followerId, followedId, session) => {
-    await FollowModel.deleteOne({ followerId, followedId }, { session });
+    const deleted = await FollowModel.findOneAndDelete({ followerId, followedId }, { session }).select('_id').lean();
+    return deleted ? String(deleted._id) : undefined;
   },
   createFollowNotification: async (recipientId, actorId, createdId, session) => {
     await NotificationModel.updateOne(
@@ -58,6 +66,8 @@ const defaultDependencies: FollowMutationDependencies = {
       { upsert: true, session },
     );
   },
+  recordRelationshipEvent: (ownerId, viewerId, eventType, mutationKey) =>
+    recordProfessionalEvent(ownerId, viewerId, eventType, undefined, mutationKey),
 };
 
 export class FollowAccountUnavailableError extends Error {
@@ -74,6 +84,9 @@ export async function changeFollowRelationship(
   dependencies: FollowMutationDependencies = defaultDependencies,
 ): Promise<void> {
   const session = await dependencies.startSession();
+  let relationshipEvent:
+    | { ownerId: string; viewerId: string; eventType: 'follow' | 'unfollow'; mutationKey: string }
+    | undefined;
   try {
     await session.withTransaction(async () => {
       const userIds = [followerId, followedId].sort();
@@ -84,11 +97,41 @@ export async function changeFollowRelationship(
         const result = await dependencies.createFollow(followerId, followedId, session);
         if (result.createdId) {
           await dependencies.createFollowNotification(followedId, followerId, result.createdId, session);
+          relationshipEvent = {
+            ownerId: followedId,
+            viewerId: followerId,
+            eventType: 'follow',
+            mutationKey: `follow:${result.createdId}`,
+          };
         }
       } else {
-        await dependencies.deleteFollow(followerId, followedId, session);
+        const deletedId = await dependencies.deleteFollow(followerId, followedId, session);
+        if (typeof deletedId === 'string') {
+          relationshipEvent = {
+            ownerId: followedId,
+            viewerId: followerId,
+            eventType: 'unfollow',
+            mutationKey: `unfollow:${deletedId}`,
+          };
+        }
       }
     });
+    if (relationshipEvent && dependencies.recordRelationshipEvent) {
+      try {
+        await dependencies.recordRelationshipEvent(
+          relationshipEvent.ownerId,
+          relationshipEvent.viewerId,
+          relationshipEvent.eventType,
+          relationshipEvent.mutationKey,
+        );
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'professional_analytics_write_failed',
+          type: relationshipEvent.eventType,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        }));
+      }
+    }
   } finally {
     await session.endSession();
   }

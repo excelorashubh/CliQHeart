@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import cors from 'cors';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
-import rateLimit from 'express-rate-limit';
+import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import hpp from 'hpp';
 import type { AppConfig } from './config/env';
@@ -12,6 +12,7 @@ import { createUserRouter } from './modules/users/user.routes';
 import { createContentRouter } from './modules/content/content.routes';
 import { createMediaRouter } from './modules/media/media.routes';
 import { createNotificationRouter } from './modules/notifications/notification.routes';
+import { createProfessionalRouter } from './modules/professional/professional.routes';
 
 export interface RequestLogEntry {
   requestId: string;
@@ -28,6 +29,7 @@ export interface AppOptions {
 }
 
 const logLevels = ['debug', 'info', 'warn', 'error'] as const;
+const apiRateLimit = 600;
 
 function writeRequestLog(
   level: AppConfig['LOG_LEVEL'],
@@ -53,6 +55,10 @@ export function createApp({
   ]);
 
   app.disable('x-powered-by');
+  if (config.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+    // Render's public load balancer is the single trusted forwarded-IP hop.
+    app.set('trust proxy', 1);
+  }
   app.use((request, response, next) => {
     const requestId = randomUUID();
     const startedAt = Date.now();
@@ -62,7 +68,7 @@ export function createApp({
       const entry: RequestLogEntry = {
         requestId,
         method: request.method,
-        route: response.locals.route ?? 'unmatched',
+        route: response.locals.route ?? `${request.method} ${request.originalUrl.split('?')[0]}`,
         statusCode: response.statusCode,
         durationMs: Math.max(0, Date.now() - startedAt),
       };
@@ -103,15 +109,27 @@ export function createApp({
   });
   app.use(hpp());
   app.use(express.json({ limit: '100kb', strict: true }));
-  app.use(
-    rateLimit({
-      windowMs: 15 * 60 * 1000,
-      limit: 100,
-      standardHeaders: 'draft-7',
-      legacyHeaders: false,
-    }),
-  );
-
+  app.use('/api/v1', rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: apiRateLimit,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skip: (request) =>
+      request.path === '/health' ||
+      request.method === 'OPTIONS' ||
+      [
+        '/auth/login',
+        '/auth/register',
+        '/auth/refresh',
+        '/auth/username-availability',
+      ].includes(request.path),
+    handler: (_request, response) => {
+      response.status(429).json({
+        error: 'Too many requests. Please wait before trying again.',
+        requestId: response.locals.requestId,
+      });
+    },
+  }));
   api.get('/', (_request, response) => {
     response.locals.route = 'GET /api/v1';
     response.status(200).json({
@@ -140,6 +158,7 @@ export function createApp({
   app.use('/api/v1', createMediaRouter(config));
   app.use('/api/v1', createContentRouter(config));
   app.use('/api/v1', createNotificationRouter(config));
+  app.use('/api/v1', createProfessionalRouter(config));
   app.use('/api/v1', createUserRouter(config));
   app.use('/api/v1', createMessageRouter(config));
   app.use('/api/v1', api);

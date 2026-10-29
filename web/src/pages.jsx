@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import { Avatar, Brand } from './components/Brand.jsx';
-import { EmptyState, ErrorState, Skeleton } from './components/Feedback.jsx';
+import { EmptyState, ErrorState, RetryButton, Skeleton } from './components/Feedback.jsx';
 import { ContentFeed, StoryFeed } from './components/Content.jsx';
 import { MediaUploader } from './components/MediaUploader.jsx';
 import { authApi, contentApi, mediaApi, messageApi, notificationApi, userApi } from './services/api.js';
@@ -27,6 +27,30 @@ function suggestionReasonLabel(person) {
   return person.mutualCount === 1
     ? `Followed by ${names[0]}`
     : `Followed by ${names[0]} and others`;
+}
+
+function useRateLimitCooldown() {
+  const [retryAt, setRetryAt] = useState(0);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const blockForError = useCallback((error) => {
+    if (error?.status === 429 && Number.isFinite(error.retryAfterSeconds) && error.retryAfterSeconds > 0) {
+      setRetryAt(Date.now() + error.retryAfterSeconds * 1000);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!retryAt) return undefined;
+    const updateRemaining = () => {
+      const remaining = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+      setRemainingSeconds(remaining);
+      if (remaining === 0) setRetryAt(0);
+    };
+    updateRemaining();
+    const timer = window.setInterval(updateRemaining, 1000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
+
+  return { remainingSeconds, blockForError };
 }
 
 export function LandingPage() {
@@ -61,11 +85,13 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const { remainingSeconds, blockForError } = useRateLimitCooldown();
   const created = new URLSearchParams(location.search).get('created');
   const logoutWarning = location.state?.logoutWarning;
 
   async function submit(event) {
     event.preventDefault();
+    if (busy || remainingSeconds > 0) return;
     setError('');
     setBusy(true);
     try {
@@ -73,6 +99,7 @@ export function LoginPage() {
       navigate(location.state?.from || '/', { replace: true });
     } catch (reason) {
       setError(reason.message || 'Could not sign in.');
+      blockForError(reason);
       setBusy(false);
     }
   }
@@ -87,7 +114,7 @@ export function LoginPage() {
       <label>Email or username<input autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} required /></label>
       <label>Password<span className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <button className="button button--primary button--wide" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'} <ArrowRight size={17} /></button>
+      <button className="button button--primary button--wide" disabled={busy || remainingSeconds > 0}>{busy ? 'Signing in…' : remainingSeconds > 0 ? `Try again in ${remainingSeconds}s` : 'Sign in'} <ArrowRight size={17} /></button>
     </form>
     <p className="auth-switch">New to CliQHeart? <Link to="/register">Create an account</Link></p>
     <p className="auth-privacy">Your password is sent only to the CliQHeart API and is never saved in this browser.</p>
@@ -104,6 +131,7 @@ export function RegisterPage() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const { remainingSeconds, blockForError } = useRateLimitCooldown();
   const [usernameAvailability, setUsernameAvailability] = useState({ username: '', status: 'empty' });
   const usernameInputRef = useRef(null);
   const usernameTimerRef = useRef(null);
@@ -133,14 +161,15 @@ export function RegisterPage() {
       .then((response) => ({ available: response.available, status: response.available ? 'available' : 'taken' }))
       .catch((reason) => {
         if (reason?.name === 'AbortError') return { available: false, status: 'stale' };
-        return { available: false, status: 'error' };
+        blockForError(reason);
+        return { available: false, status: 'error', error: reason };
       });
     if (requestId === usernameSequenceRef.current && !controller.signal.aborted) {
       if (result.status !== 'error') usernameResultRef.current = { username, result };
-      setUsernameAvailability({ username, status: result.status });
+      setUsernameAvailability({ username, status: result.status, error: result.error });
     }
     return result;
-  }, []);
+  }, [blockForError]);
 
   useEffect(() => {
     usernameResultRef.current = null;
@@ -179,7 +208,7 @@ export function RegisterPage() {
 
   async function submit(event) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || remainingSeconds > 0) return;
     setError('');
     const validation = {};
     const username = normalizedUsername;
@@ -215,7 +244,7 @@ export function RegisterPage() {
       const message = availability.status === 'taken'
         ? 'Username already exists'
         : availability.status === 'error'
-          ? 'Unable to check username. Please try again.'
+          ? availability.error?.message || 'Unable to check username. Please try again.'
           : 'Checking username availability...';
       setUsernameAvailability({ username, status: availability.status });
       setFieldErrors((current) => ({ ...current, username: message }));
@@ -233,6 +262,7 @@ export function RegisterPage() {
       });
       navigate(location.state?.from || '/', { replace: true });
     } catch (reason) {
+      blockForError(reason);
       if (reason.field === 'username' || reason.message === 'Username already exists') {
         usernameResultRef.current = { username, result: { available: false, status: 'taken' } };
         setUsernameAvailability({ username, status: 'taken' });
@@ -262,7 +292,7 @@ export function RegisterPage() {
           {usernameAvailability.status === 'available' && <><CheckCircle2 size={14} aria-hidden="true" /> Username available</>}
           {usernameAvailability.status === 'taken' && <><XCircle size={14} aria-hidden="true" /> Username already exists</>}
           {usernameAvailability.status === 'invalid' && 'Username format is invalid'}
-          {usernameAvailability.status === 'error' && <>Unable to check username. Please try again. <button className="username-retry" type="button" aria-label="Retry username availability check" disabled={busy} onClick={() => void checkUsername(normalizedUsername)}>Retry</button></>}
+          {usernameAvailability.status === 'error' && <>{usernameAvailability.error?.message || 'Unable to check username. Please try again.'} <button className="username-retry" type="button" aria-label="Retry username availability check" disabled={busy || remainingSeconds > 0} onClick={() => void checkUsername(normalizedUsername)}>{remainingSeconds > 0 ? `Retry in ${remainingSeconds}s` : 'Retry'}</button></>}
         </small>
         {fieldErrors.username && fieldErrors.username !== 'Username already exists' && fieldErrors.username !== 'Unable to check username. Please try again.' && <small className="field-error">{fieldErrors.username}</small>}
       </label>
@@ -273,7 +303,7 @@ export function RegisterPage() {
       </div>
       <label className="checkbox-label"><input type="checkbox" checked={terms} onChange={(event) => setTerms(event.target.checked)} required /><span>I agree to the Terms of Service and Privacy Policy.{fieldErrors.agreeToTerms && <small className="field-error">{fieldErrors.agreeToTerms}</small>}</span></label>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <button className="button button--primary button--wide" disabled={busy || !terms}>{busy ? 'Creating account…' : 'Create account'} <ArrowRight size={17} /></button>
+      <button className="button button--primary button--wide" disabled={busy || !terms || remainingSeconds > 0}>{busy ? 'Creating account…' : remainingSeconds > 0 ? `Try again in ${remainingSeconds}s` : 'Create account'} <ArrowRight size={17} /></button>
     </form>
     <p className="auth-switch">Already have an account? <Link to="/login">Sign in</Link></p>
   </AuthLayout>;
@@ -368,7 +398,7 @@ function HomeSuggestions({ user }) {
     <section className="home-suggestions">
       <header><h2>Suggested for you</h2><Link to="/explore/people/">See all</Link></header>
       {loading && <div className="home-suggestion-loading"><Skeleton rows={3} /></div>}
-      {!loading && error && <div className="home-suggestion-error" role="alert">{error}<button type="button" className="text-link" onClick={() => loadSuggestions()}>Try again</button></div>}
+      {!loading && error && <div className="home-suggestion-error" role="alert">{error}<RetryButton error={error} onRetry={() => loadSuggestions()} className="text-link" /></div>}
       {!loading && !error && users.length === 0 && <p className="home-suggestion-empty">You're all caught up. Search for more people to follow.</p>}
       {!loading && !error && users.map((suggestion) => <article className="home-suggestion" key={suggestion.id}>
         <Link to={`/profile/${suggestion.id}`} className="home-suggestion-person">
@@ -847,7 +877,7 @@ export function ExplorePeoplePage() {
         </button>
       </article>)}
     </section>}
-    {moreError && <p className="inline-error" role="alert">{moreError} <button className="text-link" type="button" onClick={() => void loadMore()}>Try again</button></p>}
+    {moreError && <p className="inline-error" role="alert">{moreError} <RetryButton error={moreError} onRetry={() => void loadMore()} className="text-link" /></p>}
     {!loading && !error && nextCursor && <button className="button button--outline people-load-more" onClick={loadMore} disabled={loadingMore}>
       {loadingMore ? 'Loading…' : 'Load more people'}
     </button>}
@@ -1212,6 +1242,16 @@ export function ProfilePage({ editOnOpen = false }) {
     {error && <p className="inline-error">{error}</p>}
     {shareMessage && <p className="profile-share-status" role="status">{shareMessage}</p>}
     {photoActionNotice && <p className="profile-share-status" role="status">{photoActionNotice}</p>}
+    {profile.professionalLabelVisible && <p className="professional-profile-label">{profile.professionalCategory?.replaceAll('_', ' ').toLowerCase()} · Professional account</p>}
+    {profile.professionalContact && <div className="professional-public-contact">
+      {profile.professionalContact.businessEmail && <a href={`mailto:${profile.professionalContact.businessEmail}`}>{profile.professionalContact.businessEmail}</a>}
+      {profile.professionalContact.contactPhone && <a href={`tel:${profile.professionalContact.contactPhone}`}>{profile.professionalContact.contactPhone}</a>}
+      {profile.professionalContact.website && <a href={profile.professionalContact.website} target="_blank" rel="noreferrer">Website</a>}
+      {profile.professionalContact.businessAddress && <span>{profile.professionalContact.businessAddress}</span>}
+    </div>}
+    {isOwn && <Link className="professional-profile-link" to={profile.accountType === 'CREATOR' || profile.accountType === 'BUSINESS' ? '/professional' : '/professional/onboarding'}>
+      {profile.accountType === 'CREATOR' || profile.accountType === 'BUSINESS' ? 'Professional dashboard' : 'Switch to a professional account'}
+    </Link>}
     <div className="profile-content">
       <div className="profile-tabs" role="tablist" aria-label="Profile content" onKeyDown={handleContentTabKey}>
         {availableTabs.map((tab) => <button
@@ -1360,6 +1400,7 @@ export function SettingsPage() {
     <section className="settings-card"><div className="settings-section-head"><div><h2>Appearance</h2><p>Choose how CliQHeart looks on this device.</p></div></div><div className="theme-options"><button className={theme === 'light' ? 'is-selected' : ''} onClick={() => changeTheme('light')}>Light</button><button className={theme === 'dark' ? 'is-selected' : ''} onClick={() => changeTheme('dark')}>Dark</button></div></section>
     <section className="settings-card"><div className="settings-section-head"><div><h2>Account session</h2><p>Sign out of this browser session.</p></div><button className="button button--outline" onClick={logout}>Log out</button></div><p className="security-note"><ShieldCheck size={16} /> Access token remains in memory only and is cleared when you sign out or close the page.</p></section>
     <section className="settings-card"><div className="settings-section-head"><div><h2>Privacy & account</h2><p>Account controls are enforced by the shared CliQHeart API.</p></div></div><p className="helper-text">Email, phone number, and account status are not displayed in public profile screens.</p></section>
+    <section className="settings-card"><div className="settings-section-head"><div><h2>{user?.accountType !== 'CREATOR' && user?.accountType !== 'BUSINESS' ? 'Professional account' : 'Professional tools'}</h2><p>{user?.accountType !== 'CREATOR' && user?.accountType !== 'BUSINESS' ? 'Keep your current profile, posts, followers, and sign-in while adding professional insights.' : `${user?.accountType === 'BUSINESS' ? 'Business' : 'Creator'} account tools and audience analytics.`}</p></div><Link className="button button--outline" to={user?.accountType === 'CREATOR' || user?.accountType === 'BUSINESS' ? '/professional' : '/professional/onboarding'}>{user?.accountType === 'CREATOR' || user?.accountType === 'BUSINESS' ? 'Open dashboard' : 'Get started'}</Link></div></section>
     <section className="settings-card settings-danger-zone"><div className="settings-section-head"><div><h2>Delete account</h2><p>Permanently deactivate your account and remove its follow relationships.</p></div><button className="button button--danger" onClick={() => { setDeleteError(''); setDeletePassword(''); setDeleteDialogOpen(true); }}>Delete account</button></div></section>
     {deleteDialogOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleteBusy) setDeleteDialogOpen(false); }}>
       <form className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" onSubmit={deleteAccount}>

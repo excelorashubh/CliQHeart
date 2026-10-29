@@ -43,6 +43,107 @@ test('health endpoint reports healthy status when the database is connected', as
   assert.equal(response.body.database, 'connected');
 });
 
+test('professional onboarding route is mounted under the API prefix and remains authenticated', async () => {
+  const app = createApp({ config, requestLogger: () => undefined });
+
+  const response = await request(app)
+    .patch('/api/v1/professional/onboarding')
+    .send({ step: 'type', accountType: 'CREATOR' });
+
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error, 'Authentication required.');
+});
+
+test('ordinary API requests have a high shared quota while health checks are excluded', async () => {
+  const entries: RequestLogEntry[] = [];
+  const app = createApp({
+    config,
+    databaseStatus: () => true,
+    requestLogger: (entry) => entries.push(entry),
+  });
+  const responses = await Promise.all([
+    ...Array.from({ length: 600 }, () => request(app).get('/api/v1')),
+    request(app).get('/api/v1'),
+  ]);
+
+  assert.equal(responses.filter((response) => response.status === 200).length, 600);
+  const limited = responses.find((response) => response.status === 429);
+  assert.equal(limited?.body.error, 'Too many requests. Please wait before trying again.');
+  assert.ok(limited?.body.requestId);
+  assert.equal(limited?.headers['x-request-id'], limited?.body.requestId);
+  assert.ok(Number(limited?.headers['retry-after']) > 0);
+  assert.ok(entries.some((entry) =>
+    entry.requestId === limited?.body.requestId &&
+    entry.route === 'GET /api/v1',
+  ));
+
+  const health = await request(app).get('/api/v1/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.ratelimit, undefined);
+});
+
+test('Render proxy IPs are trusted one hop in production and auth limits stay scoped by client', async () => {
+  const productionConfig = loadConfig({
+    NODE_ENV: 'production',
+    MONGODB_URI: 'mongodb://localhost:27017/cliqheart',
+  });
+  const app = createApp({
+    config: productionConfig,
+    databaseStatus: () => false,
+    requestLogger: () => undefined,
+  });
+
+  let limitedResponse;
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    limitedResponse = await request(app)
+      .post('/api/v1/auth/login')
+      .set('X-Forwarded-For', '203.0.113.10')
+      .send({ identifier: '', password: 'Password123!' });
+  }
+  assert.equal(limitedResponse?.status, 429);
+  assert.equal(limitedResponse?.body.error, 'Too many sign-in attempts. Please wait before trying again.');
+  assert.ok(Number(limitedResponse?.headers['retry-after']) > 0);
+
+  const differentClient = await request(app)
+    .post('/api/v1/auth/login')
+    .set('X-Forwarded-For', '203.0.113.11')
+    .send({ identifier: '', password: 'Password123!' });
+  assert.equal(differentClient.status, 400);
+
+  const health = await request(app).get('/api/v1/health');
+  assert.equal(health.status, 200);
+});
+
+test('Render-provided deployment marker enables proxy IP resolution even with a non-production NODE_ENV', async () => {
+  const previousRenderValue = process.env.RENDER;
+  process.env.RENDER = 'true';
+  try {
+    const app = createApp({
+      config,
+      databaseStatus: () => false,
+      requestLogger: () => undefined,
+    });
+
+    let response;
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      response = await request(app)
+        .post('/api/v1/auth/login')
+        .set('X-Forwarded-For', '203.0.113.20')
+        .send({ identifier: '', password: 'Password123!' });
+    }
+    assert.equal(response?.status, 429);
+
+    const separateAddress = await request(app)
+      .post('/api/v1/auth/login')
+      .set('X-Forwarded-For', '203.0.113.21')
+      .send({ identifier: '', password: 'Password123!' });
+    assert.equal(separateAddress.status, 400);
+  } finally {
+    if (previousRenderValue === undefined) delete process.env.RENDER;
+    else process.env.RENDER = previousRenderValue;
+  }
+});
+
 test('versioned API root returns application metadata', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   const response = await request(app).get('/api/v1');

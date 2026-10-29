@@ -164,6 +164,20 @@ test('browser cookie auth rejects untrusted origins and never returns refresh to
   assert.equal(missingSession.body.refreshToken, undefined);
 });
 
+test('refresh limiter does not count browser session checks when no cookie exists', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const responses = await Promise.all(
+    Array.from({ length: 35 }, () => request(app)
+      .post('/api/v1/auth/refresh')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Session-Transport', 'cookie')),
+  );
+
+  assert.ok(responses.every((response) => response.status === 401));
+  assert.ok(responses.every((response) => response.body.error === 'Refresh session is unavailable.'));
+  assert.ok(responses.every((response) => response.headers.ratelimit === undefined));
+});
+
 test('browser logout clears the HttpOnly cookie and native logout stays idempotent', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   const browserLogout = await request(app)

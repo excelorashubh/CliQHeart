@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ApiError, apiRequest, authApi, resolveApiUrl, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
+  ApiError, apiRequest, authApi, professionalApi, resolveApiUrl, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
 } from './api.js';
 
 describe('apiRequest', () => {
@@ -61,6 +61,41 @@ describe('apiRequest', () => {
     );
   });
 
+  it('sends the selected account type to the authenticated onboarding API and explains a missing deployed route', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'Not found' }),
+      { status: 404, headers: { 'content-type': 'application/json' } },
+    ));
+
+    await expect(professionalApi.saveOnboardingStep({ step: 'type', accountType: 'BUSINESS' }))
+      .rejects.toMatchObject({
+        status: 404,
+        message: 'The professional account service was not found. The backend may need its professional-account update deployed.',
+      });
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.test.invalid/api/v1/professional/onboarding');
+    expect(fetchMock.mock.calls[0][1].method).toBe('PATCH');
+    expect(fetchMock.mock.calls[0][1].body).toBe('{"step":"type","accountType":"BUSINESS"}');
+    expect(fetchMock.mock.calls[0][1].credentials).toBe('include');
+  });
+
+  it.each([
+    [400, 'Some professional account details are invalid. Review the form and try again.'],
+    [401, 'Your session could not be verified. Sign in again and retry.'],
+    [403, 'Your account is not permitted to change this professional setting.'],
+    [409, 'This account has changed. Refresh the page and try again.'],
+    [503, 'The professional account service is temporarily unavailable. Try again shortly.'],
+  ])('shows a recoverable professional-specific message for HTTP %s', async (status, message) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'Internal infrastructure details.' }),
+      { status, headers: { 'content-type': 'application/json' } },
+    ));
+
+    await expect(professionalApi.saveOnboardingStep(
+      { step: 'type', accountType: 'CREATOR' },
+    )).rejects.toMatchObject({ status, message });
+  });
+
   it('normalizes API errors and clears an expired access token', async () => {
     const unauthorized = vi.fn();
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
@@ -78,6 +113,42 @@ describe('apiRequest', () => {
 
     expect(unauthorized).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('respects Retry-After on HTTP 429 without automatically retrying', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'Too many sign-in attempts.' }),
+      {
+        status: 429,
+        headers: {
+          'content-type': 'application/json',
+          'retry-after': '12',
+        },
+      },
+    ));
+
+    await expect(authApi.login({ identifier: 'person', password: 'secret' }))
+      .rejects.toMatchObject({
+        name: 'ApiError',
+        status: 429,
+        retryAfterSeconds: 12,
+        message: 'Too many sign-in attempts. Try again in 12 seconds.',
+      });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [403, 'You cannot access this profile.'],
+    [503, 'Database is temporarily unavailable.'],
+  ])('preserves the server message for HTTP %s rather than mapping it to a rate-limit error', async (status, message) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: message }),
+      { status, headers: { 'content-type': 'application/json' } },
+    ));
+
+    await expect(apiRequest('users/me', { retryAuth: false }))
+      .rejects.toMatchObject({ status, message, retryAfterSeconds: null });
   });
 
   it('does not clear a saved session when refresh is forbidden for an origin/configuration issue', async () => {

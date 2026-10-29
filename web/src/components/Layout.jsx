@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
-  Bell, Compass, Heart, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
+  BarChart3, Bell, Compass, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
   Settings, Video, Menu, X,
 } from 'lucide-react';
 import { Brand, Avatar } from './Brand.jsx';
@@ -19,11 +19,22 @@ const links = [
   { name: 'Profile', to: '/profile', Icon: UserRound, profile: true },
 ];
 
+const mobileLinks = [
+  { name: 'Home', to: '/', Icon: Home },
+  { name: 'Search', to: '/search', Icon: Search },
+  { name: 'Reels', to: '/reels', Icon: Video },
+  { name: 'Chats', to: '/messages', Icon: MessageCircle },
+];
+
 export function AppLayout({ children }) {
   const { user, signOut, unreadNotificationCount, setUnreadNotificationCount } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const navigate = useNavigate();
+  const isProfessional = user?.accountType === 'CREATOR' || user?.accountType === 'BUSINESS';
+  const navigationLinks = isProfessional
+    ? [...links.slice(0, 5), { name: 'Dashboard', to: '/professional/dashboard', Icon: BarChart3 }, ...links.slice(5)]
+    : links;
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -67,14 +78,34 @@ export function AppLayout({ children }) {
   return <div className="app-shell">
     <header className="mobile-header">
       <Link to="/" aria-label="CliQHeart home"><Brand /></Link>
-      <button className="icon-button" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen((open) => !open)}>
+      <div className="mobile-header-actions">
+        <Link className="mobile-header-action" to="/create" aria-label="Create post" title="Create post">
+          <PlusSquare size={22} strokeWidth={1.9} />
+        </Link>
+        <NavLink
+          className={({ isActive }) => `mobile-header-action${isActive ? ' is-active' : ''}`}
+          to="/notifications"
+          aria-label={unreadNotificationCount > 0
+            ? `Notifications, ${unreadNotificationCount} unread`
+            : 'Notifications'}
+          title="Notifications"
+        >
+          <span className="nav-icon-wrap">
+            <Bell size={22} strokeWidth={1.9} />
+            {unreadNotificationCount > 0 && <span className="notification-badge" aria-hidden="true">
+              {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+            </span>}
+          </span>
+        </NavLink>
+        <button className="icon-button mobile-menu-button" aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen((open) => !open)}>
         {menuOpen ? <X size={21} /> : <Menu size={21} />}
-      </button>
+        </button>
+      </div>
     </header>
     <aside className={`sidebar${menuOpen ? ' sidebar--open' : ''}`}>
       <Link to="/" className="sidebar-brand" onClick={() => setMenuOpen(false)}><Brand /></Link>
       <nav className="nav-list" aria-label="Main navigation">
-        {links.map(({ name, to, Icon, disabled, profile }) => disabled
+        {navigationLinks.map(({ name, to, Icon, disabled, profile }) => disabled
           ? <Link className="nav-link nav-link--disabled" aria-label={name} title={`${name} isn't supported by the current API`} to={to} key={name}>
               <Icon size={21} strokeWidth={1.8} /><span>{name}</span><small>Coming soon</small>
             </Link>
@@ -98,9 +129,9 @@ export function AppLayout({ children }) {
     {menuOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <main className="main-column">{children}</main>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {links.filter(({ name }) => ['Home', 'Search', 'Reels', 'Create', 'Messages', 'Notifications'].includes(name)).map(({ name, to, Icon }) =>
+      {mobileLinks.map(({ name, to, Icon }) =>
         <NavLink end={to === '/'} key={name} to={to} aria-label={name} className={({ isActive }) => isActive ? 'is-active' : ''}>
-          <span className="nav-icon-wrap"><Icon size={22} />{name === 'Notifications' && unreadNotificationCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</span>
+          <span className="nav-icon-wrap"><Icon size={22} strokeWidth={1.9} /></span>
         </NavLink>)}
       <NavLink to="/profile" aria-label="Profile" className={({ isActive }) => `mobile-profile${isActive ? ' is-active' : ''}`}><Avatar name={user?.displayName} src={user?.avatarUrl} size="small" /></NavLink>
     </nav>

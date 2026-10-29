@@ -42,6 +42,7 @@ Do not use wildcard origins.
 For the current Render deployment, set these on the **backend API service**:
 
 ```text
+NODE_ENV=production
 FRONTEND_URL=https://cliqhearts.onrender.com
 ALLOWED_ORIGINS=https://cliqhearts.onrender.com,http://localhost:5173,http://127.0.0.1:5173
 ACCESS_TOKEN_TTL=15m
@@ -80,19 +81,24 @@ Deploy the contents of `web/dist/` to a static host. Configure
 `VITE_API_BASE_URL` as a build-time environment variable. Static builds call the configured API directly, so the production backend must
 allow the exact deployed website origin in `CORS_ORIGINS`. Configure SPA
 fallback/rewrite rules so application paths such as `/profile/<id>` and
-`/messages/<id>` serve `index.html`. Add the site's exact origin to backend
-`CORS_ORIGINS`. Never put backend secrets in Vite environment variables; every
+`/messages/<id>` serve `index.html`. For the CliQHeart Render static site, add a
+Dashboard rewrite rule with Source `/*`, Destination `/index.html`, and Action
+`Rewrite`. The deployed website currently returns HTTP 404 for direct requests
+to `/professional/dashboard` until this rule is in place. Redeploy the backend
+API after changes to `backend/src/modules/professional/` so its
+`/api/v1/professional/*` routes are available. Add the site's exact origin to
+backend `CORS_ORIGINS`. Never put backend secrets in Vite environment variables; every
 `VITE_*` value is visible to browser users.
 
 ## Authentication notes
 
 The website uses short-lived in-memory access tokens and an HttpOnly refresh
 cookie. It sends `X-Session-Transport: cookie` on login, registration, refresh,
-and logout; cookies are never read by JavaScript. The provider refreshes the
-session during startup before protected routing, verifies `/users/me`, and
-retries a protected request at most once after a shared refresh. Temporary
-network failures retain the cookie and show a retry state rather than treating
-cached profile data as authenticated.
+and logout; cookies are never read by JavaScript. The provider restores the
+session during startup from the user profile returned with the refresh response,
+before protected routing, and retries a protected request at most once after a
+shared refresh. Temporary network, server, and rate-limit failures retain the
+cookie and show a recoverable retry state that respects `Retry-After`.
 
 The Android client uses the same refresh-session records with bearer refresh
 tokens encrypted by its Android Keystore-backed store. Refresh rotation replaces
@@ -114,10 +120,10 @@ for reliable production login persistence, deploy the API on a same-site custom
 domain or reverse proxy it under the website origin.
 
 Registration now creates the active account and session in one onboarding flow;
-the browser and Android navigate into the app only after session creation and
-profile validation. Production Terms of Service and Privacy Policy URLs must
-still be supplied by the product before launch. Users holding refresh tokens
-created by the old seven-day format must sign in once after deployment; old
+the browser and Android navigate into the app only after session creation
+returns a valid access token and user profile. Production Terms of Service and
+Privacy Policy URLs must still be supplied by the product before launch. Users
+holding refresh tokens created by the old seven-day format must sign in once after deployment; old
 tokens are not persisted in plaintext or scanned across the sessions table.
 
 The reported inactive-account issue was checked against registration, the
@@ -145,8 +151,11 @@ The client-side routes include `/`, `/login`, `/signup` (also `/register`),
 `/search` (the legacy `/explore` and `/discover` URLs redirect here),
 `/profile`, `/profile/:userId`,
 `/profile/edit`, `/messages`, `/messages/:conversationId`, `/settings`,
-`/create`, `/post/:postId`, `/reels`, and `/notifications`. Routes requiring an
-account redirect signed-out visitors to `/login`. Create supports posts,
+`/create`, `/post/:postId`, `/reels`, `/notifications`,
+`/professional/onboarding`, `/professional/dashboard`, and
+`/professional/promotions`. `/professional` redirects to the dashboard route
+for professional accounts and to setup for personal accounts. Routes requiring
+an account redirect signed-out visitors to `/login`. Create supports posts,
 24-hour stories, and short Reels. Uploads are signed by the API and sent
 directly from the browser to Cloudinary; the backend verifies the uploaded
 asset before it can be attached to a profile or published.

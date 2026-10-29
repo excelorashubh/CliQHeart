@@ -20,8 +20,9 @@ import {
   AccountDeletionUnavailableError,
   deleteAccount,
 } from './account-deletion.service';
+import { recordProfileView } from '../professional/professional.service';
 
-const publicProfileFields = 'username displayName bio avatarUrl';
+const publicProfileFields = 'username displayName bio avatarUrl accountType professionalCategory professionalProfile';
 const accountDeletionSchema = z.object({
   password: z.string().min(1).max(128),
 }).strict();
@@ -340,6 +341,7 @@ export function createUserRouter(
         response.status(404).json({ error: 'User not found.' });
         return;
       }
+      recordProfileView(String(user._id), (request as AuthenticatedRequest).authenticatedUserId!);
       response.json({
         user: await profilePayload(user, (request as AuthenticatedRequest).authenticatedUserId!),
       });
@@ -366,6 +368,7 @@ export function createUserRouter(
         response.status(404).json({ error: 'User not found.' });
         return;
       }
+      recordProfileView(String(user._id), viewerId);
       response.json({ user: await profilePayload(user, viewerId) });
     } catch (error) {
       next(error);
@@ -473,9 +476,29 @@ async function profilePayload(user: { _id: unknown; [key: string]: unknown }, vi
       ? Promise.resolve(false)
       : FollowModel.exists({ followerId: viewerId, followedId: userId }),
   ]);
+  const accountType = user.accountType ?? 'PERSONAL';
   return {
     id: userId,
-    ...user,
+    username: user.username,
+    displayName: user.displayName,
+    bio: user.bio,
+    avatarUrl: user.avatarUrl,
+    accountType,
+    professionalCategory: user.professionalCategory ?? null,
+    professionalLabelVisible: accountType !== 'PERSONAL' &&
+      (!user.professionalProfile ||
+        typeof user.professionalProfile !== 'object' ||
+        (user.professionalProfile as Record<string, unknown>).showProfessionalLabel !== false),
+    professionalContact: user.professionalProfile &&
+      typeof user.professionalProfile === 'object' &&
+      (user.professionalProfile as Record<string, unknown>).displayContactInfo === true
+      ? {
+        businessEmail: (user.professionalProfile as Record<string, unknown>).businessEmail,
+        contactPhone: (user.professionalProfile as Record<string, unknown>).contactPhone,
+        website: (user.professionalProfile as Record<string, unknown>).website,
+        businessAddress: (user.professionalProfile as Record<string, unknown>).businessAddress,
+      }
+      : null,
     followersCount,
     followingCount,
     postsCount,

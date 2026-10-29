@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bookmark, Heart, Play } from 'lucide-react';
 import { Avatar } from './Brand.jsx';
-import { EmptyState, ErrorState, Skeleton } from './Feedback.jsx';
+import { EmptyState, ErrorState, RetryButton, Skeleton } from './Feedback.jsx';
 import { contentApi, userApi } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -156,7 +156,7 @@ export function ContentFeed({
       }}
     />)}
     </div>
-    {moreError && <p className="inline-error" role="alert">{moreError} <button type="button" className="text-link" onClick={loadMore}>Retry</button></p>}
+    {moreError && <p className="inline-error" role="alert">{moreError} <RetryButton error={moreError} onRetry={loadMore} className="text-link" label="Retry" /></p>}
     {(nextCursor || nextReelCursor) && ['posts', 'saved', 'tagged', 'reels'].includes(kind) && <button className="button button--outline load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button>}
   </>;
 }
@@ -246,7 +246,7 @@ export function StoryFeed() {
           <span>Your story</span>
         </Link>
         {loading && <div className="home-story-loading"><Skeleton rows={1} /></div>}
-        {!loading && error && <div className="home-story-error" role="status">{error} <button type="button" className="text-link" onClick={() => load()}>Retry</button></div>}
+        {!loading && error && <div className="home-story-error" role="status">{error} <RetryButton error={error} onRetry={() => load()} className="text-link" label="Retry" /></div>}
         {!loading && !error && groupedStories.map((group, index) => {
           const seen = group.stories.every((story) => viewedStoryIds.has(story.id));
           return <button className="home-story" type="button" key={group.owner.id} onClick={() => openStory(index)}>

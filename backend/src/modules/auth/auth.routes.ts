@@ -15,6 +15,30 @@ export function createAuthRouter(config: AppConfig): Router {
   const router = Router();
   const service = new AuthService(config);
   const authenticate = requireAccessToken(config);
+  const loginRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    message: { error: 'Too many sign-in attempts. Please wait before trying again.' },
+  });
+  const registerRateLimit = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many account creation attempts. Please try again later.' },
+  });
+  const refreshRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skip: (request) => !hasRefreshCredential(request),
+    skipSuccessfulRequests: true,
+    message: { error: 'Too many session refresh attempts. Please sign in again later.' },
+  });
 
   router.use('/auth/username-availability', rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -48,7 +72,7 @@ export function createAuthRouter(config: AppConfig): Router {
     }
   });
 
-  router.post('/auth/register', async (request: Request, response: Response, next: NextFunction) => {
+  router.post('/auth/register', registerRateLimit, async (request: Request, response: Response, next: NextFunction) => {
     try {
       if (usesCookieTransport(request) && !hasTrustedOrigin(request, config)) {
         response.status(403).json({ error: 'Browser origin is not allowed.' });
@@ -91,7 +115,7 @@ export function createAuthRouter(config: AppConfig): Router {
     }
   });
 
-  router.post('/auth/login', async (request: Request, response: Response, next: NextFunction) => {
+  router.post('/auth/login', loginRateLimit, async (request: Request, response: Response, next: NextFunction) => {
     try {
       if (usesCookieTransport(request) && !hasTrustedOrigin(request, config)) {
         response.status(403).json({ error: 'Browser origin is not allowed.' });
@@ -128,7 +152,7 @@ export function createAuthRouter(config: AppConfig): Router {
     }
   });
 
-  router.post('/auth/refresh', async (request: Request, response: Response, next: NextFunction) => {
+  router.post('/auth/refresh', refreshRateLimit, async (request: Request, response: Response, next: NextFunction) => {
     const cookieTransport = usesCookieTransport(request);
     try {
       if (cookieTransport && !hasTrustedOrigin(request, config)) {
@@ -229,6 +253,11 @@ function readRefreshCookie(request: Request): string | undefined {
     return cookie.slice(separator + 1).trim();
   }
   return undefined;
+}
+
+function hasRefreshCredential(request: Request): boolean {
+  if (usesCookieTransport(request)) return Boolean(readRefreshCookie(request));
+  return typeof request.body?.refreshToken === 'string' && request.body.refreshToken.length > 0;
 }
 
 function setRefreshCookie(response: Response, token: string, expiresAt: Date): void {

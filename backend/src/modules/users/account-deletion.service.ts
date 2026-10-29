@@ -3,6 +3,7 @@ import { UserModel } from '../../models/user';
 import { NotificationModel } from '../notifications/notification.model';
 import { SessionModel } from '../auth/session.model';
 import { FollowModel } from './follow.model';
+import { ProfessionalCampaignModel, ProfessionalEventModel } from '../professional/professional.model';
 
 export interface AccountDeletionDependencies {
   startSession: () => Promise<ClientSession>;
@@ -10,13 +11,22 @@ export interface AccountDeletionDependencies {
   deleteFollowEdges: (userId: string, session?: ClientSession) => Promise<unknown>;
   revokeSessions: (userId: string, revokedAt: Date, session?: ClientSession) => Promise<unknown>;
   deleteNotifications: (userId: string, session?: ClientSession) => Promise<unknown>;
+  deleteProfessionalData?: (userId: string, session?: ClientSession) => Promise<unknown>;
 }
 
 const defaultDependencies: AccountDeletionDependencies = {
   startSession: () => mongoose.startSession(),
   markDeleted: (userId, session) => UserModel.updateOne(
     { _id: userId, accountStatus: 'active' },
-    { $set: { accountStatus: 'deleted' } },
+    {
+      $set: { accountStatus: 'deleted', accountType: 'PERSONAL' },
+      $unset: {
+        professionalCategory: 1,
+        professionalProfile: 1,
+        professionalOnboardingDraft: 1,
+        professionalOnboardingCompletedAt: 1,
+      },
+    },
     session ? { session } : {},
   ),
   deleteFollowEdges: (userId, session) => FollowModel.deleteMany(
@@ -32,6 +42,16 @@ const defaultDependencies: AccountDeletionDependencies = {
     { $or: [{ recipientId: userId }, { actorId: userId }] },
     session ? { session } : {},
   ),
+  deleteProfessionalData: async (userId, session) => {
+    await ProfessionalEventModel.deleteMany(
+      { $or: [{ ownerId: userId }, { viewerId: userId }] },
+      session ? { session } : {},
+    );
+    await ProfessionalCampaignModel.deleteMany(
+      { ownerId: userId },
+      session ? { session } : {},
+    );
+  },
 };
 
 export class AccountDeletionUnavailableError extends Error {
@@ -63,12 +83,14 @@ export async function deleteAccount(
       await dependencies.deleteFollowEdges(userId, session);
       await dependencies.revokeSessions(userId, revokedAt, session);
       await dependencies.deleteNotifications(userId, session);
+      await dependencies.deleteProfessionalData?.(userId, session);
     });
   } catch (error) {
     if (transactionsUnavailable(error)) {
       try {
         await dependencies.deleteFollowEdges(userId);
         await dependencies.deleteNotifications(userId);
+        await dependencies.deleteProfessionalData?.(userId);
         await dependencies.revokeSessions(userId, new Date());
         await dependencies.markDeleted(userId);
         return;

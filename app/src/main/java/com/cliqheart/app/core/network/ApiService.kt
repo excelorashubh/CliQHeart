@@ -41,6 +41,8 @@ data class UserResponse(
     val followingCount: Int? = null,
     val isFollowing: Boolean? = null,
     val accountStatus: String? = null,
+    val accountType: String? = null,
+    val professionalCategory: String? = null,
 )
 
 data class UserEnvelope(val user: UserResponse? = null)

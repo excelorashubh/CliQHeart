@@ -114,7 +114,7 @@ export class AuthService {
     if (!session) throw new Error('Invalid refresh session.');
 
     const user = await UserModel.findOne({ _id: session.userId, accountStatus: 'active' })
-      .select('username displayName email bio avatarUrl accountStatus')
+      .select('username displayName email bio avatarUrl accountStatus accountType professionalCategory')
       .lean();
     if (!user) {
       await SessionModel.updateOne({ _id: session._id, revokedAt: null }, { $set: { revokedAt: now } });

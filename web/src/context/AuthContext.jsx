@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  authApi, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler, userApi,
+  ApiError, authApi, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
 } from '../services/api.js';
 
 const AuthContext = createContext(null);
@@ -37,24 +37,63 @@ function isConfirmedInvalidSession(error) {
     (error?.status === 403 && error.message === 'Account is not available.');
 }
 
+function getSessionErrorMessage(error) {
+  if (error?.status === 429) {
+    return 'Session verification was rate limited. Your saved sign-in has not been discarded.';
+  }
+  if (error?.status === 0) {
+    return 'Could not reach CliQHeart. Your saved sign-in has not been discarded; check your connection and try again.';
+  }
+  if (error?.status >= 500) {
+    return 'CliQHeart is temporarily unavailable. Your saved sign-in has not been discarded; try again shortly.';
+  }
+  return error?.message || 'Could not verify the saved session. Check your connection and retry.';
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
+  const [authRetryAfterSeconds, setAuthRetryAfterSeconds] = useState(0);
   const restoreInFlight = useRef(null);
+  const authRetryAt = useRef(0);
+  const cooldownActive = authRetryAfterSeconds > 0;
+
+  useEffect(() => {
+    if (!cooldownActive) return undefined;
+    const timer = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((authRetryAt.current - Date.now()) / 1000));
+      setAuthRetryAfterSeconds(remaining);
+      if (remaining === 0) authRetryAt.current = 0;
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [cooldownActive]);
 
   const clearSession = useCallback(() => {
     setAccessToken(null);
     setUser(null);
     setUnreadNotificationCount(0);
+    setAuthRetryAfterSeconds(0);
+    authRetryAt.current = 0;
   }, []);
 
   const refreshSession = useCallback(() => {
     if (restoreInFlight.current) return restoreInFlight.current;
+    const retryAfterSeconds = Math.max(0, Math.ceil((authRetryAt.current - Date.now()) / 1000));
+    if (retryAfterSeconds > 0) {
+      return Promise.reject(new ApiError(
+        'Session verification is rate limited.',
+        429,
+        undefined,
+        undefined,
+        retryAfterSeconds,
+      ));
+    }
     const operation = (async () => {
       setLoading(true);
       setAuthError('');
+      setAuthRetryAfterSeconds(0);
       try {
         if (hasPendingLogout()) {
           logAuthDiagnostic('retrying pending logout');
@@ -66,17 +105,13 @@ export function AuthProvider({ children }) {
 
         logAuthDiagnostic('restoring browser session');
         const result = await authApi.refresh();
-        if (typeof result?.accessToken !== 'string' || !result.accessToken.trim()) {
+        if (typeof result?.accessToken !== 'string' || !result.accessToken.trim() || !isCompleteUser(result.user)) {
           throw new Error('The API returned an incomplete refreshed session.');
         }
         setAccessToken(result.accessToken);
-        const profile = await userApi.me();
-        if (!isCompleteUser(profile?.user)) {
-          throw new Error('The API returned an incomplete authenticated profile.');
-        }
-        setUser(profile.user);
+        setUser(result.user);
         logAuthDiagnostic('browser session restored');
-        return profile.user;
+        return result.user;
       } catch (error) {
         logAuthDiagnostic(
           isConfirmedInvalidSession(error)
@@ -88,7 +123,12 @@ export function AuthProvider({ children }) {
           clearSession();
           setAuthError('');
         } else {
-          setAuthError(error.message || 'Could not verify the saved session. Check your connection and retry.');
+          const retryAfter = error?.status === 429 ? error.retryAfterSeconds : null;
+          if (Number.isFinite(retryAfter) && retryAfter > 0) {
+            authRetryAt.current = Date.now() + retryAfter * 1000;
+            setAuthRetryAfterSeconds(retryAfter);
+          }
+          setAuthError(getSessionErrorMessage(error));
         }
         throw error;
       } finally {
@@ -100,24 +140,17 @@ export function AuthProvider({ children }) {
     return operation;
   }, [clearSession]);
 
-  const establishSession = useCallback(async (result) => {
+  const establishSession = useCallback((result) => {
     if (typeof result?.accessToken !== 'string' || !result.accessToken.trim() || !isCompleteUser(result.user)) {
       throw new Error('The API returned an incomplete authentication response.');
     }
     setAccessToken(result.accessToken);
-    try {
-      const profile = await userApi.me();
-      if (!isCompleteUser(profile?.user)) {
-        throw new Error('The API returned an incomplete authenticated profile.');
-      }
-      setUser(profile.user);
-      setAuthError('');
-      clearPendingLogout();
-      return profile.user;
-    } catch (error) {
-      setAccessToken(null);
-      throw error;
-    }
+    setUser(result.user);
+    setAuthError('');
+    setAuthRetryAfterSeconds(0);
+    authRetryAt.current = 0;
+    clearPendingLogout();
+    return result.user;
   }, []);
 
   const signIn = useCallback(async (identifier, password) => {
@@ -177,6 +210,7 @@ export function AuthProvider({ children }) {
     isInitializing: loading,
     isLoading: loading,
     authError,
+    authRetryAfterSeconds,
     signIn,
     login: signIn,
     signUp,
@@ -188,7 +222,7 @@ export function AuthProvider({ children }) {
     setUser,
     unreadNotificationCount,
     setUnreadNotificationCount,
-  }), [user, loading, authError, signIn, signUp, signOut, refreshSession, updateUser, unreadNotificationCount]);
+  }), [user, loading, authError, authRetryAfterSeconds, signIn, signUp, signOut, refreshSession, updateUser, unreadNotificationCount]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
