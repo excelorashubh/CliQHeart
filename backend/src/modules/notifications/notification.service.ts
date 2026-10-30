@@ -1,12 +1,14 @@
 import { NotificationModel } from './notification.model';
 
-export type NotificationType = 'follow' | 'tag' | 'message';
+export type NotificationType = 'follow' | 'tag' | 'message' | 'like' | 'comment' | 'reply' | 'repost';
 
 export async function createNotificationSafely(input: {
   recipientId: string;
   actorId: string;
   type: NotificationType;
   postId?: string;
+  reelId?: string;
+  commentId?: string;
   conversationId?: string;
   deduplicationKey: string;
 }): Promise<void> {

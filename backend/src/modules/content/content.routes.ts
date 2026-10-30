@@ -11,6 +11,7 @@ import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
 import { StoryModel } from './story.model';
 import { BookmarkModel } from './bookmark.model';
+import { CommentLikeModel, CommentModel, LikeModel, RepostModel } from './engagement.models';
 import { PostTagModel } from './post-tag.model';
 import { createNotificationSafely } from '../notifications/notification.service';
 import { NotificationModel } from '../notifications/notification.model';
@@ -103,7 +104,7 @@ export function createContentRouter(config: AppConfig): Router {
       const hasMore = posts.length > limit;
       const page = hasMore ? posts.slice(0, limit) : posts;
       const viewerId = authenticatedUserId(request);
-      const items = await contentListPayload(page, viewerId);
+      const items = await contentListPayload(page, viewerId, 'post');
       const followedOwnerIds = new Set(
         items.length
           ? (await FollowModel.find({
@@ -136,7 +137,7 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       const post = await PostModel.findById(postId).lean();
-      const [visiblePost] = post ? await contentListPayload([post], authenticatedUserId(request)) : [];
+      const [visiblePost] = post ? await contentListPayload([post], authenticatedUserId(request), 'post') : [];
       if (!post || !visiblePost) {
         response.status(404).json({ error: 'Post not found.' });
         return;
@@ -163,8 +164,12 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       await BookmarkModel.updateOne(
-        { userId: authenticatedUserId(request), postId },
-        { $setOnInsert: { userId: authenticatedUserId(request), postId } },
+        {
+          userId: authenticatedUserId(request),
+          postId,
+          $or: [{ contentType: 'post' }, { contentType: { $exists: false } }],
+        },
+        { $setOnInsert: { userId: authenticatedUserId(request), postId, contentType: 'post' } },
         { upsert: true },
       );
       response.json({ saved: true });
@@ -180,7 +185,11 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid post ID.' });
         return;
       }
-      await BookmarkModel.deleteOne({ userId: authenticatedUserId(request), postId });
+      await BookmarkModel.deleteOne({
+        userId: authenticatedUserId(request),
+        postId,
+        $or: [{ contentType: 'post' }, { contentType: { $exists: false } }],
+      });
       response.json({ saved: false });
     } catch (error) {
       next(error);
@@ -195,20 +204,56 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       const limit = await parsePageSize(request);
+      const savedKind = request.query.kind;
+      if (savedKind !== undefined && savedKind !== 'posts' && savedKind !== 'reels') {
+        response.status(400).json({ error: 'Invalid saved content type.' });
+        return;
+      }
+      const typeFilter = savedKind === 'posts'
+        ? { $or: [{ contentType: 'post' }, { contentType: { $exists: false } }] }
+        : savedKind === 'reels' ? { contentType: 'reel' } : {};
       const bookmarks = await BookmarkModel.find({
         userId: authenticatedUserId(request),
+        ...typeFilter,
         ...(after ? { _id: { $lt: after } } : {}),
       }).sort({ _id: -1 }).limit(limit + 1).lean();
       const hasMore = bookmarks.length > limit;
       const page = hasMore ? bookmarks.slice(0, limit) : bookmarks;
-      const foundPosts = await PostModel.find({ _id: { $in: page.map((item) => item.postId) } }).lean();
+      const postIds = page.filter((bookmark) => bookmark.contentType !== 'reel').map((item) => item.postId);
+      const reelIds = page.filter((bookmark) => bookmark.contentType === 'reel').map((item) => item.postId);
+      const [foundPosts, foundReels] = await Promise.all([
+        postIds.length ? PostModel.find({ _id: { $in: postIds } }).lean() : Promise.resolve([]),
+        reelIds.length ? ReelModel.find({ _id: { $in: reelIds } }).lean() : Promise.resolve([]),
+      ]);
       const postById = new Map(foundPosts.map((post) => [String(post._id), post]));
-      const posts = page.flatMap((bookmark) => {
-        const post = postById.get(String(bookmark.postId));
-        return post ? [post] : [];
+      const reelById = new Map(foundReels.map((reel) => [String(reel._id), reel]));
+      const content = page.flatMap((bookmark) => {
+        const type = bookmark.contentType === 'reel' ? 'reel' : 'post';
+        const item = type === 'reel'
+          ? reelById.get(String(bookmark.postId))
+          : postById.get(String(bookmark.postId));
+        return item ? [{ item, type }] : [];
+      });
+      const posts = await contentListPayload(
+        content.filter((entry) => entry.type === 'post').map((entry) => entry.item),
+        authenticatedUserId(request),
+        'post',
+      );
+      const reels = await contentListPayload(
+        content.filter((entry) => entry.type === 'reel').map((entry) => entry.item),
+        authenticatedUserId(request),
+        'reel',
+      );
+      const postByContentId = new Map(posts.map((item) => [item.id, item]));
+      const reelByContentId = new Map(reels.map((item) => [item.id, item]));
+      const items = content.flatMap(({ item, type }) => {
+        const payload = (type === 'reel' ? reelByContentId : postByContentId).get(String(item._id));
+        return payload ? [{ ...payload, contentType: type }] : [];
       });
       response.json({
-        posts: await contentListPayload(posts, authenticatedUserId(request)),
+        items,
+        posts,
+        reels,
         nextCursor: hasMore ? String(page.at(-1)?._id) : null,
       });
     } catch (error) {
@@ -254,7 +299,7 @@ export function createContentRouter(config: AppConfig): Router {
         return post ? [post] : [];
       });
       response.json({
-        posts: await contentListPayload(posts, authenticatedUserId(request)),
+        posts: await contentListPayload(posts, authenticatedUserId(request), 'post'),
         nextCursor: hasMore ? String(page.at(-1)?._id) : null,
       });
     } catch (error) {
@@ -330,16 +375,35 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid user ID.' });
         return;
       }
-      const exists = await UserModel.exists({ _id: userId, accountStatus: 'active' });
-      if (!exists) {
+      const profileOwner = await UserModel.findOne({ _id: userId, accountStatus: 'active' })
+        .select('username').lean();
+      if (!profileOwner) {
         response.status(404).json({ error: 'User not found.' });
         return;
       }
-      const posts = await PostModel.find({ ownerId: userId })
-        .sort({ createdAt: -1 })
-        .limit(await parsePageSize(request))
-        .lean();
-      response.json({ posts: await contentListPayload(posts, authenticatedUserId(request)) });
+      const [posts, reposts] = await Promise.all([
+        PostModel.find({ ownerId: userId }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
+        RepostModel.find({ userId, contentType: 'post' }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
+      ]);
+      const repostedPosts = reposts.length
+        ? await PostModel.find({ _id: { $in: reposts.map((repost) => repost.contentId) } }).lean()
+        : [];
+      const [postPayloads, repostPayloads] = await Promise.all([
+        contentListPayload(posts, authenticatedUserId(request), 'post'),
+        contentListPayload(repostedPosts, authenticatedUserId(request), 'post'),
+      ]);
+      const repostByContentId = new Map(reposts.map((repost) => [String(repost.contentId), repost]));
+      const profile = { id: userId, username: profileOwner.username };
+      const items = [
+        ...postPayloads.map((item) => ({ ...item, repostedAt: item.createdAt })),
+        ...repostPayloads.flatMap((item) => {
+          const repost = repostByContentId.get(item.id);
+          return repost ? [{ ...item, repostedAt: repost.createdAt, repostedBy: profile, feedKey: String(repost._id) }] : [];
+        }),
+      ].sort((first, second) =>
+        new Date(second.repostedAt || second.createdAt || 0).getTime() -
+        new Date(first.repostedAt || first.createdAt || 0).getTime());
+      response.json({ posts: items });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });
@@ -362,10 +426,15 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'Post not found.' });
         return;
       }
+      const commentIds = await CommentModel.find({ contentId: postId, contentType: 'post' }).distinct('_id');
       await Promise.all([
-        BookmarkModel.deleteMany({ postId }),
+        BookmarkModel.deleteMany({ postId, $or: [{ contentType: 'post' }, { contentType: { $exists: false } }] }),
         PostTagModel.deleteMany({ postId }),
-        NotificationModel.deleteMany({ postId }),
+        LikeModel.deleteMany({ contentId: postId, contentType: 'post' }),
+        CommentModel.deleteMany({ contentId: postId, contentType: 'post' }),
+        CommentLikeModel.deleteMany({ commentId: { $in: commentIds } }),
+        RepostModel.deleteMany({ contentId: postId, contentType: 'post' }),
+        NotificationModel.deleteMany({ $or: [{ postId }, { commentId: { $in: commentIds } }] }),
       ]);
       await releaseMedia(post.mediaId, post._id, 'post');
       response.status(204).end();
@@ -412,7 +481,7 @@ export function createContentRouter(config: AppConfig): Router {
         ownerId: { $in: visibleOwners },
         expiresAt: { $gt: new Date() },
       }).sort({ createdAt: 1 }).limit(200).lean();
-      response.json({ stories: await contentListPayload(stories) });
+      response.json({ stories: await contentListPayload(stories, undefined, 'story') });
     } catch (error) {
       next(error);
     }
@@ -507,7 +576,7 @@ export function createContentRouter(config: AppConfig): Router {
       const hasMore = reels.length > limit;
       const page = hasMore ? reels.slice(0, limit) : reels;
       const viewerId = authenticatedUserId(request);
-      const items = await contentListPayload(page);
+      const items = await contentListPayload(page, viewerId, 'reel');
       const followedOwnerIds = new Set(
         items.length
           ? (await FollowModel.find({
@@ -540,7 +609,7 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       const reel = await ReelModel.findById(reelId).lean();
-      const [visibleReel] = reel ? await contentListPayload([reel]) : [];
+      const [visibleReel] = reel ? await contentListPayload([reel], authenticatedUserId(request), 'reel') : [];
       if (!reel || !visibleReel) {
         response.status(404).json({ error: 'Reel not found.' });
         return;
@@ -559,11 +628,35 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid user ID.' });
         return;
       }
-      const reels = await ReelModel.find({ ownerId: userId })
-        .sort({ createdAt: -1 })
-        .limit(await parsePageSize(request))
-        .lean();
-      response.json({ reels: await contentListPayload(reels) });
+      const profileOwner = await UserModel.findOne({ _id: userId, accountStatus: 'active' })
+        .select('username').lean();
+      if (!profileOwner) {
+        response.status(404).json({ error: 'User not found.' });
+        return;
+      }
+      const [reels, reposts] = await Promise.all([
+        ReelModel.find({ ownerId: userId }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
+        RepostModel.find({ userId, contentType: 'reel' }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
+      ]);
+      const repostedReels = reposts.length
+        ? await ReelModel.find({ _id: { $in: reposts.map((repost) => repost.contentId) } }).lean()
+        : [];
+      const [reelPayloads, repostPayloads] = await Promise.all([
+        contentListPayload(reels, authenticatedUserId(request), 'reel'),
+        contentListPayload(repostedReels, authenticatedUserId(request), 'reel'),
+      ]);
+      const repostByContentId = new Map(reposts.map((repost) => [String(repost.contentId), repost]));
+      const profile = { id: userId, username: profileOwner.username };
+      const items = [
+        ...reelPayloads.map((item) => ({ ...item, repostedAt: item.createdAt })),
+        ...repostPayloads.flatMap((item) => {
+          const repost = repostByContentId.get(item.id);
+          return repost ? [{ ...item, repostedAt: repost.createdAt, repostedBy: profile, feedKey: String(repost._id) }] : [];
+        }),
+      ].sort((first, second) =>
+        new Date(second.repostedAt || second.createdAt || 0).getTime() -
+        new Date(first.repostedAt || first.createdAt || 0).getTime());
+      response.json({ reels: items });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });
@@ -588,6 +681,15 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'Reel not found.' });
         return;
       }
+      const commentIds = await CommentModel.find({ contentId: reelId, contentType: 'reel' }).distinct('_id');
+      await Promise.all([
+        BookmarkModel.deleteMany({ postId: reelId, contentType: 'reel' }),
+        LikeModel.deleteMany({ contentId: reelId, contentType: 'reel' }),
+        CommentModel.deleteMany({ contentId: reelId, contentType: 'reel' }),
+        CommentLikeModel.deleteMany({ commentId: { $in: commentIds } }),
+        RepostModel.deleteMany({ contentId: reelId, contentType: 'reel' }),
+        NotificationModel.deleteMany({ $or: [{ reelId }, { commentId: { $in: commentIds } }] }),
+      ]);
       await releaseMedia(reel.mediaId, reel._id, 'reel');
       response.status(204).end();
     } catch (error) {
@@ -698,22 +800,63 @@ async function contentListPayload(
     expiresAt?: Date;
   }>,
   viewerId?: string,
+  contentType: 'post' | 'reel' | 'story' = 'post',
 ) {
   if (!content.length) return [];
   const ownerIds = [...new Set(content.map((item) => String(item.ownerId)))];
   const mediaIds = [...new Set(content.map((item) => String(item.mediaId)))];
-  const [owners, media, bookmarks] = await Promise.all([
+  const contentIds = content.map((item) => item._id);
+  const relationFilter = contentType === 'story'
+    ? { contentId: { $in: [] }, contentType }
+    : { contentId: { $in: contentIds }, contentType };
+  const bookmarkFilter = contentType === 'post'
+    ? { $or: [{ contentType: 'post' }, { contentType: { $exists: false } }] }
+    : contentType === 'reel' ? { contentType: 'reel' } : { _id: { $in: [] } };
+  const [owners, media, bookmarks, likes, comments, reposts, viewerLikes, viewerReposts] = await Promise.all([
     UserModel.find({ _id: { $in: ownerIds }, accountStatus: 'active' })
       .select('username displayName avatarUrl')
       .lean(),
     MediaModel.find({ _id: { $in: mediaIds }, status: 'ready' }).lean(),
     viewerId
-      ? BookmarkModel.find({ userId: viewerId, postId: { $in: content.map((item) => item._id) } }).select('postId').lean()
+      ? BookmarkModel.find({
+        userId: viewerId,
+        postId: { $in: contentIds },
+        ...bookmarkFilter,
+      }).select('postId').lean()
+      : Promise.resolve([]),
+    contentType !== 'story'
+      ? LikeModel.aggregate<{ _id: Types.ObjectId; count: number }>([
+        { $match: { ...relationFilter } },
+        { $group: { _id: '$contentId', count: { $sum: 1 } } },
+      ])
+      : Promise.resolve([]),
+    contentType !== 'story'
+      ? CommentModel.aggregate<{ _id: Types.ObjectId; count: number }>([
+        { $match: { ...relationFilter } },
+        { $group: { _id: '$contentId', count: { $sum: 1 } } },
+      ])
+      : Promise.resolve([]),
+    contentType !== 'story'
+      ? RepostModel.aggregate<{ _id: Types.ObjectId; count: number }>([
+        { $match: { ...relationFilter } },
+        { $group: { _id: '$contentId', count: { $sum: 1 } } },
+      ])
+      : Promise.resolve([]),
+    viewerId && contentType !== 'story'
+      ? LikeModel.find({ userId: viewerId, ...relationFilter }).select('contentId').lean()
+      : Promise.resolve([]),
+    viewerId && contentType !== 'story'
+      ? RepostModel.find({ userId: viewerId, ...relationFilter }).select('contentId').lean()
       : Promise.resolve([]),
   ]);
   const ownerById = new Map(owners.map((owner) => [String(owner._id), owner]));
   const mediaById = new Map(media.map((item) => [String(item._id), item]));
-  const savedPostIds = new Set(bookmarks.map((bookmark) => String(bookmark.postId)));
+  const savedContentIds = new Set(bookmarks.map((bookmark) => String(bookmark.postId)));
+  const likeCounts = new Map(likes.map((entry) => [String(entry._id), entry.count]));
+  const commentCounts = new Map(comments.map((entry) => [String(entry._id), entry.count]));
+  const repostCounts = new Map(reposts.map((entry) => [String(entry._id), entry.count]));
+  const likedContentIds = new Set(viewerLikes.map((like) => String(like.contentId)));
+  const repostedContentIds = new Set(viewerReposts.map((repost) => String(repost.contentId)));
   return content.flatMap((item) => {
     const owner = ownerById.get(String(item.ownerId));
     const asset = mediaById.get(String(item.mediaId));
@@ -743,7 +886,14 @@ async function contentListPayload(
         height: asset.height,
         duration: asset.duration,
       },
-      isSaved: savedPostIds.has(String(item._id)),
+      ...(contentType !== 'story' ? {
+        likeCount: likeCounts.get(String(item._id)) ?? 0,
+        commentCount: commentCounts.get(String(item._id)) ?? 0,
+        repostCount: repostCounts.get(String(item._id)) ?? 0,
+        isLiked: likedContentIds.has(String(item._id)),
+        isReposted: repostedContentIds.has(String(item._id)),
+        isSaved: savedContentIds.has(String(item._id)),
+      } : {}),
     }];
   });
 }

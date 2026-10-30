@@ -10,10 +10,12 @@ import { useAuth } from './context/AuthContext.jsx';
 import { Avatar, Brand } from './components/Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './components/Feedback.jsx';
 import { ContentFeed, StoryFeed } from './components/Content.jsx';
+import { EngagementActions } from './components/EngagementActions.jsx';
 import { MediaUploader } from './components/MediaUploader.jsx';
 import { ReelsExperience } from './components/ReelsExperience.jsx';
 import { authApi, contentApi, mediaApi, messageApi, notificationApi, userApi } from './services/api.js';
 import { MessageWorkspace } from './components/Messages.jsx';
+import { getReelPath } from './services/reelUrl.js';
 
 const reservedRegisterUsernames = new Set(['admin', 'root', 'support', 'staff', 'system', 'cliqheart']);
 function isValidRegisterUsername(username) {
@@ -911,6 +913,7 @@ export function ProfilePage({ editOnOpen = false }) {
   const [cursor, setCursor] = useState(null);
   const [form, setForm] = useState({ username: '', displayName: '', bio: '', avatarMediaId: '' });
   const [activeContentTab, setActiveContentTab] = useState('posts');
+  const [savedType, setSavedType] = useState('posts');
   const [availableTabs, setAvailableTabs] = useState(['posts', 'reels', 'tagged']);
   const [shareMessage, setShareMessage] = useState('');
   const navigate = useNavigate();
@@ -1275,7 +1278,19 @@ export function ProfilePage({ editOnOpen = false }) {
           : activeContentTab === 'reels'
             ? <ContentFeed key={`${profile.id}-reels`} kind="reels" userId={profile.id} layout="grid" />
             : activeContentTab === 'saved'
-              ? <ContentFeed key={`${profile.id}-saved`} kind="saved" layout="grid" />
+              ? <>
+                <div className="saved-content-tabs" role="tablist" aria-label="Saved content type">
+                  {['posts', 'reels'].map((type) => <button
+                    key={type}
+                    type="button"
+                    role="tab"
+                    aria-selected={savedType === type}
+                    className={savedType === type ? 'is-selected' : ''}
+                    onClick={() => setSavedType(type)}
+                  >{type === 'posts' ? 'Posts' : 'Reels'}</button>)}
+                </div>
+                <ContentFeed key={`${profile.id}-saved-${savedType}`} kind="saved" savedType={savedType} layout="grid" />
+              </>
               : <ContentFeed key={`${profile.id}-tagged`} kind="tagged" userId={profile.id} layout="grid" />}
       </div>
     </div>
@@ -1662,6 +1677,7 @@ export function NotificationsPage() {
     }
     if (item.type === 'follow' && (item.actor?.username || item.actor?.id)) navigate(`/profile/${item.actor.username || item.actor.id}`);
     else if (item.type === 'message' && item.conversationId) navigate(`/messages/${item.conversationId}`);
+    else if (item.reelId) navigate(getReelPath(item.reelId));
     else if (item.postId) navigate(`/post/${item.postId}`);
   }
 
@@ -1705,7 +1721,15 @@ export function NotificationsPage() {
       ? 'started following you.'
       : item.type === 'tag'
         ? 'tagged you in a post.'
-        : 'sent you a message.';
+        : item.type === 'like'
+          ? 'liked your content.'
+          : item.type === 'comment'
+            ? 'commented on your content.'
+            : item.type === 'reply'
+              ? 'replied to your comment.'
+              : item.type === 'repost'
+                ? 'reposted your content.'
+                : 'sent you a message.';
     return <article className={`notification-item${item.read ? '' : ' is-unread'}`} key={item.id}>
       <button className="notification-open" onClick={() => openNotification(item)}>
         <Avatar name={actor?.displayName || actor?.username || 'CliQHeart member'} src={actor?.avatarUrl} size="medium" />
@@ -1740,8 +1764,6 @@ export function ContentDetailPage({ kind }) {
   const { postId, reelId } = useParams();
   const id = kind === 'reel' ? reelId : postId;
   const [item, setItem] = useState(null);
-  const [saved, setSaved] = useState(false);
-  const [saveBusy, setSaveBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tagQuery, setTagQuery] = useState('');
@@ -1760,7 +1782,6 @@ export function ContentDetailPage({ kind }) {
           : await contentApi.post(id, { signal: controller.signal });
         if (!controller.signal.aborted) {
           setItem(result[kind]);
-          setSaved(Boolean(result[kind]?.isSaved));
         }
       } catch (reason) {
         if (!controller.signal.aborted && reason.name !== 'AbortError') setError(reason.message || 'Could not load this content.');
@@ -1771,22 +1792,6 @@ export function ContentDetailPage({ kind }) {
     load();
     return () => controller.abort();
   }, [id, kind]);
-
-  async function toggleSaved() {
-    if (!item || kind !== 'post' || saveBusy) return;
-    setSaveBusy(true);
-    setActionError('');
-    try {
-      const nextSaved = !saved;
-      if (nextSaved) await contentApi.savePost(item.id);
-      else await contentApi.unsavePost(item.id);
-      setSaved(nextSaved);
-    } catch (reason) {
-      setActionError(reason.message || 'Could not update the saved post.');
-    } finally {
-      setSaveBusy(false);
-    }
-  }
 
   async function searchTagUsers(event) {
     event.preventDefault();
@@ -1827,6 +1832,16 @@ export function ContentDetailPage({ kind }) {
   if (error) return <div className="page-content"><ErrorState error={error} /></div>;
   if (!item) return <div className="page-content"><EmptyState title="Content not found" description="This content may have been removed." icon={Heart} /></div>;
   const isVideo = item.media?.resourceType === 'video';
+  async function shareContent(content) {
+    const url = new URL(kind === 'reel' ? getReelPath(content.id) : `/post/${encodeURIComponent(content.id)}`, window.location.origin).toString();
+    try {
+      if (navigator.share) await navigator.share({ title: `Content by @${content.owner?.username || 'CliQHeart member'}`, text: content.caption || '', url });
+      else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      else throw new Error('Sharing is not supported by this browser.');
+    } catch (reason) {
+      if (reason?.name !== 'AbortError') setActionError(reason?.message || 'Could not share this content.');
+    }
+  }
   return <article className={`page-content content-detail${kind === 'reel' ? ' content-detail--reel' : ''}`}>
     <header className="content-card-header">
       <Link to={`/profile/${item.owner.id}`} className="content-card-owner">
@@ -1834,9 +1849,6 @@ export function ContentDetailPage({ kind }) {
         <span><strong>{item.owner.displayName}</strong><small>@{item.owner.username}</small></span>
       </Link>
       <div className="content-card-actions">
-        {kind === 'post' && <button className={`content-bookmark-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={saveBusy} aria-label={saved ? 'Remove saved post' : 'Save post'}>
-          <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
-        </button>}
         <Link to={`/profile/${item.owner.id}`} className="text-link">View profile</Link>
       </div>
     </header>
@@ -1844,6 +1856,9 @@ export function ContentDetailPage({ kind }) {
       {isVideo
         ? <video src={item.media.secureUrl} poster={item.media.thumbnailUrl} controls playsInline preload="metadata" />
         : <img src={item.media?.secureUrl || item.media?.thumbnailUrl} alt={item.altText || item.caption || 'Shared CliQHeart media'} />}
+    </div>
+    <div className="content-engagement">
+      <EngagementActions item={item} kind={kind === 'reel' ? 'reels' : 'posts'} onShare={shareContent} />
     </div>
     {item.caption && <p className="content-card-caption"><strong>@{item.owner.username}</strong> {item.caption}</p>}
     {item.location && <p className="content-card-location">{item.location}</p>}

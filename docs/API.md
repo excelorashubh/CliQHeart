@@ -218,9 +218,10 @@ returned `nextCursor` as `after` to fetch the next page.
 ### Saved posts and profile tags
 
 - `POST /api/v1/posts/:postId/save` and `DELETE /api/v1/posts/:postId/save`
-  save or remove an authenticated user's private bookmark. `GET
-  /api/v1/users/me/saved?limit=<n>&after=<bookmarkId>` returns only the current
-  user's saved posts, with a page size of 1–50.
+  save or remove an authenticated user's private bookmark. `POST
+  /api/v1/reels/:reelId/save` and `DELETE /api/v1/reels/:reelId/save` do the
+  same for Reels. `GET /api/v1/users/me/saved?kind=posts|reels&limit=<n>&after=<bookmarkId>`
+  returns only the current user's saved content, with a page size of 1–50.
 - `GET /api/v1/users/:userId/tagged?limit=<n>&after=<tagId>` returns active
   published posts tagging an active profile, identified by MongoDB ID or
   username. The owner of a post may add an active user with
@@ -233,8 +234,9 @@ returned `nextCursor` as `after` to fetch the next page.
 authenticated user's paginated notification feed. `GET
 /api/v1/notifications/unread-count` returns its unread count. Use
 `PATCH /api/v1/notifications/:notificationId/read` or
-`PATCH /api/v1/notifications/read-all` to mark notifications read. The current
-supported events are new followers, post tags, and direct messages.
+`PATCH /api/v1/notifications/read-all` to mark notifications read. Supported
+events include new followers, post tags, direct messages, likes, comments,
+replies, and reposts.
 
 ## Media and content endpoints
 
@@ -273,6 +275,39 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
   `GET /api/v1/reels/:reelId` returns a Reel detail;
   `GET /api/v1/users/:userId/reels` returns a user's Reels; owners can remove
   their own Reels with `DELETE /api/v1/reels/:reelId`.
+
+### Likes, comments, replies, and reposts
+
+All engagement routes require an active access token. The API derives the actor
+from that token; client-supplied user IDs are not accepted.
+
+- `POST` and `DELETE /api/v1/posts/:postId/like` and
+  `/api/v1/reels/:reelId/like` add or remove the current user's like. Each
+  response includes the resulting `liked` state and `likeCount`. Content feed
+  and detail responses also include `likeCount`, `commentCount`, `repostCount`,
+  `isLiked`, `isReposted`, and `isSaved`.
+- `GET /api/v1/posts/:postId/comments?limit=<n>&after=<commentId>` and the
+  matching Reel route return chronologically ordered top-level comments and
+  their replies in a `comments` array, with `parentCommentId` identifying
+  replies. The cursor paginates top-level comments; `limit` is 1–50 (default
+  20).
+- `POST /api/v1/posts/:postId/comments` and the matching Reel route accept
+  `{"text":"...","parentCommentId":"<optional comment ObjectId>"}`. Text is
+  trimmed and limited to 1–2200 characters. `PATCH /api/v1/comments/:commentId`
+  edits the commenter's own comment. `DELETE /api/v1/comments/:commentId`
+  removes the commenter's own comment and, for a top-level comment, its replies.
+- `POST` and `DELETE /api/v1/comments/:commentId/like` like or unlike a
+  comment or reply. The response includes the current `liked` state and
+  `likeCount`.
+- `POST` and `DELETE /api/v1/posts/:postId/repost` and the matching Reel route
+  add or remove the current user's standard repost. Reposts are stored as
+  references to the original content; profile responses identify them with
+  `repostedBy` and `repostedAt` while retaining the original creator and media.
+
+Like, repost, and bookmark writes are idempotent and backed by unique compound
+indexes. Engagement mutations are rate-limited. Saved items are private: only
+the authenticated owner can list them. Likes, comments, and reposts referencing
+deleted content are removed when the owner deletes that content.
 
 The Cloudinary API key is a public identifier returned with approved direct
 upload signatures. `CLOUDINARY_API_SECRET` must be configured on the backend
@@ -324,12 +359,18 @@ real-time events are local to a single backend instance.
 Presence is not exposed: the account privacy model has no online-visibility
 setting, so the API does not publish online status.
 
-Conversation, message, follow, media, post, story, and reel collections are
-created by Mongoose when the backend connects to MongoDB. Existing user
-collections require no migration. Comments, likes, bookmarks, and notifications
-are not implemented. Android retains bearer-token authentication and uses the
-media endpoints for image posts; story and Reel creation is currently exposed
-only by the website.
+Conversation, message, follow, media, post, story, Reel, like, comment,
+comment-like, repost, bookmark, and notification collections are created by
+Mongoose when the backend connects to MongoDB. For a database that has the
+legacy `bookmark_user_post_unique` index, run `npm run db:migrate-bookmark-index`
+from `backend/` with the target database configured before deploying this
+version. The migration creates the content-type-aware unique bookmark index
+before dropping the legacy index, preserving existing saved posts while
+allowing Post and Reel IDs to coexist. The command modifies database indexes;
+use the intended target and normal backup/deployment procedures.
+
+Android retains bearer-token authentication and uses the media endpoints for
+image posts; story and Reel creation is currently exposed only by the website.
 
 ## Status codes and errors
 

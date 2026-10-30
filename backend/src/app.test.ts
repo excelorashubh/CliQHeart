@@ -181,10 +181,15 @@ test('saved, tagged, and notification endpoints require authenticated access', a
     request(app).get('/api/v1/notifications/unread-count'),
     request(app).patch('/api/v1/notifications/read-all'),
     request(app).patch('/api/v1/notifications/507f1f77bcf86cd799439011/read'),
+    request(app).get('/api/v1/posts/507f1f77bcf86cd799439011/comments'),
+    request(app).post('/api/v1/posts/507f1f77bcf86cd799439011/like'),
+    request(app).post('/api/v1/posts/507f1f77bcf86cd799439011/comments').send({ text: 'Hello' }),
+    request(app).post('/api/v1/reels/507f1f77bcf86cd799439011/repost'),
+    request(app).post('/api/v1/reels/507f1f77bcf86cd799439011/save'),
+    request(app).patch('/api/v1/comments/507f1f77bcf86cd799439011').send({ text: 'Edited' }),
+    request(app).delete('/api/v1/comments/507f1f77bcf86cd799439011/like'),
   ]);
-  assert.deepEqual(responses.map((response) => response.status), [
-    401, 401, 401, 401, 401, 401, 401, 401, 401,
-  ]);
+  assert.deepEqual(responses.map((response) => response.status), Array(responses.length).fill(401));
 });
 
 test('malformed JSON returns a safe 400 response', async () => {

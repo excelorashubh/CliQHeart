@@ -6,8 +6,27 @@ import { contentApi, userApi } from '../services/api.js';
 import { getReelPath, getReelUrl } from '../services/reelUrl.js';
 
 vi.mock('../services/api.js', () => ({
-  contentApi: { reel: vi.fn(), reels: vi.fn() },
+  contentApi: {
+    reel: vi.fn(),
+    reels: vi.fn(),
+    like: vi.fn(),
+    unlike: vi.fn(),
+    repost: vi.fn(),
+    undoRepost: vi.fn(),
+    saveContent: vi.fn(),
+    unsaveContent: vi.fn(),
+    comments: vi.fn(),
+    createComment: vi.fn(),
+    updateComment: vi.fn(),
+    deleteComment: vi.fn(),
+    likeComment: vi.fn(),
+    unlikeComment: vi.fn(),
+  },
   userApi: { follow: vi.fn(), unfollow: vi.fn() },
+}));
+
+vi.mock('../context/AuthContext.jsx', () => ({
+  useAuth: () => ({ user: { id: 'viewer-1', username: 'viewer' } }),
 }));
 
 const reel = {
@@ -53,6 +72,10 @@ describe('ReelsExperience', () => {
   beforeEach(() => {
     contentApi.reels.mockResolvedValue({ reels: [reel], nextCursor: null });
     contentApi.reel.mockResolvedValue({ reel });
+    contentApi.like.mockResolvedValue({});
+    contentApi.repost.mockResolvedValue({});
+    contentApi.saveContent.mockResolvedValue({});
+    contentApi.comments.mockResolvedValue({ comments: [], nextCursor: null });
     userApi.follow.mockResolvedValue({ following: true });
     userApi.unfollow.mockResolvedValue({ following: false });
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
@@ -99,15 +122,16 @@ describe('ReelsExperience', () => {
     }
   });
 
-  it('loads real Reel data and keeps unsupported actions explicit', async () => {
+  it('loads real Reel data and renders working engagement controls', async () => {
     renderReels();
 
     expect(await screen.findByText('@creator')).toBeInTheDocument();
     expect(contentApi.reels).toHaveBeenCalledWith(10, { signal: expect.any(AbortSignal) });
     expect(screen.getByText('An actual Reel caption')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Likes are not available yet' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Comments are not available yet' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Saving Reels is not available yet' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Like' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Comments' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Repost' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save Reel' })).toBeInTheDocument();
     expect(screen.queryByText('0')).not.toBeInTheDocument();
     await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalled());
   });

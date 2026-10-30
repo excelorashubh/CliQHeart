@@ -234,9 +234,10 @@ export const userApi = {
     if (after) params.set('after', after);
     return apiRequest(`users/${encodeURIComponent(id)}/${relation}?${params}`);
   },
-  savedPosts: ({ after, signal } = {}) => {
+  savedPosts: ({ after, kind, signal } = {}) => {
     const params = new URLSearchParams();
     if (after) params.set('after', after);
+    if (kind && kind !== 'all') params.set('kind', kind);
     return apiRequest(`users/me/saved?${params}`, { signal });
   },
   taggedPosts: (id, { after, signal } = {}) => {
@@ -302,6 +303,31 @@ export const contentApi = {
   deleteReel: (id) => apiRequest(`reels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   savePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}/save`, { method: 'POST' }),
   unsavePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}/save`, { method: 'DELETE' }),
+  like: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/like`, { method: 'POST' }),
+  unlike: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/like`, { method: 'DELETE' }),
+  repost: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/repost`, { method: 'POST' }),
+  undoRepost: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/repost`, { method: 'DELETE' }),
+  saveContent: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/save`, { method: 'POST' }),
+  unsaveContent: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/save`, { method: 'DELETE' }),
+  comments: (kind, id, { after, limit = 20, signal } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (after) params.set('after', after);
+    return apiRequest(`${kind}/${encodeURIComponent(id)}/comments?${params}`, { signal });
+  },
+  createComment: (kind, id, text, parentCommentId) => apiRequest(`${kind}/${encodeURIComponent(id)}/comments`, {
+    method: 'POST',
+    body: { text, ...(parentCommentId ? { parentCommentId } : {}) },
+  }),
+  updateComment: (id, text) => apiRequest(`comments/${encodeURIComponent(id)}`, { method: 'PATCH', body: { text } }),
+  deleteComment: (id) => apiRequest(`comments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  likeComment: (id) => apiRequest(`comments/${encodeURIComponent(id)}/like`, { method: 'POST' }),
+  unlikeComment: (id) => apiRequest(`comments/${encodeURIComponent(id)}/like`, { method: 'DELETE' }),
+  savedContent: ({ after, kind, signal } = {}) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    if (kind) params.set('kind', kind);
+    return apiRequest(`users/me/saved?${params}`, { signal });
+  },
   tagUser: (postId, userId) => apiRequest(`posts/${encodeURIComponent(postId)}/tags`, {
     method: 'POST',
     body: { userId },

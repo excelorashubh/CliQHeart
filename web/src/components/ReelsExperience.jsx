@@ -1,22 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Bookmark, ChevronDown, Heart, MessageCircle, MoreHorizontal, Pause, Play,
-  Search, Share2, Volume2, VolumeX,
+  ChevronDown, MoreHorizontal, Pause, Play,
+  Search, Volume2, VolumeX,
 } from 'lucide-react';
 import { Avatar } from './Brand.jsx';
 import { contentApi, userApi } from '../services/api.js';
 import { getReelPath, getReelUrl } from '../services/reelUrl.js';
+import { EngagementActions } from './EngagementActions.jsx';
 
 const pageSize = 10;
 
-function compactCount(value) {
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
-}
-
-function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onFollow, onUnavailable, onShare, registerVideo }) {
+function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onFollow, onShare, registerVideo }) {
   const videoRef = useRef(null);
+  const likeButtonRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [buffering, setBuffering] = useState(false);
@@ -72,12 +69,6 @@ function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onF
     });
   }
 
-  const engagementActions = [
-    { key: 'like', label: 'Likes are not available yet', Icon: Heart, count: compactCount(item.likeCount) },
-    { key: 'comment', label: 'Comments are not available yet', Icon: MessageCircle, count: compactCount(item.commentCount) },
-    { key: 'save', label: 'Saving Reels is not available yet', Icon: Bookmark },
-  ];
-
   return <article className="reel-slide" data-reel-id={item.id} aria-label={`Reel by @${item.owner?.username || 'member'}`}>
     <div className="reel-player">
       {item.media?.secureUrl
@@ -96,6 +87,10 @@ function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onF
           onPause={() => setPlaying(false)}
           onError={() => { setBuffering(false); setPlaybackError(true); }}
           onClick={togglePlayback}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            likeButtonRef.current?.click();
+          }}
           aria-label={`Reel video by @${item.owner?.username || 'member'}`}
         />
         : <div className="reel-media-error" role="alert">This Reel has no playable video.</div>}
@@ -141,18 +136,7 @@ function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onF
       </div>
     </div>
     <aside className="reel-actions" aria-label="Reel actions">
-      {engagementActions.map(({ key, label, Icon, count }) => <button
-        className="reel-action is-unavailable"
-        key={key}
-        type="button"
-        aria-label={label}
-        title={label}
-        onClick={() => onUnavailable(label)}
-      >
-        <Icon size={25} />
-        {count && <span className="reel-action-count">{count}</span>}
-      </button>)}
-      <button className="reel-action" type="button" onClick={() => onShare(item)} aria-label="Share Reel" title="Share Reel"><Share2 size={24} /></button>
+      <EngagementActions item={item} kind="reels" onShare={onShare} vertical likeButtonRef={likeButtonRef} />
       <Link className="reel-action" to={getReelPath(item.id)} aria-label="More Reel details" title="More Reel details">
         <MoreHorizontal size={25} />
       </Link>
@@ -468,7 +452,6 @@ export function ReelsExperience({ viewer }) {
           viewerId={viewer?.id}
           followBusy={Boolean(followBusy[item.owner?.id])}
           onFollow={toggleFollow}
-          onUnavailable={setNotice}
           onShare={shareReel}
           registerVideo={registerVideo}
         />

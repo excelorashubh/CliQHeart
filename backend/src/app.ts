@@ -10,6 +10,7 @@ import { createAuthRouter } from './modules/auth';
 import { createMessageRouter } from './modules/messages/message.routes';
 import { createUserRouter } from './modules/users/user.routes';
 import { createContentRouter } from './modules/content/content.routes';
+import { createEngagementRouter } from './modules/content/engagement.routes';
 import { createMediaRouter } from './modules/media/media.routes';
 import { createNotificationRouter } from './modules/notifications/notification.routes';
 import { createProfessionalRouter } from './modules/professional/professional.routes';
@@ -157,6 +158,7 @@ export function createApp({
   app.use('/api/v1', createAuthRouter(config));
   app.use('/api/v1', createMediaRouter(config));
   app.use('/api/v1', createContentRouter(config));
+  app.use('/api/v1', createEngagementRouter(config));
   app.use('/api/v1', createNotificationRouter(config));
   app.use('/api/v1', createProfessionalRouter(config));
   app.use('/api/v1', createUserRouter(config));

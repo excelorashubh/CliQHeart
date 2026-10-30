@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  BadgeCheck, Bookmark, Clapperboard, Heart, MessageCircle, MoreHorizontal, Play, Repeat2, Share2, Volume2, VolumeX,
+  BadgeCheck, Bookmark, Clapperboard, Heart, MoreHorizontal, Play, Repeat2, Volume2, VolumeX,
 } from 'lucide-react';
 import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './Feedback.jsx';
+import { EngagementActions } from './EngagementActions.jsx';
 import { contentApi, userApi } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getReelPath } from '../services/reelUrl.js';
@@ -15,6 +16,7 @@ export function ContentFeed({
   layout = 'feed',
   showSuggestedLabels = false,
   includeReels = false,
+  savedType = 'posts',
 }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +62,7 @@ export function ContentFeed({
         return;
       }
       const result = kind === 'saved'
-        ? await userApi.savedPosts({ signal })
+        ? await userApi.savedPosts({ signal, kind: savedType })
         : kind === 'tagged'
           ? await userApi.taggedPosts(userId, { signal })
           : userId
@@ -71,7 +73,13 @@ export function ContentFeed({
           ? await contentApi.reels(30, { signal })
           : await contentApi.posts(30, { signal });
       if (signal?.aborted) return;
-      const nextItems = result[kind] || result.posts || [];
+      const savedItems = result.items || result.content || [
+        ...(result.posts || []).map((item) => ({ ...item, contentType: 'post' })),
+        ...(result.reels || []).map((item) => ({ ...item, contentType: 'reel' })),
+      ];
+      const nextItems = kind === 'saved'
+        ? savedItems.map((item) => ({ ...item, feedType: item.contentType === 'reel' ? 'reels' : 'posts' }))
+        : result[kind] || result.posts || [];
       setItems(nextItems);
       setNextCursor(result.nextCursor || null);
       setNextReelCursor(null);
@@ -81,7 +89,7 @@ export function ContentFeed({
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [includeReels, kind, userId]);
+  }, [includeReels, kind, savedType, userId]);
 
   async function loadMore() {
     if (loadingMore) return;
@@ -121,9 +129,15 @@ export function ContentFeed({
         : kind === 'reels'
           ? await contentApi.reels(30, { after: nextCursor })
         : kind === 'saved'
-        ? await userApi.savedPosts({ after: nextCursor })
+        ? await userApi.savedPosts({ after: nextCursor, kind: savedType })
         : await userApi.taggedPosts(userId, { after: nextCursor });
-      const nextItems = result[kind] || result.posts || [];
+      const savedItems = result.items || result.content || [
+        ...(result.posts || []).map((item) => ({ ...item, contentType: 'post' })),
+        ...(result.reels || []).map((item) => ({ ...item, contentType: 'reel' })),
+      ];
+      const nextItems = kind === 'saved'
+        ? savedItems.map((item) => ({ ...item, feedType: item.contentType === 'reel' ? 'reels' : 'posts' }))
+        : result[kind] || result.posts || [];
       setItems((current) => {
         const ids = new Set(current.map((item) => item.id));
         return [...current, ...nextItems.filter((item) => !ids.has(item.id))];
@@ -167,7 +181,7 @@ export function ContentFeed({
   return <>
     <div className={`content-feed${kind === 'reels' ? ' content-feed--reels' : ''}${layout === 'grid' ? ' content-feed--grid' : ''}${layout === 'explore' ? ' content-feed--grid content-feed--explore-grid' : ''}`}>
     {items.map((item) => <ContentCard
-      key={`${item.feedType || kind}:${item.id}`}
+      key={`${item.feedType || kind}:${item.feedKey || item.id}`}
       item={item}
       layout={layout}
       thumbnailOnly={layout === 'explore'}
@@ -463,10 +477,10 @@ function ContentCard({
 }) {
   const { user } = useAuth();
   const ownerAvatarUrl = item.owner?.id === user?.id ? user.avatarUrl : item.owner?.avatarUrl;
+  const repostAuthor = item.repostedBy || item.repost?.user;
   const isVideo = item.media?.resourceType === 'video';
-  const likeCount = formatEngagementCount(item.likeCount);
-  const commentCount = formatEngagementCount(item.commentCount);
-  const repostCount = formatEngagementCount(item.repostCount);
+  const contentKind = kind === 'reels' || item.contentType === 'reel' ? 'reels' : 'posts';
+  const contentLabel = contentKind === 'reels' ? 'Reel' : 'post';
   const [saved, setSaved] = useState(Boolean(item.isSaved));
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const bookmarkBusyRef = useRef(false);
@@ -475,6 +489,12 @@ function ContentCard({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [tagBusy, setTagBusy] = useState(false);
   const [tagError, setTagError] = useState('');
+  const likeButtonRef = useRef(null);
+  const handleMediaDoubleClick = (event) => {
+    if (!homeFeed) return;
+    event.preventDefault();
+    likeButtonRef.current?.click();
+  };
   async function toggleSaved(event) {
     event.preventDefault();
     event.stopPropagation();
@@ -486,8 +506,8 @@ function ContentCard({
     const nextSaved = !previousSaved;
     setSaved(nextSaved);
     try {
-      if (nextSaved) await contentApi.savePost(item.id);
-      else await contentApi.unsavePost(item.id);
+      if (nextSaved) await contentApi.saveContent(contentKind, item.id);
+      else await contentApi.unsaveContent(contentKind, item.id);
       onSavedChange?.(nextSaved);
     } catch (reason) {
       setSaved(previousSaved);
@@ -524,9 +544,6 @@ function ContentCard({
     } catch (reason) {
       setBookmarkError(reason.message || 'Could not share this post.');
     }
-  }
-  function unavailableAction(message) {
-    setActionNotice(message);
   }
   async function deleteContent() {
     if (deleteBusy || item.owner?.id !== user?.id ||
@@ -574,7 +591,7 @@ function ContentCard({
         </span>}
         {!thumbnailOnly && <span className="content-grid-overlay">{item.caption || `Post by @${item.owner?.username || 'member'}`}</span>}
       </Link>
-      {!thumbnailOnly && kind !== 'reels' && <button className={`content-save-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? 'Remove saved post' : 'Save post'} title={saved ? 'Remove saved post' : 'Save post'}>
+      {!thumbnailOnly && kind !== 'tagged' && <button className={`content-save-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? `Remove saved ${contentLabel}` : `Save ${contentLabel}`} title={saved ? `Remove saved ${contentLabel}` : `Save ${contentLabel}`}>
         <Bookmark size={17} fill={saved ? 'currentColor' : 'none'} />
       </button>}
       {!thumbnailOnly && kind === 'tagged' && <button className="content-untag-button" onClick={removeTag} disabled={tagBusy}>Remove tag</button>}
@@ -582,6 +599,7 @@ function ContentCard({
     </div>;
   }
   return <article className={`content-card${kind === 'reels' ? ' content-card--reel' : ''}`}>
+    {repostAuthor && <div className="content-repost-label"><Repeat2 size={14} /> Reposted by <Link to={`/profile/${encodeURIComponent(repostAuthor.id || '')}`}>@{repostAuthor.username || 'member'}</Link></div>}
     {showSuggestedLabel && item.owner?.id !== user?.id && !item.isFollowing && <div className="content-suggested-label">Suggested for you</div>}
     <header className="content-card-header">
       <Link to={`/profile/${item.owner?.id}`} className="content-card-owner">
@@ -589,8 +607,8 @@ function ContentCard({
         <span><strong>{item.owner?.displayName || 'CliQHeart member'}{item.owner?.isVerified && <BadgeCheck className="content-verified-badge" size={14} aria-label="Verified" />}</strong><small>@{item.owner?.username || 'member'}</small></span>
       </Link>
       <div className="content-card-actions">
-        {item.createdAt && <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleDateString()}</time>}
-        {kind !== 'reels' && !homeFeed && <button className={`content-bookmark-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? 'Remove saved post' : 'Save post'} title={saved ? 'Remove saved post' : 'Save post'}>
+        {(item.repostedAt || item.createdAt) && <time dateTime={item.repostedAt || item.createdAt}>{new Date(item.repostedAt || item.createdAt).toLocaleDateString()}</time>}
+        {!homeFeed && <button className={`content-bookmark-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? `Remove saved ${contentLabel}` : `Save ${contentLabel}`} title={saved ? `Remove saved ${contentLabel}` : `Save ${contentLabel}`}>
           <Bookmark size={18} fill={saved ? 'currentColor' : 'none'} />
         </button>}
         {homeFeed && <details className="content-more-options">
@@ -605,7 +623,7 @@ function ContentCard({
         </details>}
       </div>
     </header>
-    <div className="content-card-media">
+    <div className="content-card-media" onDoubleClick={handleMediaDoubleClick}>
       {isVideo
         ? homeFeed
           ? <FeedVideo
@@ -622,28 +640,16 @@ function ContentCard({
         : <span className="content-video-badge"><Play size={14} fill="currentColor" /> Video</span>)}
     </div>
     {homeFeed && <div className="content-engagement">
-      <div className="content-engagement-actions">
-        <button type="button" className="content-engagement-button is-unavailable" onClick={() => unavailableAction('Like is not available yet.')} aria-label="Like is not available yet" title="Like is not available yet">
-          <Heart size={23} />{likeCount !== null && <span>{likeCount}</span>}
-        </button>
-        <button type="button" className="content-engagement-button is-unavailable" onClick={() => unavailableAction('Comments are not available yet.')} aria-label="Comments are not available yet" title="Comments are not available yet">
-          <MessageCircle size={23} />{commentCount !== null && <span>{commentCount}</span>}
-        </button>
-        <button type="button" className="content-engagement-button is-unavailable" onClick={() => unavailableAction('Reposting is not available yet.')} aria-label="Reposting is not available yet" title="Reposting is not available yet">
-          <Repeat2 size={23} />{repostCount !== null && <span>{repostCount}</span>}
-        </button>
-        <button type="button" className="content-engagement-button" onClick={shareContent} aria-label="Share post" title="Share post"><Share2 size={22} /></button>
-        {kind === 'reels'
-          ? <button type="button" className="content-engagement-button content-engagement-save is-unavailable" onClick={() => unavailableAction('Saving Reels is not available yet.')} aria-label="Saving Reels is not available yet" title="Saving Reels is not available yet"><Bookmark size={22} /></button>
-          : <button
-            type="button"
-            className={`content-engagement-button content-engagement-save${saved ? ' is-saved' : ''}`}
-            onClick={toggleSaved}
-            disabled={bookmarkBusy}
-            aria-label={saved ? 'Remove saved post' : 'Save post'}
-            title={saved ? 'Remove saved post' : 'Save post'}
-          ><Bookmark size={22} fill={saved ? 'currentColor' : 'none'} /></button>}
-      </div>
+      <EngagementActions
+        item={{ ...item, isSaved: saved }}
+        kind={contentKind}
+        onShare={shareContent}
+        likeButtonRef={likeButtonRef}
+        onSavedChange={(nextSaved) => {
+          setSaved(nextSaved);
+          onSavedChange?.(nextSaved);
+        }}
+      />
       {actionNotice && <p className="content-action-notice" role="status">{actionNotice}</p>}
     </div>}
     {item.caption && <ContentCaption
@@ -660,11 +666,6 @@ function ContentCard({
     {item.location && <p className="content-card-location">{item.location}</p>}
     {(bookmarkError || tagError) && <p className="inline-error" role="alert">{bookmarkError || tagError}</p>}
   </article>;
-}
-
-function formatEngagementCount(value) {
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 }
 
 export function ContentCaption({ username, caption, postId, compact = false }) {

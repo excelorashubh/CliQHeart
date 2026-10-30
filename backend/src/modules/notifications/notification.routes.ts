@@ -4,6 +4,7 @@ import type { AppConfig } from '../../config/env';
 import { UserModel } from '../../models/user';
 import { MediaModel } from '../media/media.model';
 import { PostModel } from '../content/post.model';
+import { ReelModel } from '../content/reel.model';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { NotificationModel } from './notification.model';
 
@@ -44,21 +45,25 @@ export function createNotificationRouter(config: AppConfig): Router {
       const page = hasMore ? items.slice(0, limit) : items;
       const actorIds = [...new Set(page.map((item) => String(item.actorId)))];
       const postIds = [...new Set(page.flatMap((item) => item.postId ? [String(item.postId)] : []))];
-      const [actors, posts] = await Promise.all([
+      const reelIds = [...new Set(page.flatMap((item) => item.reelId ? [String(item.reelId)] : []))];
+      const [actors, posts, reels] = await Promise.all([
         UserModel.find({ _id: { $in: actorIds }, accountStatus: 'active' })
           .select('username displayName avatarUrl').lean(),
         PostModel.find({ _id: { $in: postIds } }).select('_id mediaId').lean(),
+        ReelModel.find({ _id: { $in: reelIds } }).select('_id mediaId').lean(),
       ]);
-      const mediaIds = [...new Set(posts.map((post) => String(post.mediaId)))];
+      const mediaIds = [...new Set([...posts, ...reels].map((content) => String(content.mediaId)))];
       const media = await MediaModel.find({ _id: { $in: mediaIds }, status: 'ready' })
         .select('_id thumbnailUrl secureUrl').lean();
       const actorById = new Map(actors.map((actor) => [String(actor._id), actor]));
       const postById = new Map(posts.map((post) => [String(post._id), post]));
+      const reelById = new Map(reels.map((reel) => [String(reel._id), reel]));
       const mediaById = new Map(media.map((asset) => [String(asset._id), asset]));
       response.json({
         notifications: page.map((item) => {
           const post = item.postId ? postById.get(String(item.postId)) : undefined;
-          const asset = post ? mediaById.get(String(post.mediaId)) : undefined;
+          const reel = item.reelId ? reelById.get(String(item.reelId)) : undefined;
+          const asset = post || reel ? mediaById.get(String((post || reel)?.mediaId)) : undefined;
           return {
             id: String(item._id),
             type: item.type,
@@ -66,6 +71,8 @@ export function createNotificationRouter(config: AppConfig): Router {
             createdAt: item.createdAt,
             actor: actorById.get(String(item.actorId)) ?? null,
             ...(item.postId ? { postId: String(item.postId) } : {}),
+            ...(item.reelId ? { reelId: String(item.reelId) } : {}),
+            ...(item.commentId ? { commentId: String(item.commentId) } : {}),
             ...(item.conversationId ? { conversationId: String(item.conversationId) } : {}),
             ...(asset ? { thumbnailUrl: asset.thumbnailUrl || asset.secureUrl } : {}),
           };

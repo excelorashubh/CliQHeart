@@ -12,6 +12,18 @@ vi.mock('../services/api.js', () => ({
     reels: vi.fn(),
     savePost: vi.fn(),
     unsavePost: vi.fn(),
+    like: vi.fn(),
+    unlike: vi.fn(),
+    repost: vi.fn(),
+    undoRepost: vi.fn(),
+    saveContent: vi.fn(),
+    unsaveContent: vi.fn(),
+    comments: vi.fn(),
+    createComment: vi.fn(),
+    updateComment: vi.fn(),
+    deleteComment: vi.fn(),
+    likeComment: vi.fn(),
+    unlikeComment: vi.fn(),
   },
   userApi: {},
 }));
@@ -52,6 +64,16 @@ describe('Home feed interactions', () => {
     contentApi.reels.mockResolvedValue({ reels: [], nextCursor: null });
     contentApi.savePost.mockResolvedValue({});
     contentApi.unsavePost.mockResolvedValue({});
+    contentApi.like.mockResolvedValue({});
+    contentApi.unlike.mockResolvedValue({});
+    contentApi.repost.mockResolvedValue({});
+    contentApi.undoRepost.mockResolvedValue({});
+    contentApi.saveContent.mockResolvedValue({});
+    contentApi.unsaveContent.mockResolvedValue({});
+    contentApi.comments.mockResolvedValue({ comments: [], nextCursor: null });
+    contentApi.createComment.mockImplementation(async (_kind, _id, text) => ({
+      comment: { id: 'comment-1', text, author: { id: 'viewer-1', username: 'viewer' } },
+    }));
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
@@ -67,7 +89,7 @@ describe('Home feed interactions', () => {
     }
   });
 
-  it('places supported actions below media and reports unsupported actions honestly', async () => {
+  it('places persistent engagement actions below the media', async () => {
     renderHomeFeed();
     const card = await screen.findByText('Caption for post-1').then((caption) => caption.closest('.content-card'));
     const media = card.querySelector('.content-card-media');
@@ -77,20 +99,20 @@ describe('Home feed interactions', () => {
     expect(media.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(actions.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(actions).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
-      'Like is not available yet',
-      'Comments are not available yet',
-      'Reposting is not available yet',
+      'Like',
+      'Comments',
+      'Repost',
       'Share post',
       'Save post',
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Like is not available yet' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Like is not available yet.');
-    expect(contentApi.savePost).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Like' }));
+    expect(await screen.findByRole('button', { name: /^Unlike/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(contentApi.like).toHaveBeenCalledWith('posts', 'post-1');
   });
 
   it('optimistically saves a post and rolls back when the API fails', async () => {
-    contentApi.savePost.mockRejectedValueOnce(new Error('Save failed.'));
+    contentApi.saveContent.mockRejectedValueOnce(new Error('Save failed.'));
     renderHomeFeed();
     const saveButton = await screen.findByRole('button', { name: 'Save post' });
     fireEvent.click(saveButton);
@@ -98,6 +120,17 @@ describe('Home feed interactions', () => {
     expect(await screen.findByRole('button', { name: 'Remove saved post' })).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent('Save failed.');
     expect(screen.getByRole('button', { name: 'Save post' })).toBeInTheDocument();
+  });
+
+  it('opens comments and posts non-empty comment text to the API', async () => {
+    renderHomeFeed();
+    fireEvent.click(await screen.findByRole('button', { name: 'Comments' }));
+    expect(await screen.findByText('No comments yet. Start the conversation.')).toBeInTheDocument();
+    const input = screen.getByRole('textbox', { name: 'Write a comment' });
+    fireEvent.change(input, { target: { value: 'A real comment 🙂' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Post' }));
+    await waitFor(() => expect(contentApi.createComment).toHaveBeenCalledWith('posts', 'post-1', 'A real comment 🙂', undefined));
+    expect(await screen.findByText('A real comment 🙂')).toBeInTheDocument();
   });
 
   it('copies a canonical post link when native sharing is unavailable', async () => {
