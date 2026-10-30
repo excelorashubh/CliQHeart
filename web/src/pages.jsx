@@ -1281,6 +1281,11 @@ export function ProfilePage({ editOnOpen = false }) {
           <button onClick={() => openList('following')}><b>{profile.followingCount || 0}</b> following</button>
         </div>
         <div className="profile-bio"><strong>{profile.displayName}</strong>{profile.bio && <p>{profile.bio}</p>}</div>
+        {isOwn && <div className="profile-professional-actions">
+          <Link className="button button--outline professional-profile-link" to={profile.accountType === 'CREATOR' || profile.accountType === 'BUSINESS' ? '/professional' : '/professional/onboarding'}>
+            {profile.accountType === 'CREATOR' || profile.accountType === 'BUSINESS' ? 'Professional dashboard' : 'Switch to a professional account'}
+          </Link>
+        </div>}
       </div>
     </header>
     {error && <p className="inline-error">{error}</p>}
@@ -1293,9 +1298,6 @@ export function ProfilePage({ editOnOpen = false }) {
       {profile.professionalContact.website && <a href={profile.professionalContact.website} target="_blank" rel="noreferrer">Website</a>}
       {profile.professionalContact.businessAddress && <span>{profile.professionalContact.businessAddress}</span>}
     </div>}
-    {isOwn && <Link className="professional-profile-link" to={profile.accountType === 'CREATOR' || profile.accountType === 'BUSINESS' ? '/professional' : '/professional/onboarding'}>
-      {profile.accountType === 'CREATOR' || profile.accountType === 'BUSINESS' ? 'Professional dashboard' : 'Switch to a professional account'}
-    </Link>}
     <div className="profile-content">
       <div className="profile-tabs" role="tablist" aria-label="Profile content" onKeyDown={handleContentTabKey}>
         {availableTabs.map((tab) => <button
