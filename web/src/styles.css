@@ -39,6 +39,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; width: 252px; height: 100vh; height: 100dvh; flex-direction: column; overflow: hidden; padding: 29px 19px 18px; border-right: 1px solid #f0ebec; background: #fff; }
 .sidebar-brand { display: inline-flex; align-items: center; margin: 3px 8px 41px; }
 .nav-list { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 7px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #ded8dc transparent; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.nav-list::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 4px; }
+.nav-list::-webkit-scrollbar-track, .sidebar::-webkit-scrollbar-track { background: transparent; }
+.nav-list::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb { border-radius: 4px; background: #ded8dc; }
+.sidebar-close-button { display: none; }
 .nav-link { position: relative; display: flex; min-height: 48px; align-items: center; gap: 14px; padding: 0 14px; border: 0; border-radius: 12px; color: #565159; background: transparent; font-size: 14px; font-weight: 500; text-align: left; transition: background .18s ease, color .18s ease, transform .18s ease; }
 .nav-link:hover { color: var(--ink); background: #fbf6f7; }
 .nav-link.is-active { color: var(--pink-dark); background: #fff1f3; font-weight: 700; }
@@ -550,7 +554,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 760px) {
   .sidebar { z-index: 41; width: min(78vw, 290px); height: 100vh; height: 100dvh; overflow-x: hidden; overflow-y: auto; padding-top: 24px; padding-bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-105%); transition: transform .22s ease; box-shadow: none; }
   .sidebar--open { transform: translateX(0); box-shadow: 16px 0 40px rgba(30, 20, 28, .12); }
-  .sidebar-brand { flex: 0 0 auto; margin-bottom: 27px; }
+  .sidebar-close-button { position: absolute; top: 20px; right: 12px; display: grid; width: 40px; height: 40px; place-items: center; border: 0; border-radius: 10px; color: #514a52; background: transparent; cursor: pointer; }
+  .sidebar-close-button:hover { color: var(--pink-dark); background: #fff1f3; }
+  .sidebar-brand { flex: 0 0 auto; margin: 3px 8px 27px; }
   .nav-list { min-height: auto; flex: 0 0 auto; overflow: visible; }
   .sidebar-bottom { margin-top: auto; }
   .mobile-header { position: sticky; z-index: 30; top: 0; display: flex; height: 58px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 max(10px, env(safe-area-inset-left)); border-bottom: 1px solid #f1ebed; background: rgba(255,255,255,.96); backdrop-filter: blur(12px); }

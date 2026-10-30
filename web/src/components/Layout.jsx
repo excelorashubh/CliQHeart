@@ -103,6 +103,9 @@ export function AppLayout({ children }) {
       </div>
     </header>
     <aside className={`sidebar${menuOpen ? ' sidebar--open' : ''}`}>
+      <button className="sidebar-close-button" type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}>
+        <X size={21} />
+      </button>
       <Link to="/" className="sidebar-brand" onClick={() => setMenuOpen(false)}><Brand /></Link>
       <nav className="nav-list" aria-label="Main navigation">
         {navigationLinks.map(({ name, to, Icon, disabled, profile }) => disabled
