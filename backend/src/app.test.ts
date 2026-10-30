@@ -177,6 +177,8 @@ test('saved, tagged, and notification endpoints require authenticated access', a
     request(app).post('/api/v1/posts/507f1f77bcf86cd799439011/save'),
     request(app).post('/api/v1/posts/507f1f77bcf86cd799439011/tags').send({ userId: '507f1f77bcf86cd799439012' }),
     request(app).delete('/api/v1/posts/507f1f77bcf86cd799439011/tags/me'),
+    request(app).post('/api/v1/reels/507f1f77bcf86cd799439011/tags').send({ userId: '507f1f77bcf86cd799439012' }),
+    request(app).delete('/api/v1/reels/507f1f77bcf86cd799439011/tags/me'),
     request(app).get('/api/v1/notifications'),
     request(app).get('/api/v1/notifications/unread-count'),
     request(app).patch('/api/v1/notifications/read-all'),

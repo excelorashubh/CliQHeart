@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BookmarkModel } from './bookmark.model';
 import { PostTagModel } from './post-tag.model';
+import { ReelTagModel } from './reel-tag.model';
 import { NotificationModel } from '../notifications/notification.model';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
@@ -10,12 +11,15 @@ import { StoryModel } from './story.model';
 test('bookmark and tag relationships enforce uniqueness and owner pagination indexes', () => {
   const bookmarkIndexes = BookmarkModel.schema.indexes();
   const tagIndexes = PostTagModel.schema.indexes();
+  const reelTagIndexes = ReelTagModel.schema.indexes();
 
   assert.ok(bookmarkIndexes.some(([fields, options]) =>
-    fields.userId === 1 && fields.postId === 1 && options.unique === true));
+    fields.userId === 1 && fields.contentType === 1 && fields.postId === 1 && options.unique === true));
   assert.ok(bookmarkIndexes.some(([fields]) => fields.userId === 1 && fields._id === -1));
   assert.ok(tagIndexes.some(([fields, options]) =>
     fields.postId === 1 && fields.userId === 1 && options.unique === true));
+  assert.ok(reelTagIndexes.some(([fields, options]) =>
+    fields.reelId === 1 && fields.userId === 1 && options.unique === true));
   assert.ok(tagIndexes.some(([fields]) => fields.userId === 1 && fields._id === -1));
 });
 

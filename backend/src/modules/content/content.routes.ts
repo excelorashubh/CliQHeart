@@ -13,6 +13,7 @@ import { StoryModel } from './story.model';
 import { BookmarkModel } from './bookmark.model';
 import { CommentLikeModel, CommentModel, LikeModel, RepostModel } from './engagement.models';
 import { PostTagModel } from './post-tag.model';
+import { ReelTagModel } from './reel-tag.model';
 import { createNotificationSafely } from '../notifications/notification.service';
 import { NotificationModel } from '../notifications/notification.model';
 import { recordContentView } from '../professional/professional.service';
@@ -286,21 +287,57 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       const limit = await parsePageSize(request);
-      const tags = await PostTagModel.find({
-        userId: taggedUser._id,
-        ...(after ? { _id: { $lt: after } } : {}),
-      }).sort({ _id: -1 }).limit(limit + 1).lean();
+      const [postTags, reelTags] = await Promise.all([
+        PostTagModel.find({
+          userId: taggedUser._id,
+          ...(after ? { _id: { $lt: after } } : {}),
+        }).sort({ _id: -1 }).limit(limit + 1).lean(),
+        ReelTagModel.find({
+          userId: taggedUser._id,
+          ...(after ? { _id: { $lt: after } } : {}),
+        }).sort({ _id: -1 }).limit(limit + 1).lean(),
+      ]);
+      const tags = [
+        ...postTags.map((tag) => ({ tag, contentType: 'post' as const })),
+        ...reelTags.map((tag) => ({ tag, contentType: 'reel' as const })),
+      ].sort((first, second) => String(second.tag._id).localeCompare(String(first.tag._id)));
       const hasMore = tags.length > limit;
       const page = hasMore ? tags.slice(0, limit) : tags;
-      const foundPosts = await PostModel.find({ _id: { $in: page.map((tag) => tag.postId) } }).lean();
+      const postIds = page.filter((entry) => entry.contentType === 'post').map((entry) => entry.tag.postId);
+      const reelIds = page.filter((entry) => entry.contentType === 'reel').map((entry) => entry.tag.reelId);
+      const [foundPosts, foundReels] = await Promise.all([
+        postIds.length ? PostModel.find({ _id: { $in: postIds } }).lean() : Promise.resolve([]),
+        reelIds.length ? ReelModel.find({ _id: { $in: reelIds } }).lean() : Promise.resolve([]),
+      ]);
       const postById = new Map(foundPosts.map((post) => [String(post._id), post]));
-      const posts = page.flatMap((tag) => {
-        const post = postById.get(String(tag.postId));
+      const reelById = new Map(foundReels.map((reel) => [String(reel._id), reel]));
+      const posts = page.flatMap(({ tag, contentType }) => {
+        const post = contentType === 'post' ? postById.get(String(tag.postId)) : undefined;
         return post ? [post] : [];
       });
+      const reels = page.flatMap(({ tag, contentType }) => {
+        const reel = contentType === 'reel' ? reelById.get(String(tag.reelId)) : undefined;
+        return reel ? [reel] : [];
+      });
+      const [postPayloads, reelPayloads] = await Promise.all([
+        contentListPayload(posts, authenticatedUserId(request), 'post'),
+        contentListPayload(reels, authenticatedUserId(request), 'reel'),
+      ]);
+      const postPayloadById = new Map(postPayloads.map((item) => [item.id, item]));
+      const reelPayloadById = new Map(reelPayloads.map((item) => [item.id, item]));
+      const items = page.flatMap(({ tag, contentType }) => {
+        if (contentType === 'reel') {
+          const item = reelPayloadById.get(String(tag.reelId));
+          return item ? [{ ...item, contentType: 'reel' }] : [];
+        }
+        const item = postPayloadById.get(String(tag.postId));
+        return item ? [{ ...item, contentType: 'post' }] : [];
+      });
       response.json({
-        posts: await contentListPayload(posts, authenticatedUserId(request), 'post'),
-        nextCursor: hasMore ? String(page.at(-1)?._id) : null,
+        items,
+        posts: postPayloads,
+        reels: reelPayloads,
+        nextCursor: hasMore ? String(page.at(-1)?.tag._id) : null,
       });
     } catch (error) {
       if (error instanceof ZodError) {
@@ -362,6 +399,63 @@ export function createContentRouter(config: AppConfig): Router {
         return;
       }
       await PostTagModel.deleteOne({ postId, userId: authenticatedUserId(request) });
+      response.json({ tagged: false });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/reels/:reelId/tags', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const reelId = request.params.reelId;
+      if (!reelId || !Types.ObjectId.isValid(reelId)) {
+        response.status(400).json({ error: 'Invalid Reel ID.' });
+        return;
+      }
+      const { userId: taggedUserId } = addTagSchema.parse(request.body);
+      const actorId = authenticatedUserId(request);
+      const reel = await ReelModel.findOne({ _id: reelId, ownerId: actorId }).select('_id');
+      if (!reel) {
+        response.status(404).json({ error: 'Reel not found or not owned by this account.' });
+        return;
+      }
+      const target = await UserModel.findOne({ _id: taggedUserId, accountStatus: 'active' }).select('_id');
+      if (!target) {
+        response.status(404).json({ error: 'Tagged user not found.' });
+        return;
+      }
+      const tagResult = await ReelTagModel.updateOne(
+        { reelId, userId: taggedUserId },
+        { $setOnInsert: { reelId, userId: taggedUserId, taggedById: actorId } },
+        { upsert: true },
+      );
+      if (tagResult.upsertedCount > 0) {
+        await createNotificationSafely({
+          recipientId: taggedUserId,
+          actorId,
+          type: 'tag',
+          reelId,
+          deduplicationKey: `tag:${tagResult.upsertedId}`,
+        });
+      }
+      response.json({ tagged: true });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid tag request.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.delete('/reels/:reelId/tags/me', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const reelId = request.params.reelId;
+      if (!reelId || !Types.ObjectId.isValid(reelId)) {
+        response.status(400).json({ error: 'Invalid Reel ID.' });
+        return;
+      }
+      await ReelTagModel.deleteOne({ reelId, userId: authenticatedUserId(request) });
       response.json({ tagged: false });
     } catch (error) {
       next(error);
@@ -684,6 +778,7 @@ export function createContentRouter(config: AppConfig): Router {
       const commentIds = await CommentModel.find({ contentId: reelId, contentType: 'reel' }).distinct('_id');
       await Promise.all([
         BookmarkModel.deleteMany({ postId: reelId, contentType: 'reel' }),
+        ReelTagModel.deleteMany({ reelId }),
         LikeModel.deleteMany({ contentId: reelId, contentType: 'reel' }),
         CommentModel.deleteMany({ contentId: reelId, contentType: 'reel' }),
         CommentLikeModel.deleteMany({ commentId: { $in: commentIds } }),

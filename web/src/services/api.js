@@ -240,8 +240,9 @@ export const userApi = {
     if (kind && kind !== 'all') params.set('kind', kind);
     return apiRequest(`users/me/saved?${params}`, { signal });
   },
-  taggedPosts: (id, { after, signal } = {}) => {
+  taggedPosts: (id, { after, limit = 30, signal } = {}) => {
     const params = new URLSearchParams();
+    params.set('limit', String(limit));
     if (after) params.set('after', after);
     return apiRequest(`users/${encodeURIComponent(id)}/tagged?${params}`, { signal });
   },
@@ -328,11 +329,14 @@ export const contentApi = {
     if (kind) params.set('kind', kind);
     return apiRequest(`users/me/saved?${params}`, { signal });
   },
-  tagUser: (postId, userId) => apiRequest(`posts/${encodeURIComponent(postId)}/tags`, {
-    method: 'POST',
-    body: { userId },
-  }),
-  removeMyTag: (postId) => apiRequest(`posts/${encodeURIComponent(postId)}/tags/me`, { method: 'DELETE' }),
+  tagUser: (contentType, contentId, userId) => apiRequest(
+    `${contentType === 'reel' ? 'reels' : 'posts'}/${encodeURIComponent(contentId)}/tags`,
+    { method: 'POST', body: { userId } },
+  ),
+  removeMyTag: (contentId, contentType = 'post') => apiRequest(
+    `${contentType === 'reel' ? 'reels' : 'posts'}/${encodeURIComponent(contentId)}/tags/me`,
+    { method: 'DELETE' },
+  ),
 };
 
 export const notificationApi = {

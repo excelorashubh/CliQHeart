@@ -77,7 +77,7 @@ export function ContentFeed({
         ...(result.posts || []).map((item) => ({ ...item, contentType: 'post' })),
         ...(result.reels || []).map((item) => ({ ...item, contentType: 'reel' })),
       ];
-      const nextItems = kind === 'saved'
+      const nextItems = kind === 'saved' || kind === 'tagged'
         ? savedItems.map((item) => ({ ...item, feedType: item.contentType === 'reel' ? 'reels' : 'posts' }))
         : result[kind] || result.posts || [];
       setItems(nextItems);
@@ -135,12 +135,12 @@ export function ContentFeed({
         ...(result.posts || []).map((item) => ({ ...item, contentType: 'post' })),
         ...(result.reels || []).map((item) => ({ ...item, contentType: 'reel' })),
       ];
-      const nextItems = kind === 'saved'
+      const nextItems = kind === 'saved' || kind === 'tagged'
         ? savedItems.map((item) => ({ ...item, feedType: item.contentType === 'reel' ? 'reels' : 'posts' }))
         : result[kind] || result.posts || [];
       setItems((current) => {
-        const ids = new Set(current.map((item) => item.id));
-        return [...current, ...nextItems.filter((item) => !ids.has(item.id))];
+        const ids = new Set(current.map((item) => `${item.feedType || kind}:${item.id}`));
+        return [...current, ...nextItems.filter((item) => !ids.has(`${item.feedType || kind}:${item.id}`))];
       });
       setNextCursor(result.nextCursor || null);
     } catch (reason) {
@@ -156,8 +156,15 @@ export function ContentFeed({
     return () => controller.abort();
   }, [load]);
 
-  if (loading && layout === 'explore') return <div className="content-feed content-feed--explore-grid" aria-label="Loading Explore media" aria-busy="true">
-    {Array.from({ length: 9 }, (_, index) => <span className="explore-tile-placeholder" key={index} />)}
+  if (loading && (layout === 'explore' || layout === 'grid')) return <div
+    className={`content-feed content-feed--grid${layout === 'explore' ? ' content-feed--explore-grid' : ''}`}
+    aria-label={`Loading ${layout === 'explore' ? 'Explore' : 'profile'} media`}
+    aria-busy="true"
+  >
+    {Array.from({ length: layout === 'explore' ? 9 : 8 }, (_, index) => <span
+      className={layout === 'explore' ? 'explore-tile-placeholder' : 'profile-grid-placeholder'}
+      key={index}
+    />)}
   </div>;
   if (loading) return <Skeleton rows={3} />;
   if (error) return <ErrorState error={error} onRetry={() => load()} />;
@@ -165,13 +172,13 @@ export function ContentFeed({
     return <EmptyState
       title={layout === 'explore'
         ? 'No media to explore yet'
-        : kind === 'saved' ? 'No saved posts yet' : kind === 'tagged' ? 'No tagged posts yet' : kind === 'reels' ? 'No Reels to show yet' : 'No posts to show yet'}
+        : kind === 'saved' ? 'No saved content yet' : kind === 'tagged' ? 'No tagged content yet' : kind === 'reels' ? 'No Reels to show yet' : 'No posts to show yet'}
       description={layout === 'explore'
         ? 'Posts and Reels shared on CliQHeart will appear here.'
         : kind === 'saved'
         ? 'Posts you save will appear here.'
         : kind === 'tagged'
-          ? 'Posts this person is tagged in will appear here.'
+          ? 'Posts and Reels this person is tagged in will appear here.'
           : userId
         ? `Published ${kind === 'reels' ? 'Reels' : 'posts'} from this profile will appear here.`
         : 'Follow people and share a post to get started.'}
@@ -197,9 +204,6 @@ export function ContentFeed({
         setItems((current) => kind === 'saved' && !saved
           ? current.filter((entry) => entry.id !== item.id)
           : current.map((entry) => entry.id === item.id ? { ...entry, isSaved: saved } : entry));
-      }}
-      onTaggedChange={(tagged) => {
-        if (!tagged) setItems((current) => current.filter((entry) => entry.id !== item.id));
       }}
     />)}
     </div>
@@ -469,7 +473,6 @@ function ContentCard({
   homeFeed = false,
   showSuggestedLabel,
   onSavedChange,
-  onTaggedChange,
   claimActiveVideo,
   playActiveVideo,
   pauseActiveVideo,
@@ -487,8 +490,6 @@ function ContentCard({
   const [bookmarkError, setBookmarkError] = useState('');
   const [actionNotice, setActionNotice] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [tagBusy, setTagBusy] = useState(false);
-  const [tagError, setTagError] = useState('');
   const likeButtonRef = useRef(null);
   const handleMediaDoubleClick = (event) => {
     if (!homeFeed) return;
@@ -560,19 +561,6 @@ function ContentCard({
       setDeleteBusy(false);
     }
   }
-  async function removeTag() {
-    if (tagBusy) return;
-    setTagBusy(true);
-    setTagError('');
-    try {
-      await contentApi.removeMyTag(item.id);
-      onTaggedChange?.(false);
-    } catch (reason) {
-      setTagError(reason.message || 'Could not remove your tag.');
-    } finally {
-      setTagBusy(false);
-    }
-  }
   if (layout === 'grid' || layout === 'explore') {
     const thumbnailUrl = item.media?.thumbnailUrl || (!isVideo ? item.media?.secureUrl : null);
     return <div className="content-grid-cell">
@@ -581,21 +569,15 @@ function ContentCard({
         to={kind === 'reels' ? getReelPath(item.id) : `/post/${encodeURIComponent(item.id)}`}
         aria-label={thumbnailOnly
           ? kind === 'reels' ? 'Open Reel' : isVideo ? 'Open video post' : 'Open post'
-          : `View post by ${item.owner?.username || 'CliQHeart member'}${item.caption ? `: ${item.caption}` : ''}`}
+          : kind === 'reels' ? 'Open Reel' : 'Open post'}
       >
         {thumbnailUrl
           ? <img src={thumbnailUrl} alt="" loading="lazy" decoding="async" />
           : <span className="content-grid-thumbnail-placeholder" aria-hidden="true" />}
         {isVideo && <span className="content-grid-video" aria-label={kind === 'reels' ? 'Reel' : 'Video'}>
-          {thumbnailOnly && kind === 'reels' ? <Clapperboard size={17} /> : <Play size={17} fill="currentColor" />}
+          {kind === 'reels' ? <Clapperboard size={17} /> : <Play size={17} fill="currentColor" />}
         </span>}
-        {!thumbnailOnly && <span className="content-grid-overlay">{item.caption || `Post by @${item.owner?.username || 'member'}`}</span>}
       </Link>
-      {!thumbnailOnly && kind !== 'tagged' && <button className={`content-save-button${saved ? ' is-saved' : ''}`} onClick={toggleSaved} disabled={bookmarkBusy} aria-label={saved ? `Remove saved ${contentLabel}` : `Save ${contentLabel}`} title={saved ? `Remove saved ${contentLabel}` : `Save ${contentLabel}`}>
-        <Bookmark size={17} fill={saved ? 'currentColor' : 'none'} />
-      </button>}
-      {!thumbnailOnly && kind === 'tagged' && <button className="content-untag-button" onClick={removeTag} disabled={tagBusy}>Remove tag</button>}
-      {!thumbnailOnly && (bookmarkError || tagError) && <span className="content-action-error" role="alert">{bookmarkError || tagError}</span>}
     </div>;
   }
   return <article className={`content-card${kind === 'reels' ? ' content-card--reel' : ''}`}>
@@ -664,7 +646,7 @@ function ContentCard({
         : <span>{item.audio.title}</span>}
     </div>}
     {item.location && <p className="content-card-location">{item.location}</p>}
-    {(bookmarkError || tagError) && <p className="inline-error" role="alert">{bookmarkError || tagError}</p>}
+    {bookmarkError && <p className="inline-error" role="alert">{bookmarkError}</p>}
   </article>;
 }
 

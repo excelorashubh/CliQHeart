@@ -497,14 +497,14 @@ describe('route handling', () => {
     renderApp('/profile/test_user');
     expect(await screen.findByRole('heading', { name: 'test_user' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /saved/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /posts/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /reels/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /tagged/i })).toBeInTheDocument();
     const mainNavigation = screen.getByRole('navigation', { name: 'Main navigation' });
     expect(mainNavigation.querySelector('a[href="/profile"]')).toHaveClass('is-active');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/by-username/test_user'))).toBe(true);
-    const postLink = await screen.findByRole('link', { name: /view post by test_user: a real shared moment/i });
+    const postLink = await screen.findByRole('link', { name: 'Open post' });
     expect(postLink).toHaveAttribute('href', '/post/post-id');
-    fireEvent.click(screen.getByRole('button', { name: 'Save post' }));
-    expect(await screen.findByRole('button', { name: 'Remove saved post' })).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([url, options]) => String(url).includes('/posts/post-id/save') && options.method === 'POST')).toBe(true);
     fireEvent.click(screen.getByRole('tab', { name: /saved/i }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/me/saved'))).toBe(true));
     fireEvent.click(screen.getByRole('tab', { name: /tagged/i }));
@@ -512,7 +512,7 @@ describe('route handling', () => {
     fireEvent.click(screen.getByRole('tab', { name: /reels/i }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/users/profile-id/reels'))).toBe(true));
     fireEvent.click(screen.getByRole('tab', { name: /posts/i }));
-    fireEvent.click(await screen.findByRole('link', { name: /view post by test_user: a real shared moment/i }));
+    fireEvent.click(await screen.findByRole('link', { name: 'Open post' }));
     expect(await screen.findByText('A real shared moment')).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/posts/post-id'))).toBe(true);
     fireEvent.change(screen.getByLabelText('Tag a person'), { target: { value: 'friend' } });

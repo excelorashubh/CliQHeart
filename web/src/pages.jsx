@@ -913,7 +913,9 @@ export function ProfilePage({ editOnOpen = false }) {
   const [cursor, setCursor] = useState(null);
   const [form, setForm] = useState({ username: '', displayName: '', bio: '', avatarMediaId: '' });
   const [activeContentTab, setActiveContentTab] = useState('posts');
+  const [visitedContentTabs, setVisitedContentTabs] = useState(() => new Set(['posts']));
   const [savedType, setSavedType] = useState('posts');
+  const [visitedSavedTypes, setVisitedSavedTypes] = useState(() => new Set(['posts']));
   const [availableTabs, setAvailableTabs] = useState(['posts', 'reels', 'tagged']);
   const [shareMessage, setShareMessage] = useState('');
   const navigate = useNavigate();
@@ -935,6 +937,9 @@ export function ProfilePage({ editOnOpen = false }) {
       if (!data.user) throw new Error('The API returned an incomplete profile.');
       setProfile(data.user);
       setActiveContentTab('posts');
+      setVisitedContentTabs(new Set(['posts']));
+      setSavedType('posts');
+      setVisitedSavedTypes(new Set(['posts']));
       setAvailableTabs(data.user.id === signedInUser?.id
         ? ['posts', 'reels', 'saved', 'tagged']
         : ['posts', 'reels', 'tagged']);
@@ -1185,8 +1190,13 @@ export function ProfilePage({ editOnOpen = false }) {
     const currentIndex = availableTabs.indexOf(activeContentTab);
     const direction = event.key === 'ArrowRight' ? 1 : -1;
     const nextTab = availableTabs[(currentIndex + direction + availableTabs.length) % availableTabs.length];
-    setActiveContentTab(nextTab);
+    activateContentTab(nextTab);
     document.getElementById(`profile-tab-${nextTab}`)?.focus();
+  }
+
+  function activateContentTab(tab) {
+    setActiveContentTab(tab);
+    setVisitedContentTabs((current) => new Set([...current, tab]));
   }
 
   if (loading) return <div className="page-content"><Skeleton rows={4} /></div>;
@@ -1266,18 +1276,25 @@ export function ProfilePage({ editOnOpen = false }) {
           role="tab"
           aria-controls={`profile-panel-${tab}`}
           aria-selected={activeContentTab === tab}
-          onClick={() => setActiveContentTab(tab)}
+          onClick={() => activateContentTab(tab)}
         >
           {tab === 'posts' ? <Grid3X3 size={15} /> : tab === 'reels' ? <Clapperboard size={15} /> : tab === 'saved' ? <Bookmark size={15} /> : <UserRound size={15} />}
           {tab.toUpperCase()}
         </button>)}
       </div>
-      <div id={`profile-panel-${activeContentTab}`} role="tabpanel" aria-labelledby={`profile-tab-${activeContentTab}`} tabIndex={0}>
-        {activeContentTab === 'posts'
-          ? <ContentFeed key={`${profile.id}-posts`} userId={profile.id} layout="grid" />
-          : activeContentTab === 'reels'
-            ? <ContentFeed key={`${profile.id}-reels`} kind="reels" userId={profile.id} layout="grid" />
-            : activeContentTab === 'saved'
+      {availableTabs.filter((tab) => visitedContentTabs.has(tab)).map((tab) => <div
+        id={`profile-panel-${tab}`}
+        key={`${profile.id}-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`profile-tab-${tab}`}
+        tabIndex={0}
+        hidden={activeContentTab !== tab}
+      >
+        {tab === 'posts'
+          ? <ContentFeed userId={profile.id} layout="grid" />
+          : tab === 'reels'
+            ? <ContentFeed kind="reels" userId={profile.id} layout="grid" />
+            : tab === 'saved'
               ? <>
                 <div className="saved-content-tabs" role="tablist" aria-label="Saved content type">
                   {['posts', 'reels'].map((type) => <button
@@ -1286,13 +1303,18 @@ export function ProfilePage({ editOnOpen = false }) {
                     role="tab"
                     aria-selected={savedType === type}
                     className={savedType === type ? 'is-selected' : ''}
-                    onClick={() => setSavedType(type)}
+                    onClick={() => {
+                      setSavedType(type);
+                      setVisitedSavedTypes((current) => new Set([...current, type]));
+                    }}
                   >{type === 'posts' ? 'Posts' : 'Reels'}</button>)}
                 </div>
-                <ContentFeed key={`${profile.id}-saved-${savedType}`} kind="saved" savedType={savedType} layout="grid" />
+                {[...visitedSavedTypes].map((type) => <div key={type} hidden={savedType !== type}>
+                  <ContentFeed kind="saved" savedType={type} layout="grid" />
+                </div>)}
               </>
-              : <ContentFeed key={`${profile.id}-tagged`} kind="tagged" userId={profile.id} layout="grid" />}
-      </div>
+              : <ContentFeed kind="tagged" userId={profile.id} layout="grid" />}
+      </div>)}
     </div>
     {photoChangeOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) closePhotoChange();
@@ -1818,8 +1840,9 @@ export function ContentDetailPage({ kind }) {
     setActionError('');
     setTagStatus('');
     try {
-      await contentApi.tagUser(item.id, person.id);
-      setTagStatus(`@${person.username} was tagged in this post.`);
+      const contentType = kind === 'reel' ? 'reel' : 'post';
+      await contentApi.tagUser(contentType, item.id, person.id);
+      setTagStatus(`@${person.username} was tagged in this ${kind}.`);
       setTagResults((current) => current.filter((entry) => entry.id !== person.id));
     } catch (reason) {
       setActionError(reason.message || 'Could not tag this person.');

@@ -223,10 +223,12 @@ returned `nextCursor` as `after` to fetch the next page.
   same for Reels. `GET /api/v1/users/me/saved?kind=posts|reels&limit=<n>&after=<bookmarkId>`
   returns only the current user's saved content, with a page size of 1–50.
 - `GET /api/v1/users/:userId/tagged?limit=<n>&after=<tagId>` returns active
-  published posts tagging an active profile, identified by MongoDB ID or
-  username. The owner of a post may add an active user with
-  `POST /api/v1/posts/:postId/tags` and `{"userId":"<user ObjectId>"}`. A user
-  may remove their own tag with `DELETE /api/v1/posts/:postId/tags/me`.
+  published Posts and Reels tagging an active profile, identified by MongoDB
+  ID or username. The owner may tag an active user with
+  `POST /api/v1/posts/:postId/tags` or `POST /api/v1/reels/:reelId/tags`,
+  each accepting `{"userId":"<user ObjectId>"}`. A user may remove their own
+  tag with `DELETE /api/v1/posts/:postId/tags/me` or
+  `DELETE /api/v1/reels/:reelId/tags/me`.
 
 ### Notifications
 

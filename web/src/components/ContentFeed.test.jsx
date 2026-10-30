@@ -10,6 +10,8 @@ vi.mock('../services/api.js', () => ({
     deleteReel: vi.fn(),
     posts: vi.fn(),
     reels: vi.fn(),
+    userPosts: vi.fn(),
+    userReels: vi.fn(),
     savePost: vi.fn(),
     unsavePost: vi.fn(),
     like: vi.fn(),
@@ -62,6 +64,8 @@ describe('Home feed interactions', () => {
   beforeEach(() => {
     contentApi.posts.mockResolvedValue({ posts: [makePost('post-1')], nextCursor: null });
     contentApi.reels.mockResolvedValue({ reels: [], nextCursor: null });
+    contentApi.userPosts.mockResolvedValue({ posts: [makePost('profile-post')] });
+    contentApi.userReels.mockResolvedValue({ reels: [] });
     contentApi.savePost.mockResolvedValue({});
     contentApi.unsavePost.mockResolvedValue({});
     contentApi.like.mockResolvedValue({});
@@ -109,6 +113,21 @@ describe('Home feed interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Like' }));
     expect(await screen.findByRole('button', { name: /^Unlike/ })).toHaveAttribute('aria-pressed', 'true');
     expect(contentApi.like).toHaveBeenCalledWith('posts', 'post-1');
+  });
+
+  it('renders profile posts as thumbnail-only links without video players or captions', async () => {
+    render(
+      <MemoryRouter>
+        <ContentFeed userId="owner-1" layout="grid" />
+      </MemoryRouter>,
+    );
+
+    const tile = await screen.findByRole('link', { name: 'Open post' });
+    expect(tile).toHaveAttribute('href', '/post/profile-post');
+    expect(tile.querySelector('img')).toHaveAttribute('loading', 'lazy');
+    expect(tile.querySelector('video')).toBeNull();
+    expect(screen.queryByText('Caption for profile-post')).not.toBeInTheDocument();
+    expect(tile.parentElement.querySelector('.content-save-button')).toBeNull();
   });
 
   it('optimistically saves a post and rolls back when the API fails', async () => {
