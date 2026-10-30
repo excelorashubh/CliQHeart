@@ -7,4 +7,5 @@ data class StoryModel(
     val storyIds: List<String>,
     val hasNewStory: Boolean = false,
     val isYourStory: Boolean = false,
+    val isViewed: Boolean? = null,
 )

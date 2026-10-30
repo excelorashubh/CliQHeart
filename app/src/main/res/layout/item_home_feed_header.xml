@@ -8,12 +8,14 @@
     <LinearLayout
         android:id="@+id/stories_container"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/stories_recycler_view"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:minHeight="88dp"
             android:clipToPadding="false"
             android:paddingTop="10dp"
             android:paddingBottom="8dp"

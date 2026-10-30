@@ -269,8 +269,9 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
   remove a post with `DELETE /api/v1/posts/:postId`.
 - `POST /api/v1/stories` publishes a verified image or video. Stories expire
   after 24 hours. `GET /api/v1/stories` returns unexpired stories belonging
-  to the authenticated user and accounts they follow. Owners can remove their
-  own stories with `DELETE /api/v1/stories/:storyId`.
+  to the authenticated user and accounts they follow, with `isViewed` for the
+  authenticated viewer. Owners can remove their own stories with
+  `DELETE /api/v1/stories/:storyId`.
 - `GET /api/v1/stories/:storyId` returns a visible, unexpired story.
   `POST /api/v1/stories/:storyId/view` records one authenticated viewer per
   story and returns the persisted view count and current viewer's like state.
@@ -336,6 +337,16 @@ Like, repost, and bookmark writes are idempotent and backed by unique compound
 indexes. Engagement mutations are rate-limited. Saved items are private: only
 the authenticated owner can list them. Likes, comments, and reposts referencing
 deleted content are removed when the owner deletes that content.
+
+`POST /api/v1/engagement/sync` accepts
+`{"content":[{"contentId":"<ObjectId>","contentType":"post|reel"}]}` for up to
+100 feed items and returns authoritative counts and the viewer's like/repost
+state for still-visible content. Authenticated Socket.IO clients also receive
+`content:engagement` events after successful like, unlike, comment creation or
+deletion, and repost creation or removal. Each event includes a unique
+`eventId`, `action`, `contentId`, `contentType`, `actorId`, all three updated
+counts, and `occurredAt`. Counts are absolute values, so duplicate delivery
+does not increment them twice. Shares are not tracked by the backend.
 
 The Cloudinary API key is a public identifier returned with approved direct
 upload signatures. `CLOUDINARY_API_SECRET` must be configured on the backend

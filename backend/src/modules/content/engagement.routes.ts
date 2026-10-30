@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { Types } from 'mongoose';
@@ -11,6 +12,7 @@ import { CommentLikeModel, CommentModel, LikeModel, RepostModel } from './engage
 import { BookmarkModel } from './bookmark.model';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
+import { emitContentEngagement } from '../messages/realtime';
 
 type ContentType = 'post' | 'reel';
 
@@ -25,6 +27,12 @@ const editCommentSchema = z.object({ text: z.string().trim().min(1).max(2200) })
 const pageSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
+const engagementSyncSchema = z.object({
+  content: z.array(z.object({
+    contentId: z.string().regex(/^[a-f\d]{24}$/i),
+    contentType: z.enum(['post', 'reel']),
+  }).strict()).min(1).max(100),
+}).strict();
 
 export function createEngagementRouter(config: AppConfig): Router {
   const router = Router();
@@ -34,6 +42,21 @@ export function createEngagementRouter(config: AppConfig): Router {
     limit: 150,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+  });
+
+  router.post('/engagement/sync', authenticate, async (request, response, next) => {
+    try {
+      const { content } = engagementSyncSchema.parse(request.body);
+      response.json({
+        content: await synchronizeEngagement(content, authenticatedUserId(request)),
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid engagement sync request.' });
+        return;
+      }
+      next(error);
+    }
   });
 
   router.post('/:collection/:contentId/like', authenticate, mutationRateLimit, async (request, response, next) => {
@@ -56,9 +79,17 @@ export function createEngagementRouter(config: AppConfig): Router {
           deduplicationKey: `like:${like.id}`,
         });
       }
+      const likeCount = await LikeModel.countDocuments({
+        contentId: input.contentId,
+        contentType: input.contentType,
+      });
+      if (like.inserted) {
+        void publishEngagement(input.contentId, input.contentType, userId, 'like.created')
+          .catch((error: unknown) => logEngagementPublishFailure(error));
+      }
       response.json({
         liked: true,
-        likeCount: await LikeModel.countDocuments({ contentId: input.contentId, contentType: input.contentType }),
+        likeCount,
       });
     } catch (error) {
       next(error);
@@ -74,15 +105,24 @@ export function createEngagementRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'Content not found.' });
         return;
       }
-      await LikeModel.deleteOne({
+      const removed = await LikeModel.deleteOne({
         userId: authenticatedUserId(request),
         contentId: input.contentId,
         contentType: input.contentType,
       });
+      const likeCount = await LikeModel.countDocuments({ contentId: input.contentId, contentType: input.contentType });
       response.json({
         liked: false,
-        likeCount: await LikeModel.countDocuments({ contentId: input.contentId, contentType: input.contentType }),
+        likeCount,
       });
+      if (removed.deletedCount > 0) {
+        void publishEngagement(
+          input.contentId,
+          input.contentType,
+          authenticatedUserId(request),
+          'like.deleted',
+        ).catch((error: unknown) => logEngagementPublishFailure(error));
+      }
     } catch (error) {
       next(error);
     }
@@ -187,10 +227,13 @@ export function createEngagementRouter(config: AppConfig): Router {
         deduplicationKey: `comment:${comment._id}`,
       });
       const [payload] = await commentPayloads([comment.toObject()], userId);
-      response.status(201).json({
-        comment: payload,
-        commentCount: await CommentModel.countDocuments({ contentId: input.contentId, contentType: input.contentType }),
+      const commentCount = await CommentModel.countDocuments({
+        contentId: input.contentId,
+        contentType: input.contentType,
       });
+      void publishEngagement(input.contentId, input.contentType, userId, 'comment.created')
+        .catch((error: unknown) => logEngagementPublishFailure(error));
+      response.status(201).json({ comment: payload, commentCount });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Comment text must contain 1 to 2200 characters.' });
@@ -250,10 +293,20 @@ export function createEngagementRouter(config: AppConfig): Router {
         CommentModel.deleteMany({ parentCommentId: comment._id }),
         CommentLikeModel.deleteMany({ commentId: { $in: ids } }),
       ]);
+      const commentCount = await CommentModel.countDocuments({
+        contentId: comment.contentId,
+        contentType: comment.contentType,
+      });
       response.json({
         deleted: true,
-        commentCount: await CommentModel.countDocuments({ contentId: comment.contentId, contentType: comment.contentType }),
+        commentCount,
       });
+      void publishEngagement(
+        String(comment.contentId),
+        comment.contentType,
+        authenticatedUserId(request),
+        'comment.deleted',
+      ).catch((error: unknown) => logEngagementPublishFailure(error));
     } catch (error) {
       next(error);
     }
@@ -330,6 +383,10 @@ export function createEngagementRouter(config: AppConfig): Router {
         reposted: true,
         repostCount: await RepostModel.countDocuments({ contentId: input.contentId, contentType: input.contentType }),
       });
+      if (repost.inserted) {
+        void publishEngagement(input.contentId, input.contentType, userId, 'repost.created')
+          .catch((error: unknown) => logEngagementPublishFailure(error));
+      }
     } catch (error) {
       next(error);
     }
@@ -344,15 +401,27 @@ export function createEngagementRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'Content not found.' });
         return;
       }
-      await RepostModel.deleteOne({
+      const removed = await RepostModel.deleteOne({
         userId: authenticatedUserId(request),
+        contentId: input.contentId,
+        contentType: input.contentType,
+      });
+      const repostCount = await RepostModel.countDocuments({
         contentId: input.contentId,
         contentType: input.contentType,
       });
       response.json({
         reposted: false,
-        repostCount: await RepostModel.countDocuments({ contentId: input.contentId, contentType: input.contentType }),
+        repostCount,
       });
+      if (removed.deletedCount > 0) {
+        void publishEngagement(
+          input.contentId,
+          input.contentType,
+          authenticatedUserId(request),
+          'repost.deleted',
+        ).catch((error: unknown) => logEngagementPublishFailure(error));
+      }
     } catch (error) {
       next(error);
     }
@@ -411,6 +480,117 @@ async function findVisibleContent(contentType: ContentType, contentId: string) {
   return visible.every(Boolean) ? content : null;
 }
 
+async function publishEngagement(
+  contentId: string,
+  contentType: ContentType,
+  actorId: string,
+  action: 'like.created' | 'like.deleted' | 'comment.created' | 'comment.deleted' |
+    'repost.created' | 'repost.deleted',
+): Promise<void> {
+  const [likeCount, commentCount, repostCount] = await Promise.all([
+    LikeModel.countDocuments({ contentId, contentType }),
+    CommentModel.countDocuments({ contentId, contentType }),
+    RepostModel.countDocuments({ contentId, contentType }),
+  ]);
+  emitContentEngagement({
+    eventId: randomUUID(),
+    action,
+    contentId,
+    contentType,
+    actorId,
+    likeCount,
+    commentCount,
+    repostCount,
+    occurredAt: new Date().toISOString(),
+  });
+}
+
+async function synchronizeEngagement(
+  entries: Array<{ contentId: string; contentType: ContentType }>,
+  viewerId: string,
+): Promise<Array<{
+  contentId: string;
+  contentType: ContentType;
+  likeCount: number;
+  commentCount: number;
+  repostCount: number;
+  isLiked: boolean;
+  isReposted: boolean;
+}>> {
+  const uniqueEntries = [...new Map(
+    entries.map((entry) => [`${entry.contentType}:${entry.contentId}`, entry]),
+  ).values()];
+  const postIds = uniqueEntries.filter((entry) => entry.contentType === 'post').map((entry) => entry.contentId);
+  const reelIds = uniqueEntries.filter((entry) => entry.contentType === 'reel').map((entry) => entry.contentId);
+  const [posts, reels] = await Promise.all([
+    postIds.length ? PostModel.find({ _id: { $in: postIds } }).select('_id ownerId mediaId').lean() : [],
+    reelIds.length ? ReelModel.find({ _id: { $in: reelIds } }).select('_id ownerId mediaId').lean() : [],
+  ]);
+  const content = [
+    ...posts.map((item) => ({ ...item, contentType: 'post' as const })),
+    ...reels.map((item) => ({ ...item, contentType: 'reel' as const })),
+  ];
+  const ownerIds = [...new Set(content.map((item) => String(item.ownerId)))];
+  const mediaIds = [...new Set(content.map((item) => String(item.mediaId)))];
+  const [owners, media] = await Promise.all([
+    UserModel.find({ _id: { $in: ownerIds }, accountStatus: 'active' }).select('_id').lean(),
+    MediaModel.find({ _id: { $in: mediaIds }, status: 'ready' }).select('_id').lean(),
+  ]);
+  const activeOwners = new Set(owners.map((owner) => String(owner._id)));
+  const readyMedia = new Set(media.map((item) => String(item._id)));
+  const visibleKeys = new Set(content
+    .filter((item) => activeOwners.has(String(item.ownerId)) && readyMedia.has(String(item.mediaId)))
+    .map((item) => `${item.contentType}:${String(item._id)}`));
+  const contentIds = content.map((item) => item._id);
+  const groupedCounts = { $group: {
+    _id: { contentId: '$contentId', contentType: '$contentType' },
+    count: { $sum: 1 },
+  } };
+  const [likes, comments, reposts, viewerLikes, viewerReposts] = await Promise.all([
+    LikeModel.aggregate<{ _id: { contentId: Types.ObjectId; contentType: ContentType }; count: number }>([
+      { $match: { contentId: { $in: contentIds } } },
+      groupedCounts,
+    ]),
+    CommentModel.aggregate<{ _id: { contentId: Types.ObjectId; contentType: ContentType }; count: number }>([
+      { $match: { contentId: { $in: contentIds } } },
+      groupedCounts,
+    ]),
+    RepostModel.aggregate<{ _id: { contentId: Types.ObjectId; contentType: ContentType }; count: number }>([
+      { $match: { contentId: { $in: contentIds } } },
+      groupedCounts,
+    ]),
+    LikeModel.find({ userId: viewerId, contentId: { $in: contentIds } }).select('contentId contentType').lean(),
+    RepostModel.find({ userId: viewerId, contentId: { $in: contentIds } }).select('contentId contentType').lean(),
+  ]);
+  const counts = (records: Array<{
+    _id: { contentId: Types.ObjectId; contentType: ContentType };
+    count: number;
+  }>) => new Map(records.map((record) => [
+    `${record._id.contentType}:${String(record._id.contentId)}`,
+    record.count,
+  ]));
+  const likeCounts = counts(likes);
+  const commentCounts = counts(comments);
+  const repostCounts = counts(reposts);
+  const contentKey = (entry: { contentId: Types.ObjectId; contentType: ContentType }) =>
+    `${entry.contentType}:${String(entry.contentId)}`;
+  const likedIds = new Set(viewerLikes.map(contentKey));
+  const repostedIds = new Set(viewerReposts.map(contentKey));
+  return uniqueEntries.flatMap(({ contentId, contentType }) => {
+    const key = `${contentType}:${contentId}`;
+    if (!visibleKeys.has(key)) return [];
+    return [{
+      contentId,
+      contentType,
+      likeCount: likeCounts.get(key) ?? 0,
+      commentCount: commentCounts.get(key) ?? 0,
+      repostCount: repostCounts.get(key) ?? 0,
+      isLiked: likedIds.has(key),
+      isReposted: repostedIds.has(key),
+    }];
+  });
+}
+
 function parseContentParams(request: Request, response: Response): {
   contentId: string;
   contentType: ContentType;
@@ -423,6 +603,13 @@ function parseContentParams(request: Request, response: Response): {
     return null;
   }
   return { contentId: parsed.data.contentId, contentType };
+}
+
+function logEngagementPublishFailure(error: unknown): void {
+  console.error(JSON.stringify({
+    event: 'content_engagement_event_failed',
+    errorName: error instanceof Error ? error.name : 'UnknownError',
+  }));
 }
 
 async function commentPayloads(comments: Array<{

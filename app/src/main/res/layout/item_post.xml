@@ -72,7 +72,8 @@
             android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/more_options"
-            android:src="@drawable/ic_more_vert" />
+            android:src="@drawable/ic_more_vert"
+            app:tint="@color/heart_text" />
     </LinearLayout>
 
     <!-- Post Image / Media Content -->
@@ -147,41 +148,95 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- Action Bar: Like, Comment, Share, Bookmark -->
+    <!-- Action Bar: engagement actions and their authoritative counts -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="8dp">
+        android:paddingStart="4dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="4dp">
 
-        <ImageButton
-            android:id="@+id/btn_like"
-            android:layout_width="48dp"
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/like"
-            android:src="@drawable/ic_heart_outline" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <ImageButton
-            android:id="@+id/btn_comment"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/comment"
-            android:src="@drawable/ic_comment"
-            app:tint="@color/heart_text" />
+            <ImageButton
+                android:id="@+id/btn_like"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/like"
+                android:src="@drawable/ic_heart_outline" />
 
-        <ImageButton
-            android:id="@+id/btn_repost"
-            android:layout_width="48dp"
+            <TextView
+                android:id="@+id/post_like_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:minWidth="24dp"
+                android:gravity="start|center_vertical"
+                android:textColor="@color/heart_text"
+                android:textSize="12sp"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/repost"
-            android:src="@drawable/ic_repost"
-            app:tint="@color/heart_text" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btn_comment"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/comment"
+                android:src="@drawable/ic_comment"
+                app:tint="@color/heart_text" />
+
+            <TextView
+                android:id="@+id/post_comment_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:minWidth="24dp"
+                android:gravity="start|center_vertical"
+                android:textColor="@color/heart_text"
+                android:textSize="12sp"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btn_repost"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/repost"
+                android:src="@drawable/ic_repost"
+                app:tint="@color/heart_text" />
+
+            <TextView
+                android:id="@+id/post_repost_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:minWidth="24dp"
+                android:gravity="start|center_vertical"
+                android:textColor="@color/heart_text"
+                android:textSize="12sp"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
 
         <ImageButton
             android:id="@+id/btn_share"
@@ -199,34 +254,13 @@
 
         <ImageButton
             android:id="@+id/btn_bookmark"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/bookmark"
             android:src="@drawable/ic_bookmark"
             app:tint="@color/heart_text" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/post_repost_count"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:textColor="@color/heart_muted"
-        android:textSize="12sp"
-        android:visibility="gone" />
-
-    <!-- Likes Count -->
-    <TextView
-        android:id="@+id/post_like_count"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:textColor="@color/heart_text"
-        android:textSize="14sp"
-        android:textStyle="bold" />
 
     <!-- Caption -->
     <TextView

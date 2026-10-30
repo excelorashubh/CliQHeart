@@ -109,6 +109,7 @@ data class StoryCreateRequest(
 )
 data class PostOwnerResponse(
     val id: String? = null,
+    val _id: String? = null,
     val username: String? = null,
     val displayName: String? = null,
     val avatarUrl: String? = null,
@@ -117,6 +118,7 @@ data class PostMediaResponse(
     val resourceType: String? = null,
     val secureUrl: String? = null,
     val thumbnailUrl: String? = null,
+    val format: String? = null,
     val width: Int? = null,
     val height: Int? = null,
 )
@@ -144,6 +146,7 @@ data class StoryResponse(
     val expiresAt: String? = null,
     val owner: PostOwnerResponse? = null,
     val media: PostMediaResponse? = null,
+    val isViewed: Boolean? = null,
 )
 data class StoriesResponse(val stories: List<StoryResponse> = emptyList())
 data class StoryEnvelope(val story: StoryResponse? = null)
@@ -183,6 +186,18 @@ data class EngagementResponse(
     val reposted: Boolean? = null,
     val repostCount: Int? = null,
 )
+data class EngagementContentRequest(val contentId: String, val contentType: String)
+data class EngagementSyncRequest(val content: List<EngagementContentRequest>)
+data class EngagementSyncItem(
+    val contentId: String,
+    val contentType: String,
+    val likeCount: Int,
+    val commentCount: Int,
+    val repostCount: Int,
+    val isLiked: Boolean,
+    val isReposted: Boolean,
+)
+data class EngagementSyncResponse(val content: List<EngagementSyncItem> = emptyList())
 
 data class AuthResponse(
     val accessToken: String? = null,
@@ -291,6 +306,9 @@ interface ApiService {
 
     @POST("stories")
     suspend fun createStory(@Body request: StoryCreateRequest): Response<StoryEnvelope>
+
+    @POST("engagement/sync")
+    suspend fun syncEngagement(@Body request: EngagementSyncRequest): Response<EngagementSyncResponse>
 
     @GET("{collection}/{contentId}/comments")
     suspend fun getComments(

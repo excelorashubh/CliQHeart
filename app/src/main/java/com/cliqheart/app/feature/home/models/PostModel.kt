@@ -10,6 +10,7 @@ data class PostModel(
     val location: String? = null,
     val imageUrl: String,
     val videoUrl: String? = null,
+    val videoFormat: String? = null,
     val mediaWidth: Int? = null,
     val mediaHeight: Int? = null,
     val isFollowing: Boolean = false,

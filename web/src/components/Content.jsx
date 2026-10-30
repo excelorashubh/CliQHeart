@@ -20,6 +20,7 @@ export function ContentFeed({
   includeReels = false,
   savedType = 'posts',
 }) {
+  const { user, realtimeSocket } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -28,6 +29,10 @@ export function ContentFeed({
   const [nextReelCursor, setNextReelCursor] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const activeVideoRef = useRef(null);
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
   const claimActiveVideo = useCallback((video) => {
     const activeVideo = activeVideoRef.current;
     if (activeVideo && activeVideo !== video) activeVideo.pause();
@@ -157,6 +162,71 @@ export function ContentFeed({
     load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  const synchronizeEngagement = useCallback(async () => {
+    const currentItems = itemsRef.current;
+    if (!currentItems.length) return;
+    const content = [...new Map(currentItems.map((item) => {
+      const contentType = (item.feedType || kind) === 'reels' ? 'reel' : 'post';
+      return [`${contentType}:${item.id}`, { contentId: item.id, contentType }];
+    })).values()];
+    try {
+      const updates = [];
+      for (let index = 0; index < content.length; index += 100) {
+        const result = await contentApi.syncEngagement(content.slice(index, index + 100));
+        updates.push(...(result.content || []));
+      }
+      const updateByKey = new Map(updates.map((item) =>
+        [`${item.contentType}:${item.contentId}`, item]));
+      setItems((current) => current.map((item) => {
+        const contentType = (item.feedType || kind) === 'reels' ? 'reel' : 'post';
+        const update = updateByKey.get(`${contentType}:${item.id}`);
+        return update ? {
+          ...item,
+          likeCount: update.likeCount,
+          commentCount: update.commentCount,
+          repostCount: update.repostCount,
+          isLiked: update.isLiked,
+          isReposted: update.isReposted,
+        } : item;
+      }));
+    } catch (reason) {
+      console.error('Could not resynchronize Home engagement counts.', reason);
+    }
+  }, [kind]);
+
+  useEffect(() => {
+    if (!realtimeSocket) return undefined;
+    const onConnect = () => { void synchronizeEngagement(); };
+    const onEngagement = (event) => {
+      if (!event || !['post', 'reel'].includes(event.contentType) ||
+          !Number.isInteger(event.likeCount) || event.likeCount < 0 ||
+          !Number.isInteger(event.commentCount) || event.commentCount < 0 ||
+          !Number.isInteger(event.repostCount) || event.repostCount < 0) return;
+      setItems((current) => current.map((item) => {
+        const contentType = (item.feedType || kind) === 'reels' ? 'reel' : 'post';
+        if (item.id !== event.contentId || contentType !== event.contentType) return item;
+        const isCurrentActor = String(event.actorId) === String(user?.id);
+        return {
+          ...item,
+          likeCount: event.likeCount,
+          commentCount: event.commentCount,
+          repostCount: event.repostCount,
+          ...(isCurrentActor && event.action === 'like.created' ? { isLiked: true } : {}),
+          ...(isCurrentActor && event.action === 'like.deleted' ? { isLiked: false } : {}),
+          ...(isCurrentActor && event.action === 'repost.created' ? { isReposted: true } : {}),
+          ...(isCurrentActor && event.action === 'repost.deleted' ? { isReposted: false } : {}),
+        };
+      }));
+    };
+    realtimeSocket.on('connect', onConnect);
+    realtimeSocket.on('content:engagement', onEngagement);
+    if (realtimeSocket.connected) onConnect();
+    return () => {
+      realtimeSocket.off('connect', onConnect);
+      realtimeSocket.off('content:engagement', onEngagement);
+    };
+  }, [kind, realtimeSocket, synchronizeEngagement, user?.id]);
 
   if (loading && (layout === 'explore' || layout === 'grid')) return <div
     className={`content-feed content-feed--grid${layout === 'explore' ? ' content-feed--explore-grid' : ''}`}

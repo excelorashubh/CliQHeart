@@ -1,6 +1,7 @@
 package com.cliqheart.app.feature.home
 
 import android.app.Dialog
+import android.content.DialogInterface
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -70,6 +71,14 @@ class StoryViewerDialogFragment : DialogFragment() {
     override fun onPause() {
         videoPlayer?.pause()
         super.onPause()
+    }
+
+    override fun onDismiss(dialog: DialogInterface) {
+        parentFragmentManager.setFragmentResult(
+            com.cliqheart.app.feature.home.tabs.STORY_VIEWED_RESULT_KEY,
+            Bundle.EMPTY,
+        )
+        super.onDismiss(dialog)
     }
 
     override fun onResume() {

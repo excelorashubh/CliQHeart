@@ -739,14 +739,26 @@ export function createContentRouter(config: AppConfig): Router {
 
   router.get('/stories', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
-      const ownerId = authenticatedUserId(request);
-      const follows = await FollowModel.find({ followerId: ownerId }).select('followedId').lean();
-      const visibleOwners = [ownerId, ...follows.map((follow) => String(follow.followedId))];
+      const viewerId = authenticatedUserId(request);
+      const follows = await FollowModel.find({ followerId: viewerId }).select('followedId').lean();
+      const visibleOwners = [viewerId, ...follows.map((follow) => String(follow.followedId))];
       const stories = await StoryModel.find({
         ownerId: { $in: visibleOwners },
         expiresAt: { $gt: new Date() },
       }).sort({ createdAt: 1 }).limit(200).lean();
-      response.json({ stories: await contentListPayload(stories, undefined, 'story') });
+      const storyIds = stories.map((story) => story._id);
+      const viewedStories = await StoryViewModel.find({
+        storyId: { $in: storyIds },
+        viewerId,
+      }).select('storyId').lean();
+      const viewedIds = new Set(viewedStories.map((view) => String(view.storyId)));
+      const storyPayload = await contentListPayload(stories, undefined, 'story');
+      response.json({
+        stories: storyPayload.map((story) => ({
+          ...story,
+          isViewed: viewedIds.has(story.id),
+        })),
+      });
     } catch (error) {
       next(error);
     }

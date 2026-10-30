@@ -15,6 +15,7 @@ splashscreen = "1.2.0"
 swiperefreshlayout = "1.1.0"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
+socketIo = "2.1.1"
 coroutines = "1.10.2"
 media3 = "1.8.0"
 googleServices = "4.5.0"
@@ -39,6 +40,7 @@ androidx-swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "s
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+socket-io-client = { group = "io.socket", name = "socket.io-client", version.ref = "socketIo" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }

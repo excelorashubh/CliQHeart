@@ -20,7 +20,14 @@ class StoriesAdapter(
 
     fun submitStories(items: List<StoryModel>, loading: Boolean = false) {
         stories.clear()
-        stories.addAll(items)
+        val yourStory = items.firstOrNull(StoryModel::isYourStory)
+        if (yourStory != null) stories.add(yourStory)
+        stories.addAll(
+            items.asSequence()
+                .filterNot(StoryModel::isYourStory)
+                .distinctBy { it.ownerId.trim().lowercase() }
+                .toList(),
+        )
         this.loading = loading
         notifyDataSetChanged()
     }

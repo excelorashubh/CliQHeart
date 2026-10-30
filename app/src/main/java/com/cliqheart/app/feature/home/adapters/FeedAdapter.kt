@@ -1,6 +1,7 @@
 package com.cliqheart.app.feature.home.adapters
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Rect
 import android.net.Uri
 import android.text.SpannableString
@@ -15,6 +16,7 @@ import android.view.ViewGroup
 import android.widget.PopupMenu
 import androidx.core.view.doOnLayout
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -23,6 +25,9 @@ import com.cliqheart.app.R
 import com.cliqheart.app.databinding.ItemPostBinding
 import com.cliqheart.app.feature.home.RemoteImageLoader
 import com.cliqheart.app.feature.home.models.PostModel
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 
 class FeedAdapter(
     posts: List<PostModel>,
@@ -39,6 +44,7 @@ class FeedAdapter(
     private var activeVideoHolder: PostViewHolder? = null
     private var activeContentKey: String? = null
     val postCount: Int get() = posts.size
+    fun postsSnapshot(): List<PostModel> = posts.toList()
 
     class PostViewHolder(val binding: ItemPostBinding) : RecyclerView.ViewHolder(binding.root) {
         var boundPost: PostModel? = null
@@ -65,6 +71,27 @@ class FeedAdapter(
     fun updateCommentCount(contentType: String, postId: String, commentCount: Int) {
         val post = posts.firstOrNull { it.contentType == contentType && it.id == postId } ?: return
         updatePost(post.copy(commentCount = commentCount))
+    }
+
+    fun updateEngagement(
+        contentType: String,
+        contentId: String,
+        likeCount: Int,
+        commentCount: Int,
+        repostCount: Int,
+        isLiked: Boolean?,
+        isReposted: Boolean?,
+    ) {
+        val post = posts.firstOrNull { it.contentType == contentType && it.id == contentId } ?: return
+        updatePost(
+            post.copy(
+                likeCount = likeCount.coerceAtLeast(0),
+                commentCount = commentCount.coerceAtLeast(0),
+                repostCount = repostCount.coerceAtLeast(0),
+                isLiked = isLiked ?: post.isLiked,
+                isReposted = isReposted ?: post.isReposted,
+            ),
+        )
     }
 
     fun updateVisibleVideoPlayback() {
@@ -149,11 +176,17 @@ class FeedAdapter(
                 postLocation.visibility = View.GONE
             }
 
-            postLikeCount.text = context.getString(R.string.likes_count, post.likeCount.toString())
+            postLikeCount.text = compactCount(post.likeCount)
+            postLikeCount.contentDescription =
+                context.getString(R.string.likes_count, post.likeCount.toString())
             postTimestamp.text = post.timestamp
-            postCommentsPreview.text = context.getString(R.string.view_all_comments, post.commentCount)
-            postRepostCount.text = context.getString(R.string.reposts_count, post.repostCount)
-            postRepostCount.visibility = if (post.repostCount > 0) View.VISIBLE else View.GONE
+            postCommentCount.text = compactCount(post.commentCount)
+            postCommentCount.contentDescription =
+                context.getString(R.string.comments_count, post.commentCount.toString())
+            postCommentsPreview.text = context.getString(R.string.view_comments)
+            postRepostCount.text = compactCount(post.repostCount)
+            postRepostCount.contentDescription =
+                context.getString(R.string.reposts_count, post.repostCount.toString())
 
             val captionText = SpannableStringBuilder()
             val username = SpannableString(post.authorUsername + " ")
@@ -187,7 +220,8 @@ class FeedAdapter(
                 context.getColor(if (post.isReposted) R.color.heart_primary else R.color.heart_text),
             )
             btnLike.contentDescription = context.getString(
-                if (post.isLiked) R.string.unlike else R.string.like,
+                if (post.isLiked) R.string.unlike_count else R.string.like_count,
+                compactCount(post.likeCount),
             )
             btnBookmark.contentDescription = context.getString(
                 if (post.isBookmarked) R.string.remove_bookmark else R.string.bookmark,
@@ -196,8 +230,14 @@ class FeedAdapter(
                 if (post.isReposted) R.string.undo_repost else R.string.repost,
             )
 
-            btnLike.setOnClickListener { onLikeClicked(post) }
-            btnBookmark.setOnClickListener { onBookmarkClicked(post) }
+            btnLike.setOnClickListener {
+                animateAction(btnLike)
+                onLikeClicked(post)
+            }
+            btnBookmark.setOnClickListener {
+                animateAction(btnBookmark)
+                onBookmarkClicked(post)
+            }
             btnComment.setOnClickListener { onCommentClicked(post) }
             postCommentsPreview.setOnClickListener { onCommentClicked(post) }
             btnRepost.setOnClickListener { onRepostClicked(post) }
@@ -386,7 +426,12 @@ class FeedAdapter(
             holder.binding.postVideoError.visibility = View.GONE
             holder.binding.postMediaVideo.visibility = View.INVISIBLE
             holder.binding.postMediaImage.visibility = View.VISIBLE
-            exoPlayer.setMediaItem(MediaItem.fromUri(videoUrl))
+            val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+            when (post.videoFormat?.lowercase(Locale.ROOT)) {
+                "mp4" -> mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP4)
+                "mov" -> mediaItemBuilder.setMimeType("video/quicktime")
+            }
+            exoPlayer.setMediaItem(mediaItemBuilder.build())
             exoPlayer.prepare()
         }
         exoPlayer.playWhenReady = true
@@ -424,12 +469,48 @@ class FeedAdapter(
         binding.btnLike.setImageResource(
             if (isLiked) R.drawable.ic_heart_selected else R.drawable.ic_heart_outline,
         )
+        binding.btnLike.imageTintList = ColorStateList.valueOf(
+            binding.root.context.getColor(
+                if (isLiked) R.color.heart_primary else R.color.heart_text,
+            ),
+        )
     }
 
     private fun updateBookmarkButton(binding: ItemPostBinding, isBookmarked: Boolean) {
         binding.btnBookmark.setImageResource(
             if (isBookmarked) R.drawable.ic_bookmark_selected else R.drawable.ic_bookmark,
         )
+        binding.btnBookmark.imageTintList = ColorStateList.valueOf(
+            binding.root.context.getColor(
+                if (isBookmarked) R.color.heart_primary else R.color.heart_text,
+            ),
+        )
+    }
+
+    private fun compactCount(value: Int): String {
+        val count = value.coerceAtLeast(0)
+        val (divisor, suffix) = when {
+            count >= 1_000_000_000 -> 1_000_000_000.0 to "B"
+            count >= 1_000_000 -> 1_000_000.0 to "M"
+            count >= 1_000 -> 1_000.0 to "K"
+            else -> return count.toString()
+        }
+        val formatter = DecimalFormat("#.#", DecimalFormatSymbols.getInstance(Locale.getDefault()))
+        return formatter.format(count / divisor) + suffix
+    }
+
+    private fun animateAction(view: View) {
+        view.animate().cancel()
+        view.scaleX = 1f
+        view.scaleY = 1f
+        view.animate()
+            .scaleX(1.16f)
+            .scaleY(1.16f)
+            .setDuration(100)
+            .withEndAction {
+                view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+            }
+            .start()
     }
 
     override fun getItemCount(): Int = posts.size

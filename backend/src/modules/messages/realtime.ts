@@ -27,6 +27,20 @@ type ServerToClientEvents = {
   'typing:start': (payload: { conversationId: string; userId: string }) => void;
   'typing:stop': (payload: { conversationId: string; userId: string }) => void;
   'unread:update': (payload: { count: number }) => void;
+  'content:engagement': (payload: ContentEngagementEvent) => void;
+};
+
+export type ContentEngagementEvent = {
+  eventId: string;
+  action: 'like.created' | 'like.deleted' | 'comment.created' | 'comment.deleted' |
+    'repost.created' | 'repost.deleted';
+  contentId: string;
+  contentType: 'post' | 'reel';
+  actorId: string;
+  likeCount: number;
+  commentCount: number;
+  repostCount: number;
+  occurredAt: string;
 };
 
 type ServerEventPayloads = {
@@ -39,6 +53,7 @@ type ServerEventPayloads = {
   'typing:start': { conversationId: string; userId: string };
   'typing:stop': { conversationId: string; userId: string };
   'unread:update': { count: number };
+  'content:engagement': ContentEngagementEvent;
 };
 
 type SocketData = {
@@ -277,6 +292,10 @@ export function emitConversationCreated(conversationId: string, firstUserId: str
 
 export function emitUnreadCount(userId: string, count: number): void {
   emitToUser(userId, 'unread:update', { count });
+}
+
+export function emitContentEngagement(payload: ContentEngagementEvent): void {
+  realtimeServer?.emit('content:engagement', payload);
 }
 
 export function disconnectSessionSockets(sessionId: string): void {

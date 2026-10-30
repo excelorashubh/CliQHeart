@@ -44,7 +44,8 @@
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/notifications"
-                android:src="@drawable/ic_activity" />
+                android:src="@drawable/ic_activity"
+                app:tint="@color/heart_text" />
 
             <TextView
                 android:id="@+id/notifications_badge"
@@ -69,7 +70,8 @@
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/messages"
-                android:src="@drawable/ic_messages" />
+                android:src="@drawable/ic_messages"
+                app:tint="@color/heart_text" />
 
             <TextView
                 android:id="@+id/messages_badge"

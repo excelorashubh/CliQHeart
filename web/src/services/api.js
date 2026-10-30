@@ -327,6 +327,10 @@ export const contentApi = {
   unlike: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/like`, { method: 'DELETE' }),
   repost: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/repost`, { method: 'POST' }),
   undoRepost: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/repost`, { method: 'DELETE' }),
+  syncEngagement: (content) => apiRequest('engagement/sync', {
+    method: 'POST',
+    body: { content },
+  }),
   saveContent: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/save`, { method: 'POST' }),
   unsaveContent: (kind, id) => apiRequest(`${kind}/${encodeURIComponent(id)}/save`, { method: 'DELETE' }),
   comments: (kind, id, { after, limit = 20, signal } = {}) => {

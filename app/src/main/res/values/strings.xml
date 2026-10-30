@@ -79,6 +79,10 @@
     <string name="video_playback_failed">This video could not be played.</string>
     <string name="view_all_comments">View all %1$d comments</string>
     <string name="likes_count">%1$s likes</string>
+    <string name="comments_count">%1$s comments</string>
+    <string name="view_comments">View all comments</string>
+    <string name="like_count">Like, %1$s</string>
+    <string name="unlike_count">Unlike, %1$s</string>
     <string name="search_hint">Search users, posts, or tags...</string>
     <string name="suggested_for_you">Suggested for you</string>
     <string name="follow">Follow</string>

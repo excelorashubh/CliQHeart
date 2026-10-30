@@ -14,8 +14,11 @@ import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.cliqheart.app.BuildConfig
 import com.cliqheart.app.R
 import com.cliqheart.app.core.network.ApiClient
+import com.cliqheart.app.core.network.EngagementContentRequest
+import com.cliqheart.app.core.network.EngagementSyncRequest
 import com.cliqheart.app.core.network.PostResponse
 import com.cliqheart.app.core.network.StoryResponse
 import com.cliqheart.app.core.network.UnreadCountResponse
@@ -28,11 +31,16 @@ import com.cliqheart.app.feature.home.adapters.HomeFeedHeaderAdapter
 import com.cliqheart.app.feature.home.apiErrorMessage
 import com.cliqheart.app.feature.home.models.PostModel
 import com.cliqheart.app.feature.home.models.StoryModel
+import io.socket.client.IO
+import io.socket.client.Socket
+import io.socket.engineio.client.transports.WebSocket
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.io.IOException
 import java.time.Instant
 import java.time.format.DateTimeParseException
+import java.util.LinkedHashSet
 import retrofit2.Response
 
 internal const val POST_PUBLISHED_REQUEST_KEY = "cliqheart.post.published"
@@ -41,6 +49,7 @@ internal const val COMMENT_COUNT_RESULT_KEY = "cliqheart.comment.count.updated"
 internal const val ARG_COMMENT_CONTENT_ID = "content_id"
 internal const val ARG_COMMENT_CONTENT_TYPE = "content_type"
 internal const val ARG_COMMENT_COUNT = "comment_count"
+internal const val STORY_VIEWED_RESULT_KEY = "cliqheart.story.viewed"
 
 class HomeFeedFragment : Fragment() {
     private var _binding: FragmentHomeFeedBinding? = null
@@ -55,7 +64,10 @@ class HomeFeedFragment : Fragment() {
     private var loadingStories = false
     private var refreshStoriesRequested = false
     private val pendingInteractions = mutableSetOf<String>()
-    private val viewedStoryIds = mutableSetOf<String>()
+    private var storyItems: List<StoryModel> = emptyList()
+    private var realtimeSocket: Socket? = null
+    private var refreshingSocketAuth = false
+    private val processedEngagementEventIds = LinkedHashSet<String>()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -72,7 +84,6 @@ class HomeFeedFragment : Fragment() {
 
         binding.swipeRefreshLayout.setOnRefreshListener {
             loadPosts(refresh = true)
-            loadStories()
             loadUnreadBadges()
         }
         binding.btnHeaderNotifications.setOnClickListener {
@@ -91,6 +102,10 @@ class HomeFeedFragment : Fragment() {
         }
         parentFragmentManager.setFragmentResultListener(
             STORY_PUBLISHED_REQUEST_KEY,
+            viewLifecycleOwner,
+        ) { _, _ -> loadStories() }
+        parentFragmentManager.setFragmentResultListener(
+            STORY_VIEWED_RESULT_KEY,
             viewLifecycleOwner,
         ) { _, _ -> loadStories() }
         parentFragmentManager.setFragmentResultListener(
@@ -129,6 +144,12 @@ class HomeFeedFragment : Fragment() {
             onStoriesRetry = ::loadStories,
         )
         headerAdapter = header
+        if (storyItems.isEmpty()) storyItems = listOf(createYourStoryModel())
+        header.setStories(
+            storyItems,
+            stateMessage = getString(R.string.loading_stories),
+            loading = true,
+        )
         binding.feedRecyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.feedRecyclerView.adapter = ConcatAdapter(header, adapter)
         binding.feedRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -147,12 +168,15 @@ class HomeFeedFragment : Fragment() {
     }
 
     override fun onPause() {
+        disconnectRealtime()
         feedAdapter?.pauseVideos()
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
+        loadStories()
+        connectRealtime()
         bindingOrNull()?.feedRecyclerView?.post {
             feedAdapter?.updateVisibleVideoPlayback()
         }
@@ -383,15 +407,16 @@ class HomeFeedFragment : Fragment() {
         }
         loadingStories = true
         val cachedUser = SecureTokenStore(requireContext()).readSession()?.currentUser
-        val cachedId = cachedUser?.id?.takeIf(String::isNotBlank) ?: cachedUser?._id
-        val yourStory = StoryModel(
-            ownerId = cachedId ?: YOUR_STORY_OWNER_ID,
-            username = getString(R.string.your_story),
-            avatarUrl = cachedUser?.avatarUrl.orEmpty(),
-            storyIds = emptyList(),
-            isYourStory = true,
-        )
-        headerAdapter?.setStories(listOf(yourStory), getString(R.string.loading_stories), loading = true)
+        val yourStory = createYourStoryModel()
+        if (storyItems.isEmpty()) {
+            headerAdapter?.setStories(
+                listOf(yourStory),
+                getString(R.string.loading_stories),
+                loading = true,
+            )
+        } else {
+            headerAdapter?.setStoriesState(getString(R.string.loading_stories))
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val profileResponse = ApiClient.service.getMyProfile()
@@ -410,15 +435,15 @@ class HomeFeedFragment : Fragment() {
                 val stories = storiesResponse.body()?.stories
                     ?: throw IOException(getString(R.string.stories_load_failed))
                 val currentUserId = profile.id?.takeIf(String::isNotBlank) ?: profile._id
-                headerAdapter?.setStories(
-                    stories.toStoryModels(currentUserId, profile.username, profile.avatarUrl),
-                )
+                storyItems = stories.toStoryModels(currentUserId, profile.username, profile.avatarUrl)
+                headerAdapter?.setStories(storyItems)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
                 Log.w(TAG, "Could not load Home stories.", exception)
+                if (storyItems.isEmpty()) storyItems = listOf(yourStory)
                 headerAdapter?.setStories(
-                    listOf(yourStory),
+                    storyItems,
                     exception.message ?: getString(R.string.stories_load_failed),
                 )
                 Toast.makeText(
@@ -444,16 +469,19 @@ class HomeFeedFragment : Fragment() {
         val activeStories = asSequence()
             .filter { story ->
                 val expiry = story.expiresAt.toEpochMillis()
-                !story.id.isNullOrBlank() && !story.owner?.id.isNullOrBlank() &&
+                !story.id.isNullOrBlank() &&
+                    !(story.owner?.id ?: story.owner?._id).isNullOrBlank() &&
                     expiry > System.currentTimeMillis()
             }
-            .distinctBy { it.id }
+            .distinctBy { it.id?.lowercase() }
             .toList()
         val groupedStories = activeStories
-            .groupBy { it.owner?.id.orEmpty() }
+            .groupBy { (it.owner?.id?.takeIf(String::isNotBlank) ?: it.owner?._id).orEmpty().lowercase() }
+        val normalizedCurrentUserId = currentUserId.orEmpty().lowercase()
         val ownGroup = groupedStories.entries.firstOrNull { (ownerId, items) ->
-            ownerId == currentUserId ||
-                items.firstOrNull()?.owner?.username.equals(currentUsername, ignoreCase = true)
+            ownerId == normalizedCurrentUserId ||
+                (!currentUsername.isNullOrBlank() &&
+                    items.firstOrNull()?.owner?.username.equals(currentUsername, ignoreCase = true))
         }
         val ownStories = ownGroup?.value.orEmpty()
         val ownerId = currentUserId?.takeIf(String::isNotBlank)
@@ -464,27 +492,42 @@ class HomeFeedFragment : Fragment() {
             username = getString(R.string.your_story),
             avatarUrl = currentAvatarUrl.orEmpty(),
             storyIds = ownStories.mapNotNull { it.id },
-            hasNewStory = ownStories.mapNotNull { it.id }.any { it !in viewedStoryIds },
+            hasNewStory = ownStories.any { it.isViewed != true },
             isYourStory = true,
         )
         val others = groupedStories
             .filter { (groupOwnerId, items) ->
                 groupOwnerId != ownGroup?.key &&
-                    !items.firstOrNull()?.owner?.username.equals(currentUsername, ignoreCase = true)
+                    (currentUsername.isNullOrBlank() ||
+                        !items.firstOrNull()?.owner?.username.equals(currentUsername, ignoreCase = true))
             }
             .values
             .mapNotNull { items ->
                 val owner = items.firstOrNull()?.owner ?: return@mapNotNull null
                 val storyIds = items.mapNotNull { it.id }
                 StoryModel(
-                    ownerId = owner.id.orEmpty(),
+                    ownerId = owner.id?.takeIf(String::isNotBlank) ?: owner._id.orEmpty(),
                     username = owner.username.orEmpty(),
                     avatarUrl = owner.avatarUrl.orEmpty(),
                     storyIds = storyIds,
-                    hasNewStory = storyIds.any { it !in viewedStoryIds },
+                    hasNewStory = items.any { it.isViewed != true },
                 )
             }
-        return listOf(yourStory) + others
+        return listOf(yourStory) + others.distinctBy { it.ownerId.lowercase() }
+    }
+
+    private fun createYourStoryModel(): StoryModel {
+        val cachedUser = SecureTokenStore(requireContext()).readSession()?.currentUser
+        val ownerId = cachedUser?.id?.takeIf(String::isNotBlank)
+            ?: cachedUser?._id?.takeIf(String::isNotBlank)
+            ?: YOUR_STORY_OWNER_ID
+        return StoryModel(
+            ownerId = ownerId,
+            username = getString(R.string.your_story),
+            avatarUrl = cachedUser?.avatarUrl.orEmpty(),
+            storyIds = emptyList(),
+            isYourStory = true,
+        )
     }
 
     private fun openStoryGroup(story: StoryModel) {
@@ -494,10 +537,172 @@ class HomeFeedFragment : Fragment() {
             }
             return
         }
-        viewedStoryIds.addAll(story.storyIds)
-        headerAdapter?.markStoryViewed(story.ownerId)
         StoryViewerDialogFragment.newInstance(story.storyIds, story.username)
             .show(parentFragmentManager, STORY_VIEWER_TAG)
+    }
+
+    private fun connectRealtime() {
+        if (_binding == null || realtimeSocket != null) return
+        val accessToken = SecureTokenStore(requireContext()).readSession()?.accessToken
+            ?.takeIf(String::isNotBlank)
+            ?: return
+        val endpoint = android.net.Uri.parse(BuildConfig.API_BASE_URL)
+            .buildUpon()
+            .path("/")
+            .clearQuery()
+            .fragment(null)
+            .build()
+            .toString()
+        val options = IO.Options().apply {
+            auth = mapOf("token" to accessToken)
+            reconnection = true
+            reconnectionAttempts = Int.MAX_VALUE
+            reconnectionDelay = SOCKET_RECONNECT_DELAY_MS
+            reconnectionDelayMax = SOCKET_RECONNECT_MAX_DELAY_MS
+            transports = arrayOf(WebSocket.NAME)
+        }
+        try {
+            val socket = IO.socket(endpoint, options)
+            realtimeSocket = socket
+            socket.on(Socket.EVENT_CONNECT) {
+                runOnMainThread {
+                    if (realtimeSocket === socket) synchronizeEngagement()
+                }
+            }
+            socket.on("content:engagement") { arguments ->
+                val payload = arguments.firstOrNull() as? JSONObject ?: return@on
+                runOnMainThread {
+                    if (realtimeSocket === socket) applyEngagementEvent(payload)
+                }
+            }
+            socket.on(Socket.EVENT_CONNECT_ERROR) { arguments ->
+                val message = arguments.firstOrNull()?.toString().orEmpty()
+                if (message.contains("authentication required", ignoreCase = true) ||
+                    message.contains("expired", ignoreCase = true)
+                ) {
+                    runOnMainThread { refreshRealtimeAuthentication(socket) }
+                } else {
+                    Log.w(TAG, "Home real-time connection failed: $message")
+                }
+            }
+            socket.connect()
+        } catch (exception: Exception) {
+            realtimeSocket = null
+            Log.w(TAG, "Could not start Home real-time connection.", exception)
+        }
+    }
+
+    private fun refreshRealtimeAuthentication(socket: Socket) {
+        if (refreshingSocketAuth || realtimeSocket !== socket) return
+        refreshingSocketAuth = true
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val response = ApiClient.service.getMyProfile()
+                if (!response.isSuccessful || response.body()?.user == null) {
+                    throw IOException(apiErrorMessage(response, getString(R.string.profile_action_failed)))
+                }
+                disconnectRealtime()
+                connectRealtime()
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Log.w(TAG, "Could not refresh Home real-time authentication.", exception)
+                disconnectRealtime()
+            } finally {
+                refreshingSocketAuth = false
+            }
+        }
+    }
+
+    private fun synchronizeEngagement() {
+        val content = feedAdapter?.postsSnapshot().orEmpty()
+            .map { EngagementContentRequest(it.id, it.contentType) }
+            .distinctBy { "${it.contentType}:${it.contentId}" }
+        if (content.isEmpty()) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val response = ApiClient.service.syncEngagement(EngagementSyncRequest(content))
+                if (!response.isSuccessful) {
+                    throw IOException(apiErrorMessage(response, getString(R.string.feed_load_failed)))
+                }
+                response.body()?.content?.forEach { item ->
+                    feedAdapter?.updateEngagement(
+                        contentType = item.contentType,
+                        contentId = item.contentId,
+                        likeCount = item.likeCount,
+                        commentCount = item.commentCount,
+                        repostCount = item.repostCount,
+                        isLiked = item.isLiked,
+                        isReposted = item.isReposted,
+                    )
+                } ?: throw IOException(getString(R.string.feed_load_failed))
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Log.w(TAG, "Could not resynchronize Home engagement counts.", exception)
+            }
+        }
+    }
+
+    private fun applyEngagementEvent(payload: JSONObject) {
+        val eventId = payload.optString("eventId").takeIf(String::isNotBlank) ?: return
+        if (eventId in processedEngagementEventIds) return
+        val contentId = payload.optString("contentId").takeIf(String::isNotBlank) ?: return
+        val contentType = payload.optString("contentType")
+            .takeIf { it == "post" || it == "reel" } ?: return
+        val likeCount = payload.nonNegativeCount("likeCount") ?: return
+        val commentCount = payload.nonNegativeCount("commentCount") ?: return
+        val repostCount = payload.nonNegativeCount("repostCount") ?: return
+        val action = payload.optString("action")
+        val actorId = payload.optString("actorId")
+        val viewerId = SecureTokenStore(requireContext()).readSession()?.currentUser.let { user ->
+            user?.id?.takeIf(String::isNotBlank) ?: user?._id
+        }
+        val isLiked = when {
+            actorId != viewerId -> null
+            action == "like.created" -> true
+            action == "like.deleted" -> false
+            else -> null
+        }
+        val isReposted = when {
+            actorId != viewerId -> null
+            action == "repost.created" -> true
+            action == "repost.deleted" -> false
+            else -> null
+        }
+        processedEngagementEventIds.add(eventId)
+        if (processedEngagementEventIds.size > MAX_PROCESSED_ENGAGEMENT_EVENTS) {
+            processedEngagementEventIds.remove(processedEngagementEventIds.first())
+        }
+        feedAdapter?.updateEngagement(
+            contentType = contentType,
+            contentId = contentId,
+            likeCount = likeCount,
+            commentCount = commentCount,
+            repostCount = repostCount,
+            isLiked = isLiked,
+            isReposted = isReposted,
+        )
+    }
+
+    private fun JSONObject.nonNegativeCount(name: String): Int? {
+        if (!has(name) || isNull(name)) return null
+        val value = optLong(name, -1)
+        return value.takeIf { it in 0..Int.MAX_VALUE }?.toInt()
+    }
+
+    private fun runOnMainThread(action: () -> Unit) {
+        activity?.runOnUiThread {
+            if (_binding != null) action()
+        }
+    }
+
+    private fun disconnectRealtime() {
+        val socket = realtimeSocket ?: return
+        realtimeSocket = null
+        socket.off()
+        socket.disconnect()
+        socket.close()
     }
 
     private fun loadUnreadBadges() {
@@ -550,6 +755,7 @@ class HomeFeedFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        disconnectRealtime()
         feedAdapter?.releaseVideos()
         feedAdapter = null
         headerAdapter = null
@@ -582,13 +788,14 @@ class HomeFeedFragment : Fragment() {
             location = location,
             imageUrl = mediaUrl,
             videoUrl = media.secureUrl?.takeIf { media.resourceType == "video" },
+            videoFormat = media.format?.takeIf { media.resourceType == "video" },
             mediaWidth = media.width,
             mediaHeight = media.height,
             isFollowing = isFollowing == true,
             caption = caption.orEmpty(),
-            likeCount = likeCount ?: 0,
-            commentCount = commentCount ?: 0,
-            repostCount = repostCount ?: 0,
+            likeCount = likeCount?.takeIf { it >= 0 } ?: return null,
+            commentCount = commentCount?.takeIf { it >= 0 } ?: return null,
+            repostCount = repostCount?.takeIf { it >= 0 } ?: return null,
             isLiked = isLiked == true,
             isBookmarked = isSaved == true,
             isReposted = isReposted == true,
@@ -625,6 +832,9 @@ class HomeFeedFragment : Fragment() {
         const val PAGE_SIZE = 30
         const val PREFETCH_THRESHOLD = 5
         const val MAX_BADGE_COUNT = 99
+        const val MAX_PROCESSED_ENGAGEMENT_EVENTS = 256
+        const val SOCKET_RECONNECT_DELAY_MS = 1_000L
+        const val SOCKET_RECONNECT_MAX_DELAY_MS = 10_000L
         const val YOUR_STORY_OWNER_ID = "your-story"
         const val STORY_VIEWER_TAG = "home-story-viewer"
         const val STORY_CREATION_TAG = "home-story-creation"
