@@ -74,6 +74,7 @@ export function createNotificationRouter(config: AppConfig): Router {
             ...(item.reelId ? { reelId: String(item.reelId) } : {}),
             ...(item.commentId ? { commentId: String(item.commentId) } : {}),
             ...(item.conversationId ? { conversationId: String(item.conversationId) } : {}),
+            ...(item.storyId ? { storyId: String(item.storyId) } : {}),
             ...(asset ? { thumbnailUrl: asset.thumbnailUrl || asset.secureUrl } : {}),
           };
         }),

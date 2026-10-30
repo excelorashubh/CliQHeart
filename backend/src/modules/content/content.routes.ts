@@ -14,6 +14,7 @@ import { BookmarkModel } from './bookmark.model';
 import { CommentLikeModel, CommentModel, LikeModel, RepostModel } from './engagement.models';
 import { PostTagModel } from './post-tag.model';
 import { ReelTagModel } from './reel-tag.model';
+import { StoryLikeModel, StoryReactionModel, StoryReportModel, StoryViewModel } from './story-engagement.models';
 import { createNotificationSafely } from '../notifications/notification.service';
 import { NotificationModel } from '../notifications/notification.model';
 import { recordContentView } from '../professional/professional.service';
@@ -37,6 +38,12 @@ const addTagSchema = z.object({ userId: z.string().regex(/^[a-f\d]{24}$/i) }).st
 const storySchema = z.object({
   mediaId: z.string().regex(/^[a-f\d]{24}$/i),
   caption: z.string().trim().max(500).default(''),
+}).strict();
+const storyReactionSchema = z.object({
+  emoji: z.enum(['❤️', '😂', '😮', '😢', '🔥', '👏', '🥰', '😍']),
+}).strict();
+const storyReportSchema = z.object({
+  reason: z.string().trim().max(500).default(''),
 }).strict();
 
 const pageSizeSchema = z.coerce.number().int().min(1).max(50).default(30);
@@ -581,6 +588,251 @@ export function createContentRouter(config: AppConfig): Router {
     }
   });
 
+  router.post('/stories/:storyId/view', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const storyId = validStoryId(request.params.storyId, response);
+      if (!storyId) return;
+      const viewerId = authenticatedUserId(request);
+      const story = await activeStoryVisibleTo(storyId, viewerId);
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      if (String(story.ownerId) !== viewerId) {
+        try {
+          await StoryViewModel.updateOne(
+            { storyId: story._id, viewerId },
+            { $setOnInsert: { storyId: story._id, viewerId, viewedAt: new Date() } },
+            { upsert: true },
+          );
+        } catch (error) {
+          if (!isDuplicateKeyError(error)) throw error;
+        }
+      }
+      const [viewCount, isLiked] = await Promise.all([
+        StoryViewModel.countDocuments({ storyId: story._id }),
+        StoryLikeModel.exists({ storyId: story._id, userId: viewerId }),
+      ]);
+      response.json({ viewCount, isLiked: Boolean(isLiked), isOwner: String(story.ownerId) === viewerId });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/stories/:storyId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const storyId = validStoryId(request.params.storyId, response);
+      if (!storyId) return;
+      const viewerId = authenticatedUserId(request);
+      const story = await activeStoryVisibleTo(storyId, viewerId);
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      const media = await MediaModel.findOne({ _id: story.mediaId, status: 'ready' }).lean();
+      if (!media) {
+        response.status(404).json({ error: 'Story media is not available.' });
+        return;
+      }
+      const [payload, isLiked] = await Promise.all([
+        contentPayload(story, media),
+        StoryLikeModel.exists({ storyId, userId: viewerId }),
+      ]);
+      response.json({ story: { ...payload, isLiked: Boolean(isLiked) } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/stories/:storyId/views', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const storyId = validStoryId(request.params.storyId, response);
+      if (!storyId) return;
+      const ownerId = authenticatedUserId(request);
+      const story = await StoryModel.findOne({
+        _id: storyId,
+        ownerId,
+        expiresAt: { $gt: new Date() },
+      }).select('_id').lean();
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      const limit = pageSizeSchema.parse(request.query.limit ?? 20);
+      const after = typeof request.query.after === 'string' ? request.query.after : undefined;
+      if (after && !Types.ObjectId.isValid(after)) {
+        response.status(400).json({ error: 'Invalid story-view cursor.' });
+        return;
+      }
+      const [viewCount, viewRows] = await Promise.all([
+        StoryViewModel.countDocuments({ storyId }),
+        StoryViewModel.find({ storyId, ...(after ? { _id: { $lt: after } } : {}) })
+          .sort({ _id: -1 }).limit(limit + 1).lean(),
+      ]);
+      const hasMore = viewRows.length > limit;
+      const page = hasMore ? viewRows.slice(0, limit) : viewRows;
+      const viewers = await UserModel.find({
+        _id: { $in: page.map((view) => view.viewerId) },
+        accountStatus: 'active',
+      }).select('username displayName avatarUrl').lean();
+      const viewerById = new Map(viewers.map((viewer) => [String(viewer._id), viewer]));
+      response.json({
+        viewCount,
+        viewers: page.flatMap((view) => {
+          const viewer = viewerById.get(String(view.viewerId));
+          return viewer ? [{
+            id: String(viewer._id),
+            username: viewer.username,
+            displayName: viewer.displayName,
+            avatarUrl: viewer.avatarUrl,
+            viewedAt: view.viewedAt,
+          }] : [];
+        }),
+        nextCursor: hasMore ? String(page.at(-1)?._id) : null,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid story-view pagination.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.post('/stories/:storyId/like', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const storyId = validStoryId(request.params.storyId, response);
+      if (!storyId) return;
+      const userId = authenticatedUserId(request);
+      const story = await activeStoryVisibleTo(storyId, userId);
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      if (String(story.ownerId) === userId) {
+        response.status(400).json({ error: 'You cannot like your own story.' });
+        return;
+      }
+      try {
+        await StoryLikeModel.updateOne(
+          { storyId: story._id, userId },
+          { $setOnInsert: { storyId: story._id, userId } },
+          { upsert: true },
+        );
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) throw error;
+      }
+      await createNotificationSafely({
+        recipientId: String(story.ownerId),
+        actorId: userId,
+        type: 'story_like',
+        storyId,
+        deduplicationKey: `story-like:${storyId}:${userId}`,
+      });
+      response.json({ isLiked: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/stories/:storyId/like', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const storyId = validStoryId(request.params.storyId, response);
+      if (!storyId) return;
+      const userId = authenticatedUserId(request);
+      const story = await activeStoryVisibleTo(storyId, userId);
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      await StoryLikeModel.deleteOne({ storyId, userId });
+      response.json({ isLiked: false });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/stories/:storyId/reactions', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const storyId = validStoryId(request.params.storyId, response);
+      if (!storyId) return;
+      const { emoji } = storyReactionSchema.parse(request.body);
+      const senderId = authenticatedUserId(request);
+      const story = await activeStoryVisibleTo(storyId, senderId);
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      if (String(story.ownerId) === senderId) {
+        response.status(400).json({ error: 'You cannot react to your own story.' });
+        return;
+      }
+      let inserted = false;
+      try {
+        const result = await StoryReactionModel.updateOne(
+          { storyId, senderId, emoji },
+          { $setOnInsert: { storyId, senderId, receiverId: String(story.ownerId), emoji } },
+          { upsert: true },
+        );
+        inserted = result.upsertedCount > 0;
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) throw error;
+      }
+      if (inserted) {
+        await createNotificationSafely({
+          recipientId: String(story.ownerId),
+          actorId: senderId,
+          type: 'story_reaction',
+          storyId,
+          deduplicationKey: `story-reaction:${storyId}:${senderId}:${emoji}`,
+        });
+      }
+      response.status(inserted ? 201 : 200).json({ sent: true, duplicate: !inserted });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Choose a supported story reaction.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.post('/stories/:storyId/report', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const storyId = validStoryId(request.params.storyId, response);
+      if (!storyId) return;
+      const { reason } = storyReportSchema.parse(request.body);
+      const reporterId = authenticatedUserId(request);
+      const story = await activeStoryVisibleTo(storyId, reporterId);
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      if (String(story.ownerId) === reporterId) {
+        response.status(400).json({ error: 'You cannot report your own story.' });
+        return;
+      }
+      let inserted = false;
+      try {
+        const result = await StoryReportModel.updateOne(
+          { storyId, reporterId },
+          { $setOnInsert: { storyId, reporterId, reason } },
+          { upsert: true },
+        );
+        inserted = result.upsertedCount > 0;
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) throw error;
+      }
+      response.status(inserted ? 201 : 200).json({ reported: true, duplicate: !inserted });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid story report.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
   router.delete('/stories/:storyId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const storyId = request.params.storyId;
@@ -596,7 +848,13 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'Story not found.' });
         return;
       }
-      await releaseMedia(story.mediaId, story._id, 'story');
+      await Promise.all([
+        releaseMedia(story.mediaId, story._id, 'story'),
+        StoryViewModel.deleteMany({ storyId }),
+        StoryLikeModel.deleteMany({ storyId }),
+        StoryReactionModel.deleteMany({ storyId }),
+        StoryReportModel.deleteMany({ storyId }),
+      ]);
       response.status(204).end();
     } catch (error) {
       next(error);
@@ -997,6 +1255,34 @@ function authenticatedUserId(request: Request): string {
   const userId = (request as AuthenticatedRequest).authenticatedUserId;
   if (!userId) throw new Error('Authenticated user context is missing.');
   return userId;
+}
+
+function validStoryId(value: string | undefined, response: Response): string | null {
+  if (!value || !Types.ObjectId.isValid(value)) {
+    response.status(400).json({ error: 'Invalid story ID.' });
+    return null;
+  }
+  return value;
+}
+
+async function activeStoryVisibleTo(storyId: string, viewerId: string) {
+  const story = await StoryModel.findOne({
+    _id: storyId,
+    expiresAt: { $gt: new Date() },
+  }).lean();
+  if (!story) return null;
+  const activeOwner = await UserModel.exists({ _id: story.ownerId, accountStatus: 'active' });
+  if (!activeOwner) return null;
+  if (String(story.ownerId) === viewerId) return story;
+  const followsOwner = await FollowModel.exists({
+    followerId: viewerId,
+    followedId: String(story.ownerId),
+  });
+  return followsOwner ? story : null;
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
 }
 
 async function parsePageSize(request: Request): Promise<number> {

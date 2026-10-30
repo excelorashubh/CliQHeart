@@ -4,11 +4,12 @@ const notificationSchema = new Schema(
   {
     recipientId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     actorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    type: { type: String, enum: ['follow', 'tag', 'message', 'like', 'comment', 'reply', 'repost'], required: true },
+    type: { type: String, enum: ['follow', 'tag', 'message', 'like', 'comment', 'reply', 'repost', 'story_like', 'story_reaction'], required: true },
     postId: { type: Schema.Types.ObjectId, ref: 'Post' },
     reelId: { type: Schema.Types.ObjectId, ref: 'Reel' },
     commentId: { type: Schema.Types.ObjectId, ref: 'Comment' },
     conversationId: { type: Schema.Types.ObjectId, ref: 'Conversation' },
+    storyId: { type: Schema.Types.ObjectId, ref: 'Story' },
     deduplicationKey: { type: String },
     readAt: { type: Date },
   },

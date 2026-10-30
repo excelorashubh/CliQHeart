@@ -9,7 +9,7 @@ import {
 } from './pages/Professional.jsx';
 import {
   HomePage, LoginPage, RegisterPage, SearchPage, ExplorePeoplePage, ProfilePage, MessagesPage,
-  SettingsPage, CapabilityPage, CreatePage, ReelsPage, NotFoundPage, LandingPage, ContentDetailPage, NotificationsPage,
+  SettingsPage, CapabilityPage, CreatePage, ReelsPage, NotFoundPage, LandingPage, ContentDetailPage, NotificationsPage, StoryPage,
 } from './pages.jsx';
 
 function Protected({ children }) {
@@ -92,6 +92,7 @@ export default function App() {
     <Route path="/notifications" element={<Protected><NotificationsPage /></Protected>} />
     <Route path="/post/:postId" element={<Protected><ContentDetailPage kind="post" /></Protected>} />
     <Route path="/reel/:reelId" element={<LegacyReelRedirect />} />
+    <Route path="/story/:storyId" element={<Protected><StoryPage /></Protected>} />
     <Route path="*" element={<NotFoundPage />} />
   </Routes>;
 }

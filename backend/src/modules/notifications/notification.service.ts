@@ -1,6 +1,6 @@
 import { NotificationModel } from './notification.model';
 
-export type NotificationType = 'follow' | 'tag' | 'message' | 'like' | 'comment' | 'reply' | 'repost';
+export type NotificationType = 'follow' | 'tag' | 'message' | 'like' | 'comment' | 'reply' | 'repost' | 'story_like' | 'story_reaction';
 
 export async function createNotificationSafely(input: {
   recipientId: string;
@@ -10,6 +10,7 @@ export async function createNotificationSafely(input: {
   reelId?: string;
   commentId?: string;
   conversationId?: string;
+  storyId?: string;
   deduplicationKey: string;
 }): Promise<void> {
   if (input.recipientId === input.actorId) return;

@@ -5,6 +5,8 @@ import { Types } from 'mongoose';
 import { z, ZodError } from 'zod';
 import type { AppConfig } from '../../config/env';
 import { UserModel } from '../../models/user';
+import { StoryModel } from '../content/story.model';
+import { FollowModel } from '../users/follow.model';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { ConversationModel } from './conversation.model';
 import { MessageModel } from './message.model';
@@ -19,6 +21,10 @@ const createConversationSchema = z.object({ participantId: z.string().regex(/^[a
 const createMessageSchema = z.object({
   text: z.string().trim().min(1).max(4000),
   clientMessageId: z.string().min(8).max(100).optional(),
+}).strict();
+const storyReplySchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+  clientMessageId: z.string().min(8).max(100),
 }).strict();
 const pageSizeSchema = z.coerce.number().int().min(1).max(100).default(30);
 
@@ -120,6 +126,129 @@ export function createMessageRouter(config: AppConfig): Router {
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid conversation request.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.post('/stories/:storyId/reply', authenticate, messageSendLimit, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const { storyId } = request.params;
+      if (!storyId || !Types.ObjectId.isValid(storyId)) {
+        response.status(400).json({ error: 'Invalid story ID.' });
+        return;
+      }
+      const { text, clientMessageId } = storyReplySchema.parse(request.body);
+      const senderId = authenticatedUserId(request);
+      const story = await StoryModel.findOne({
+        _id: storyId,
+        expiresAt: { $gt: new Date() },
+      }).select('_id ownerId').lean();
+      if (!story) {
+        response.status(404).json({ error: 'Story not found.' });
+        return;
+      }
+      const recipientId = String(story.ownerId);
+      if (senderId === recipientId) {
+        response.status(400).json({ error: 'You cannot reply to your own story.' });
+        return;
+      }
+      const [recipient, followsOwner] = await Promise.all([
+        UserModel.findOne({ _id: recipientId, accountStatus: 'active' }).select('_id'),
+        FollowModel.exists({ followerId: senderId, followedId: recipientId }),
+      ]);
+      if (!recipient || !followsOwner) {
+        response.status(404).json({ error: 'Story owner is not available for replies.' });
+        return;
+      }
+      const participantPair = [senderId, recipientId].sort().join(':');
+      let conversation = await ConversationModel.findOne({ participantPair });
+      if (!conversation) {
+        try {
+          conversation = await ConversationModel.create({
+            participantPair,
+            participants: [senderId, recipientId],
+          });
+        } catch (error) {
+          if (!isDuplicateKeyError(error)) throw error;
+          conversation = await ConversationModel.findOne({ participantPair });
+        }
+      }
+      if (!conversation) throw new Error('Story reply conversation could not be created.');
+
+      const session = await mongoose.startSession();
+      let savedMessage: InstanceType<typeof MessageModel> | undefined;
+      let duplicate = false;
+      try {
+        await session.withTransaction(async () => {
+          const existing = await MessageModel.findOne({
+            conversationId: conversation?._id,
+            senderId,
+            clientMessageId,
+          }).session(session);
+          if (existing) {
+            savedMessage = existing;
+            duplicate = true;
+            return;
+          }
+          const [message] = await MessageModel.create([{
+            conversationId: conversation?._id,
+            senderId,
+            text,
+            clientMessageId,
+            storyId: story._id,
+          }], { session });
+          if (!message) throw new Error('Story reply could not be saved.');
+          await ConversationModel.updateOne(
+            { _id: conversation?._id, participants: senderId },
+            {
+              $set: {
+                lastMessageAt: message.createdAt,
+                lastMessage: {
+                  id: message._id,
+                  text: message.text,
+                  senderId: message.senderId,
+                  createdAt: message.createdAt,
+                },
+              },
+              $inc: { [`unreadCounts.${recipientId}`]: 1 },
+            },
+            { session },
+          );
+          savedMessage = message;
+        });
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) throw error;
+        savedMessage = (await MessageModel.findOne({ conversationId: conversation._id, senderId, clientMessageId })) ?? undefined;
+        duplicate = true;
+        if (!savedMessage) throw error;
+      } finally {
+        await session.endSession();
+      }
+      if (!savedMessage) throw new Error('Story reply transaction completed without a saved message.');
+      if (!duplicate) {
+        await createNotificationSafely({
+          recipientId,
+          actorId: senderId,
+          type: 'message',
+          conversationId: String(conversation._id),
+          deduplicationKey: `message:${savedMessage._id}`,
+        });
+      }
+      const eventMessage = { conversationId: String(conversation._id), message: serializeMessage(savedMessage) };
+      emitToUser(senderId, 'message:sent', eventMessage);
+      emitToUser(recipientId, 'message:new', eventMessage);
+      emitToConversation(conversation.participants, 'conversation:updated', { id: String(conversation._id) });
+      emitUnreadCount(recipientId, await totalUnreadCount(recipientId));
+      response.status(duplicate ? 200 : 201).json({
+        message: serializeMessage(savedMessage),
+        conversationId: String(conversation._id),
+        sent: true,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid story reply.' });
         return;
       }
       next(error);
@@ -386,6 +515,7 @@ function serializeMessage(message: {
   senderId: unknown;
   text: string;
   clientMessageId?: string | null;
+  storyId?: unknown;
   createdAt: Date;
   deliveredAt?: Date | null;
   readAt?: Date | null;
@@ -396,6 +526,7 @@ function serializeMessage(message: {
     senderId: String(message.senderId),
     text: message.text,
     ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
+    ...(message.storyId ? { storyId: String(message.storyId) } : {}),
     createdAt: message.createdAt,
     deliveredAt: message.deliveredAt ?? null,
     readAt: message.readAt ?? null,

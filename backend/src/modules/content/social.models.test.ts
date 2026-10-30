@@ -7,6 +7,7 @@ import { NotificationModel } from '../notifications/notification.model';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
 import { StoryModel } from './story.model';
+import { StoryLikeModel, StoryReactionModel, StoryReportModel, StoryViewModel } from './story-engagement.models';
 
 test('bookmark and tag relationships enforce uniqueness and owner pagination indexes', () => {
   const bookmarkIndexes = BookmarkModel.schema.indexes();
@@ -29,6 +30,22 @@ test('notifications have deduplication and recipient unread-feed indexes', () =>
     fields.deduplicationKey === 1 && options.unique === true && options.sparse === true));
   assert.ok(indexes.some(([fields]) =>
     fields.recipientId === 1 && fields.readAt === 1 && fields.createdAt === -1));
+});
+
+test('story engagement models enforce unique relationships and viewer pagination', () => {
+  const viewIndexes = StoryViewModel.schema.indexes();
+  const likeIndexes = StoryLikeModel.schema.indexes();
+  const reactionIndexes = StoryReactionModel.schema.indexes();
+  const reportIndexes = StoryReportModel.schema.indexes();
+  assert.ok(viewIndexes.some(([fields, options]) =>
+    fields.storyId === 1 && fields.viewerId === 1 && options.unique === true));
+  assert.ok(viewIndexes.some(([fields]) => fields.storyId === 1 && fields._id === -1));
+  assert.ok(likeIndexes.some(([fields, options]) =>
+    fields.storyId === 1 && fields.userId === 1 && options.unique === true));
+  assert.ok(reactionIndexes.some(([fields, options]) =>
+    fields.storyId === 1 && fields.senderId === 1 && fields.emoji === 1 && options.unique === true));
+  assert.ok(reportIndexes.some(([fields, options]) =>
+    fields.storyId === 1 && fields.reporterId === 1 && options.unique === true));
 });
 
 test('published content models validate and preserve composer metadata', () => {

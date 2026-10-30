@@ -19,6 +19,8 @@ test('message and conversation REST APIs require an access token', async () => {
     request(app).post('/conversations/0123456789abcdef01234567/messages').send({ text: 'Hello' }),
     request(app).patch('/conversations/0123456789abcdef01234567/read'),
     request(app).get('/messages/unread-count'),
+    request(app).post('/stories/0123456789abcdef01234567/reply')
+      .send({ text: 'Hello', clientMessageId: 'message-id-12345' }),
   ]);
 
   for (const response of responses) {

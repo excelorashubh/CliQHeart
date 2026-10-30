@@ -7,10 +7,12 @@ import { Types } from 'mongoose';
 import { loadConfig } from '../../config/env';
 import { createApp } from '../../app';
 import { UserModel } from '../../models/user';
+import { FollowModel } from '../users/follow.model';
 import { MediaModel } from '../media/media.model';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
 import { StoryModel } from './story.model';
+import { StoryLikeModel, StoryViewModel } from './story-engagement.models';
 import { createContentRouter } from './content.routes';
 
 const userId = '0123456789abcdef01234567';
@@ -253,8 +255,82 @@ test('post, Reel, and Story publishing require authentication', async () => {
     request(app).post('/posts').send({ mediaId: mediaIds.post, caption: '' }),
     request(app).post('/reels').send({ mediaId: mediaIds.reel, caption: '' }),
     request(app).post('/stories').send({ mediaId: mediaIds.story, caption: '' }),
+    request(app).post(`/stories/${mediaIds.story}/view`),
+    request(app).get(`/stories/${mediaIds.story}/views`),
+    request(app).post(`/stories/${mediaIds.story}/like`),
+    request(app).post(`/stories/${mediaIds.story}/reactions`).send({ emoji: '❤️' }),
+    request(app).post(`/stories/${mediaIds.story}/report`).send({ reason: 'unsafe' }),
   ]);
-  assert.deepEqual(responses.map((response) => response.status), [401, 401, 401]);
+  assert.deepEqual(responses.map((response) => response.status), [401, 401, 401, 401, 401, 401, 401, 401]);
+});
+
+test('story view writes are idempotent and only the owner can load viewer identities', async (t) => {
+  const { app, token: ownerToken } = buildApp(t);
+  const viewerId = '1123456789abcdef01234567';
+  const viewerToken = jwt.sign(
+    { sub: viewerId, tokenType: 'access' },
+    jwtSecret,
+    { issuer: config.JWT_ISSUER, audience: config.JWT_AUDIENCE, expiresIn: '15m' },
+  );
+  const story = {
+    _id: new Types.ObjectId(mediaIds.story),
+    ownerId: new Types.ObjectId(userId),
+    mediaId: new Types.ObjectId(mediaIds.post),
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+  t.mock.method(StoryModel, 'findOne', (filter: Record<string, unknown>) => ({
+    select: () => ({ lean: async () => String(filter.ownerId ?? story.ownerId) === String(story.ownerId) ? story : null }),
+    lean: async () => story,
+  }));
+  t.mock.method(UserModel, 'exists', async () => true);
+  t.mock.method(FollowModel, 'exists', async () => true);
+  const viewedIds = new Set<string>();
+  t.mock.method(StoryViewModel, 'updateOne', async (filter: Record<string, unknown>) => {
+    viewedIds.add(String(filter.viewerId));
+    return { upsertedCount: 1 };
+  });
+  t.mock.method(StoryViewModel, 'countDocuments', async () => viewedIds.size);
+  t.mock.method(StoryLikeModel, 'exists', async () => false);
+  t.mock.method(StoryViewModel, 'find', () => ({
+    sort: () => ({
+      limit: () => ({ lean: async () => [{
+        _id: new Types.ObjectId(),
+        storyId: story._id,
+        viewerId: new Types.ObjectId(viewerId),
+        viewedAt: new Date(),
+      }] }),
+    }),
+  }));
+  t.mock.method(UserModel, 'find', () => ({
+    select: () => ({ lean: async () => [{
+      _id: new Types.ObjectId(viewerId),
+      username: 'viewer',
+      displayName: 'Story Viewer',
+      avatarUrl: null,
+    }] }),
+  }));
+
+  const firstView = await request(app)
+    .post(`/api/v1/stories/${mediaIds.story}/view`)
+    .auth(viewerToken, { type: 'bearer' });
+  const repeatView = await request(app)
+    .post(`/api/v1/stories/${mediaIds.story}/view`)
+    .auth(viewerToken, { type: 'bearer' });
+
+  assert.equal(firstView.status, 200);
+  assert.equal(firstView.body.viewCount, 1);
+  assert.equal(repeatView.body.viewCount, 1);
+  assert.equal(viewedIds.size, 1);
+
+  const ownerViews = await request(app)
+    .get(`/api/v1/stories/${mediaIds.story}/views`)
+    .auth(ownerToken, { type: 'bearer' });
+  const nonOwnerViews = await request(app)
+    .get(`/api/v1/stories/${mediaIds.story}/views`)
+    .auth(viewerToken, { type: 'bearer' });
+  assert.equal(ownerViews.status, 200);
+  assert.equal(ownerViews.body.viewers[0].username, 'viewer');
+  assert.equal(nonOwnerViews.status, 404);
 });
 
 test('database publish failures remain server errors and do not expose internals', async (t) => {

@@ -293,6 +293,23 @@ export const contentApi = {
   createPost: (body) => apiRequest('posts', { method: 'POST', body }),
   deletePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   stories: (options = {}) => apiRequest('stories', options),
+  story: (id, options = {}) => apiRequest(`stories/${encodeURIComponent(id)}`, options),
+  viewStory: (id) => apiRequest(`stories/${encodeURIComponent(id)}/view`, { method: 'POST' }),
+  storyViews: (id, { after, limit = 20, signal } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (after) params.set('after', after);
+    return apiRequest(`stories/${encodeURIComponent(id)}/views?${params}`, { signal });
+  },
+  likeStory: (id) => apiRequest(`stories/${encodeURIComponent(id)}/like`, { method: 'POST' }),
+  unlikeStory: (id) => apiRequest(`stories/${encodeURIComponent(id)}/like`, { method: 'DELETE' }),
+  reactToStory: (id, emoji) => apiRequest(`stories/${encodeURIComponent(id)}/reactions`, {
+    method: 'POST',
+    body: { emoji },
+  }),
+  reportStory: (id, reason = '') => apiRequest(`stories/${encodeURIComponent(id)}/report`, {
+    method: 'POST',
+    body: { reason },
+  }),
   createStory: (body) => apiRequest('stories', { method: 'POST', body }),
   deleteStory: (id) => apiRequest(`stories/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   reels: (limit = 30, { after, ...options } = {}) => {
@@ -363,6 +380,10 @@ export const messageApi = {
     method: 'POST',
     body: { text, clientMessageId },
   }),
+  replyToStory: (storyId, text, clientMessageId) => apiRequest(
+    `stories/${encodeURIComponent(storyId)}/reply`,
+    { method: 'POST', body: { text, clientMessageId } },
+  ),
   markRead: (id) => apiRequest(`conversations/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
   unreadCount: (options) => apiRequest('messages/unread-count', options),
 };

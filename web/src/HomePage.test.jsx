@@ -39,7 +39,11 @@ function renderHome() {
   return render(<MemoryRouter><HomePage /></MemoryRouter>);
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  currentUser.id = 'current-user';
+  delete currentUser._id;
+  vi.restoreAllMocks();
+});
 
 describe('HomePage feed experience', () => {
   it('loads stories above real posts and only labels non-followed authors as suggested', async () => {
@@ -82,6 +86,7 @@ describe('HomePage feed experience', () => {
     expect(postApi).toHaveBeenCalledWith(30, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(screen.getByRole('link', { name: 'Create a story' })).toHaveAttribute('href', '/create?kind=story');
     expect(screen.getAllByText('Your story')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-owner-story-tile="true"]')).toHaveLength(1);
 
     fireEvent.click(storyButton);
     expect(screen.getByRole('dialog', { name: 'Stories from @friend' })).toBeInTheDocument();
@@ -94,6 +99,7 @@ describe('HomePage feed experience', () => {
   });
 
   it('renders the owner once and groups all of their active stories in the viewer', async () => {
+    currentUser.id = { toString: () => 'current-user' };
     vi.spyOn(contentApi, 'stories').mockResolvedValue({
       stories: [
         {
@@ -117,10 +123,11 @@ describe('HomePage feed experience', () => {
     vi.spyOn(contentApi, 'reels').mockResolvedValue({ reels: [], nextCursor: null });
     vi.spyOn(userApi, 'suggestions').mockResolvedValue({ users: [] });
 
-    renderHome();
+    const { container } = renderHome();
 
     expect(await screen.findByRole('button', { name: 'Your story' })).toBeInTheDocument();
     expect(screen.getAllByText('Your story')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-owner-story-tile="true"]')).toHaveLength(1);
     expect(screen.getByRole('button', { name: '@friend' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Create a story' })).not.toBeInTheDocument();
 
@@ -131,6 +138,28 @@ describe('HomePage feed experience', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Next story' }));
     expect(screen.getByAltText('Story from current_user')).toHaveAttribute('src', 'https://images.example/owner-2.jpg');
+  });
+
+  it('uses the single owner tile to open one active story', async () => {
+    vi.spyOn(contentApi, 'stories').mockResolvedValue({
+      stories: [{
+        id: 'owner-story',
+        owner: { id: 'current-user', username: 'current_user', displayName: 'Current User', avatarUrl: '' },
+        media: { resourceType: 'image', secureUrl: 'https://images.example/owner.jpg' },
+      }],
+    });
+    vi.spyOn(contentApi, 'posts').mockResolvedValue({ posts: [], nextCursor: null });
+    vi.spyOn(contentApi, 'reels').mockResolvedValue({ reels: [], nextCursor: null });
+    vi.spyOn(userApi, 'suggestions').mockResolvedValue({ users: [] });
+
+    const { container } = renderHome();
+
+    const ownerTile = await screen.findByRole('button', { name: 'Your story' });
+    expect(container.querySelectorAll('[data-owner-story-tile="true"]')).toHaveLength(1);
+    expect(screen.getAllByText('Your story')).toHaveLength(1);
+    fireEvent.click(ownerTile);
+    expect(await screen.findByRole('dialog', { name: 'Stories from @current_user' })).toBeInTheDocument();
+    expect(screen.getByAltText('Story from current_user')).toHaveAttribute('src', 'https://images.example/owner.jpg');
   });
 
   it('follows a real suggested account and removes it from the suggestion list after success', async () => {

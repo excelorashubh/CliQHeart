@@ -271,6 +271,17 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
   after 24 hours. `GET /api/v1/stories` returns unexpired stories belonging
   to the authenticated user and accounts they follow. Owners can remove their
   own stories with `DELETE /api/v1/stories/:storyId`.
+- `GET /api/v1/stories/:storyId` returns a visible, unexpired story.
+  `POST /api/v1/stories/:storyId/view` records one authenticated viewer per
+  story and returns the persisted view count and current viewer's like state.
+  Only the owner can retrieve the paginated viewer list from
+  `GET /api/v1/stories/:storyId/views`.
+- `POST` and `DELETE /api/v1/stories/:storyId/like` persist story likes.
+  `POST /api/v1/stories/:storyId/reactions` accepts one of the supported quick
+  reaction emojis; `POST /api/v1/stories/:storyId/report` records an
+  idempotent report. `POST /api/v1/stories/:storyId/reply` sends a
+  story-associated message using the normal conversation system and requires
+  `text` and an idempotency `clientMessageId`.
 - `POST /api/v1/reels` publishes a verified video of up to 180 seconds.
   `GET /api/v1/reels?limit=<n>&after=<reelId>` returns the authenticated,
   cursor-paginated Reel feed with `isFollowing` per author;

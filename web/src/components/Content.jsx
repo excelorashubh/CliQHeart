@@ -6,6 +6,7 @@ import {
 import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './Feedback.jsx';
 import { EngagementActions } from './EngagementActions.jsx';
+import { StoryViewer } from './StoryViewer.jsx';
 import { contentApi, userApi } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getReelPath } from '../services/reelUrl.js';
@@ -341,7 +342,7 @@ function FeedVideo({ item, autoPlay, claimActiveVideo, playActiveVideo, pauseAct
   </div>;
 }
 
-export function StoryFeed() {
+export function StoryFeed({ initialStoryId = null, standalone = false, onStandaloneClose }) {
   const { user, isInitializing } = useAuth();
   const [stories, setStories] = useState([]);
   const [activeGroupIndex, setActiveGroupIndex] = useState(-1);
@@ -349,56 +350,96 @@ export function StoryFeed() {
   const [viewedStoryIds, setViewedStoryIds] = useState(() => new Set());
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const storiesBarRef = useRef(null);
+  const initialStoryHandledRef = useRef(false);
   const load = useCallback(async (signal) => {
     setLoading(true);
     setError('');
     try {
-      const result = await contentApi.stories({ signal });
+      const [result, initialStoryResult] = await Promise.all([
+        contentApi.stories({ signal }),
+        initialStoryId ? contentApi.story(initialStoryId, { signal }) : Promise.resolve(null),
+      ]);
       if (signal?.aborted) return;
-      setStories(result.stories || []);
+      setStories([...(result.stories || []), ...(initialStoryResult?.story ? [initialStoryResult.story] : [])]);
     } catch (reason) {
       if (signal?.aborted || reason.name === 'AbortError') return;
       setError(reason.message || 'Could not load stories.');
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, []);
+  }, [initialStoryId]);
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
     return () => controller.abort();
   }, [load]);
 
-  const getOwnerId = (owner) => owner?.id ?? owner?._id;
-  const currentUserId = getOwnerId(user);
+  const normalizeId = (value) => {
+    const id = value && typeof value === 'object' ? value.id ?? value._id ?? value : value;
+    return id == null ? null : String(id);
+  };
+  const getOwnerId = (owner) => normalizeId(owner?.id ?? owner?._id);
+  const currentUserId = normalizeId(user?.id ?? user?._id);
   const groupedStories = [...stories.reduce((groups, story) => {
     const ownerId = getOwnerId(story.owner);
     if (!ownerId) return groups;
     const group = groups.get(ownerId) || { owner: story.owner, stories: [] };
-    group.stories.push(story);
+    if (!group.stories.some((entry) => entry.id === story.id)) group.stories.push(story);
     groups.set(ownerId, group);
     return groups;
-  }, new Map()).values()].sort((first, second) =>
-    Number(getOwnerId(second.owner) === currentUserId) - Number(getOwnerId(first.owner) === currentUserId));
+  }, new Map()).values()];
   const ownerStoryGroupIndex = currentUserId
     ? groupedStories.findIndex((group) => getOwnerId(group.owner) === currentUserId)
     : -1;
   const ownerStoryGroup = groupedStories[ownerStoryGroupIndex];
+  const otherUserGroups = groupedStories.filter((group) => getOwnerId(group.owner) !== currentUserId);
+  const activeOwnerStoryCount = ownerStoryGroup?.stories.length ?? 0;
+  useEffect(() => {
+    if (!initialStoryId || loading || initialStoryHandledRef.current) return;
+    initialStoryHandledRef.current = true;
+    for (const [groupIndex, group] of groupedStories.entries()) {
+      const storyIndex = group.stories.findIndex((entry) => entry.id === initialStoryId);
+      if (storyIndex >= 0) {
+        setActiveGroupIndex(groupIndex);
+        setActiveStoryIndex(storyIndex);
+        return;
+      }
+    }
+    setError('This story is no longer available.');
+  }, [groupedStories, initialStoryId, loading]);
 
-  const activeGroup = groupedStories[activeGroupIndex];
-  const activeStory = activeGroup?.stories[activeStoryIndex];
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const ownerTileCount = storiesBarRef.current?.querySelectorAll('[data-owner-story-tile="true"]').length ?? 0;
+    console.debug('[StoryFeed] owner tile integrity', {
+      ownerId: currentUserId,
+      ownerTileCount,
+      activeOwnerStories: activeOwnerStoryCount,
+    });
+  }, [currentUserId, activeOwnerStoryCount]);
+
   const advanceStory = useCallback((direction) => {
-    if (!activeGroup) return;
+    if (!groupedStories[activeGroupIndex]) return;
     let nextGroupIndex = activeGroupIndex;
     let nextStoryIndex = activeStoryIndex + direction;
-    if (nextStoryIndex >= activeGroup.stories.length) {
-      nextGroupIndex += 1;
-      nextStoryIndex = 0;
-    } else if (nextStoryIndex < 0) {
-      nextGroupIndex -= 1;
-      nextStoryIndex = groupedStories[nextGroupIndex]?.stories.length - 1;
+    const storyCount = groupedStories.reduce((total, group) => total + group.stories.length, 0);
+    for (let checked = 0; checked < storyCount; checked += 1) {
+      if (nextStoryIndex >= (groupedStories[nextGroupIndex]?.stories.length ?? 0)) {
+        nextGroupIndex += 1;
+        nextStoryIndex = 0;
+      } else if (nextStoryIndex < 0) {
+        nextGroupIndex -= 1;
+        nextStoryIndex = (groupedStories[nextGroupIndex]?.stories.length ?? 0) - 1;
+      }
+      const candidate = groupedStories[nextGroupIndex]?.stories[nextStoryIndex];
+      if (!candidate) break;
+      const expiresAt = Date.parse(candidate.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt > Date.now()) break;
+      nextStoryIndex += direction;
     }
-    if (nextGroupIndex < 0 || nextGroupIndex >= groupedStories.length || nextStoryIndex < 0) {
+    if (nextGroupIndex < 0 || nextGroupIndex >= groupedStories.length ||
+        !groupedStories[nextGroupIndex]?.stories[nextStoryIndex]) {
       setActiveGroupIndex(-1);
       return;
     }
@@ -406,17 +447,7 @@ export function StoryFeed() {
     setActiveStoryIndex(nextStoryIndex);
     const story = groupedStories[nextGroupIndex]?.stories[nextStoryIndex];
     if (story) setViewedStoryIds((current) => new Set([...current, story.id]));
-  }, [activeGroup, activeGroupIndex, activeStoryIndex, groupedStories]);
-  useEffect(() => {
-    if (!activeGroup) return undefined;
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') setActiveGroupIndex(-1);
-      if (event.key === 'ArrowRight') advanceStory(1);
-      if (event.key === 'ArrowLeft') advanceStory(-1);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeGroup, advanceStory]);
+  }, [activeGroupIndex, activeStoryIndex, groupedStories]);
 
   const openStory = (groupIndex) => {
     setActiveGroupIndex(groupIndex);
@@ -424,31 +455,50 @@ export function StoryFeed() {
     const firstStory = groupedStories[groupIndex]?.stories[0];
     if (firstStory) setViewedStoryIds((current) => new Set([...current, firstStory.id]));
   };
+  const closeViewer = useCallback(() => {
+    setActiveGroupIndex(-1);
+    if (standalone) onStandaloneClose?.();
+  }, [standalone, onStandaloneClose]);
+  const deleteStory = useCallback((storyId) => {
+    setStories((current) => current.filter((entry) => entry.id !== storyId));
+    closeViewer();
+  }, [closeViewer]);
+  if (standalone) return <>
+    {!loading && error && <div className="story-page-error" role="alert">{error}</div>}
+    {groupedStories[activeGroupIndex] && <StoryViewer
+      groups={groupedStories}
+      groupIndex={activeGroupIndex}
+      storyIndex={activeStoryIndex}
+      onAdvance={advanceStory}
+      onClose={closeViewer}
+      onDelete={deleteStory}
+    />}
+  </>;
   return <>
     <section className="home-stories" aria-label="Stories">
-      <div className="home-stories-strip">
+      <div className="home-stories-strip" ref={storiesBarRef}>
         {ownerStoryGroup
-          ? <button className="home-story home-story--owner" type="button" onClick={() => openStory(ownerStoryGroupIndex)} aria-label="Your story">
+          ? <button className="home-story home-story--owner" data-owner-story-tile="true" type="button" onClick={() => openStory(ownerStoryGroupIndex)} aria-label="Your story">
             <span className={`home-story-ring${ownerStoryGroup.stories.every((story) => viewedStoryIds.has(story.id)) ? ' is-viewed' : ''}`}>
               <Avatar name={user?.displayName} src={user?.avatarUrl} size="large" />
               <span className="home-story-plus" aria-hidden="true">+</span>
             </span>
             <span>Your story</span>
           </button>
-          : <Link className="home-story home-story--create" to="/create?kind=story" aria-label="Create a story">
+          : <Link className="home-story home-story--create" data-owner-story-tile="true" to="/create?kind=story" aria-label="Create a story">
             <span className="home-story-ring"><Avatar name={user?.displayName} src={user?.avatarUrl} size="large" /><span className="home-story-plus">+</span></span>
             <span>Your story</span>
           </Link>}
         {loading && <div className="home-story-loading"><Skeleton rows={1} /></div>}
         {!loading && error && <div className="home-story-error" role="status">{error} <RetryButton error={error} onRetry={() => load()} className="text-link" label="Retry" /></div>}
-        {!isInitializing && !loading && !error && groupedStories.map((group, index) => {
-          if (index === ownerStoryGroupIndex) return null;
+        {!isInitializing && !loading && !error && otherUserGroups.map((group) => {
+          const index = groupedStories.indexOf(group);
           const seen = group.stories.every((story) => viewedStoryIds.has(story.id));
-          return <button className="home-story" type="button" key={group.owner.id} onClick={() => openStory(index)}>
+          return <button className="home-story" type="button" key={getOwnerId(group.owner)} onClick={() => openStory(index)}>
             <span className={`home-story-ring${seen ? ' is-viewed' : ''}`}>
               <Avatar
                 name={group.owner.displayName}
-                src={getOwnerId(group.owner) === currentUserId ? user.avatarUrl : group.owner.avatarUrl}
+                src={group.owner.avatarUrl}
                 size="large"
               />
             </span>
@@ -458,26 +508,14 @@ export function StoryFeed() {
         {!isInitializing && !loading && !error && groupedStories.length === 0 && <p className="home-story-empty">Stories from people you follow will appear here.</p>}
       </div>
     </section>
-    {activeGroup && <div className="story-viewer-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) setActiveGroupIndex(-1);
-    }}>
-      <section className="story-viewer" role="dialog" aria-modal="true" aria-label={`Stories from @${activeGroup.owner.username}`}>
-        <button className="story-viewer-close" type="button" onClick={() => setActiveGroupIndex(-1)} aria-label="Close stories">×</button>
-        <div className="story-viewer-owner">
-          <Avatar name={activeGroup.owner.displayName} src={getOwnerId(activeGroup.owner) === currentUserId ? user.avatarUrl : activeGroup.owner.avatarUrl} size="small" />
-          <span>@{activeGroup.owner.username}</span>
-          {getOwnerId(activeGroup.owner) === currentUserId && <Link className="story-viewer-add" to="/create?kind=story">Add another story</Link>}
-        </div>
-        {activeStory && <article className="story-viewer-item" key={activeStory.id}>
-          {activeStory.media?.resourceType === 'video'
-            ? <video src={activeStory.media.secureUrl} poster={activeStory.media.thumbnailUrl} controls playsInline preload="metadata" />
-            : <img src={activeStory.media?.secureUrl || activeStory.media?.thumbnailUrl} alt={activeStory.caption || `Story from ${activeGroup.owner.username}`} />}
-          {activeStory.caption && <p>{activeStory.caption}</p>}
-        </article>}
-        {activeGroupIndex > 0 || activeStoryIndex > 0 ? <button className="story-viewer-nav story-viewer-nav--prev" type="button" onClick={() => advanceStory(-1)} aria-label="Previous story">‹</button> : null}
-        <button className="story-viewer-nav story-viewer-nav--next" type="button" onClick={() => advanceStory(1)} aria-label="Next story">›</button>
-      </section>
-    </div>}
+    {groupedStories[activeGroupIndex] && <StoryViewer
+      groups={groupedStories}
+      groupIndex={activeGroupIndex}
+      storyIndex={activeStoryIndex}
+      onAdvance={advanceStory}
+      onClose={closeViewer}
+      onDelete={deleteStory}
+    />}
   </>;
 }
 

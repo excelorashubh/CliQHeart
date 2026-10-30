@@ -1645,6 +1645,12 @@ export function ReelsPage() {
   return <ReelsExperience viewer={user} />;
 }
 
+export function StoryPage() {
+  const { storyId } = useParams();
+  const navigate = useNavigate();
+  return <StoryFeed initialStoryId={storyId} standalone onStandaloneClose={() => navigate('/', { replace: true })} />;
+}
+
 export function NotificationsPage() {
   const { unreadNotificationCount, setUnreadNotificationCount } = useAuth();
   const navigate = useNavigate();
@@ -1699,6 +1705,7 @@ export function NotificationsPage() {
     }
     if (item.type === 'follow' && (item.actor?.username || item.actor?.id)) navigate(`/profile/${item.actor.username || item.actor.id}`);
     else if (item.type === 'message' && item.conversationId) navigate(`/messages/${item.conversationId}`);
+    else if ((item.type === 'story_like' || item.type === 'story_reaction') && item.storyId) navigate(`/story/${item.storyId}`);
     else if (item.reelId) navigate(getReelPath(item.reelId));
     else if (item.postId) navigate(`/post/${item.postId}`);
   }
@@ -1751,6 +1758,10 @@ export function NotificationsPage() {
               ? 'replied to your comment.'
               : item.type === 'repost'
                 ? 'reposted your content.'
+                : item.type === 'story_like'
+                  ? 'liked your story.'
+                  : item.type === 'story_reaction'
+                    ? 'reacted to your story.'
                 : 'sent you a message.';
     return <article className={`notification-item${item.read ? '' : ' is-unread'}`} key={item.id}>
       <button className="notification-open" onClick={() => openNotification(item)}>
