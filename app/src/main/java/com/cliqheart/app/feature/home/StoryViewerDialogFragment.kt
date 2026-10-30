@@ -10,6 +10,10 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.cliqheart.app.R
 import com.cliqheart.app.core.network.ApiClient
 import com.cliqheart.app.databinding.DialogStoryViewerBinding
@@ -27,6 +31,7 @@ class StoryViewerDialogFragment : DialogFragment() {
         get() = requireArguments().getString(ARG_OWNER_LABEL).orEmpty()
     private var currentIndex = 0
     private var storyLoadJob: Job? = null
+    private var videoPlayer: ExoPlayer? = null
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog =
         Dialog(requireContext(), theme)
@@ -45,6 +50,7 @@ class StoryViewerDialogFragment : DialogFragment() {
         binding.storyClose.setOnClickListener { dismiss() }
         binding.storyPrevious.setOnClickListener { showStory(currentIndex - 1) }
         binding.storyNext.setOnClickListener { showStory(currentIndex + 1) }
+        binding.btnRetryStoryVideo.setOnClickListener { showStory(currentIndex) }
         showStory(currentIndex)
     }
 
@@ -62,13 +68,20 @@ class StoryViewerDialogFragment : DialogFragment() {
     }
 
     override fun onPause() {
-        bindingOrNull()?.storyVideo?.pause()
+        videoPlayer?.pause()
         super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        videoPlayer?.play()
     }
 
     override fun onDestroyView() {
         storyLoadJob?.cancel()
-        bindingOrNull()?.storyVideo?.stopPlayback()
+        bindingOrNull()?.storyVideo?.player = null
+        videoPlayer?.release()
+        videoPlayer = null
         _binding = null
         super.onDestroyView()
     }
@@ -79,13 +92,16 @@ class StoryViewerDialogFragment : DialogFragment() {
             return
         }
         storyLoadJob?.cancel()
+        videoPlayer?.stop()
+        videoPlayer?.clearMediaItems()
         currentIndex = index
         val viewBinding = binding
         viewBinding.storyLoading.visibility = View.VISIBLE
         viewBinding.storyImage.visibility = View.GONE
         viewBinding.storyVideo.visibility = View.GONE
+        viewBinding.storyVideo.player = null
+        viewBinding.storyVideoError.visibility = View.GONE
         viewBinding.storyCaption.visibility = View.GONE
-        viewBinding.storyVideo.stopPlayback()
 
         storyLoadJob = viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -127,12 +143,12 @@ class StoryViewerDialogFragment : DialogFragment() {
                     View.VISIBLE
                 }
 
+                val uri = Uri.parse(mediaUrl)
+                if (uri.scheme != "https" || uri.host.isNullOrBlank()) {
+                    throw IOException(getString(R.string.story_media_unavailable))
+                }
                 when (media.resourceType) {
                     "image" -> {
-                        val uri = Uri.parse(mediaUrl)
-                        if (uri.scheme != "https" || uri.host.isNullOrBlank()) {
-                            throw IOException(getString(R.string.story_media_unavailable))
-                        }
                         viewBinding.storyImage.visibility = View.VISIBLE
                         RemoteImageLoader.load(
                             viewBinding.storyImage,
@@ -142,26 +158,12 @@ class StoryViewerDialogFragment : DialogFragment() {
                         viewBinding.storyLoading.visibility = View.GONE
                     }
                     "video" -> {
-                        val uri = Uri.parse(mediaUrl)
-                        if (uri.scheme != "https" || uri.host.isNullOrBlank()) {
-                            throw IOException(getString(R.string.story_media_unavailable))
-                        }
                         viewBinding.storyVideo.visibility = View.VISIBLE
-                        viewBinding.storyVideo.setVideoURI(uri)
-                        viewBinding.storyVideo.setOnPreparedListener { player ->
-                            player.isLooping = true
-                            viewBinding.storyLoading.visibility = View.GONE
-                            viewBinding.storyVideo.start()
-                        }
-                        viewBinding.storyVideo.setOnErrorListener { _, _, _ ->
-                            viewBinding.storyLoading.visibility = View.GONE
-                            Toast.makeText(
-                                requireContext(),
-                                R.string.story_media_unavailable,
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                            true
-                        }
+                        val player = getVideoPlayer(viewBinding)
+                        viewBinding.storyVideo.player = player
+                        player.setMediaItem(MediaItem.fromUri(uri))
+                        player.prepare()
+                        player.playWhenReady = true
                     }
                     else -> throw IOException(getString(R.string.story_media_unavailable))
                 }
@@ -179,6 +181,30 @@ class StoryViewerDialogFragment : DialogFragment() {
             }
         }
     }
+
+    private fun getVideoPlayer(viewBinding: DialogStoryViewerBinding): ExoPlayer =
+        videoPlayer ?: ExoPlayer.Builder(requireContext()).build().also { player ->
+            player.repeatMode = Player.REPEAT_MODE_ONE
+            player.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (_binding == null) return
+                    if (playbackState == Player.STATE_BUFFERING) {
+                        viewBinding.storyLoading.visibility = View.VISIBLE
+                    } else if (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) {
+                        viewBinding.storyLoading.visibility = View.GONE
+                        viewBinding.storyVideoError.visibility = View.GONE
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    if (_binding == null) return
+                    android.util.Log.w(TAG, "Story video playback failed.", error)
+                    viewBinding.storyLoading.visibility = View.GONE
+                    viewBinding.storyVideoError.visibility = View.VISIBLE
+                }
+            })
+            videoPlayer = player
+        }
 
     private fun bindingOrNull(): DialogStoryViewerBinding? = _binding
 

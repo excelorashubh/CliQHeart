@@ -13,13 +13,15 @@ class StoriesAdapter(
     private val onStoryClick: (StoryModel) -> Unit,
 ) : RecyclerView.Adapter<StoriesAdapter.StoryViewHolder>() {
     private val stories = mutableListOf<StoryModel>()
+    private var loading = false
 
     inner class StoryViewHolder(val binding: ItemStoryBinding) :
         RecyclerView.ViewHolder(binding.root)
 
-    fun submitStories(items: List<StoryModel>) {
+    fun submitStories(items: List<StoryModel>, loading: Boolean = false) {
         stories.clear()
         stories.addAll(items)
+        this.loading = loading
         notifyDataSetChanged()
     }
 
@@ -40,8 +42,21 @@ class StoriesAdapter(
     }
 
     override fun onBindViewHolder(holder: StoryViewHolder, position: Int) {
+        if (position >= stories.size) {
+            with(holder.binding) {
+                storyRingFrame.background = root.context.getDrawable(R.drawable.bg_story_placeholder)
+                storyAvatar.visibility = View.INVISIBLE
+                addStoryBadge.visibility = View.GONE
+                storyUsername.text = ""
+                storyUsername.visibility = View.INVISIBLE
+                root.setOnClickListener(null)
+            }
+            return
+        }
         val story = stories[position]
         with(holder.binding) {
+            storyAvatar.visibility = View.VISIBLE
+            storyUsername.visibility = View.VISIBLE
             storyUsername.text = story.username
             storyUsername.contentDescription = if (story.isYourStory) {
                 root.context.getString(R.string.your_story)
@@ -63,5 +78,9 @@ class StoriesAdapter(
         }
     }
 
-    override fun getItemCount(): Int = stories.size
+    override fun getItemCount(): Int = stories.size + if (loading) LOADING_PLACEHOLDER_COUNT else 0
+
+    private companion object {
+        const val LOADING_PLACEHOLDER_COUNT = 3
+    }
 }

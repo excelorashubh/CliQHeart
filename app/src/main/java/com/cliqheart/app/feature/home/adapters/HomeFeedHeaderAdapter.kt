@@ -16,6 +16,7 @@ class HomeFeedHeaderAdapter(
     private var feedStateMessage: String? = null
     private var stories: List<StoryModel> = emptyList()
     private var storiesStateMessage: String? = null
+    private var storiesLoading = false
     private var storiesAdapter: StoriesAdapter? = null
 
     class HeaderViewHolder(val binding: ItemHomeFeedHeaderBinding) :
@@ -26,15 +27,22 @@ class HomeFeedHeaderAdapter(
         notifyItemChanged(0)
     }
 
-    fun setStories(items: List<StoryModel>, stateMessage: String? = null) {
+    fun setStories(
+        items: List<StoryModel>,
+        stateMessage: String? = null,
+        loading: Boolean = false,
+    ) {
         stories = items
         storiesStateMessage = stateMessage
-        storiesAdapter?.submitStories(items)
+        storiesLoading = loading
+        storiesAdapter?.submitStories(items, loading)
         notifyItemChanged(0)
     }
 
     fun setStoriesState(message: String) {
         storiesStateMessage = message
+        storiesLoading = true
+        storiesAdapter?.submitStories(stories, loading = true)
         notifyItemChanged(0)
     }
 
@@ -61,12 +69,17 @@ class HomeFeedHeaderAdapter(
             storiesAdapter ?: StoriesAdapter(onStoryClick).also {
                 storiesAdapter = it
                 storiesRecyclerView.adapter = it
-                it.submitStories(stories)
+                it.submitStories(stories, storiesLoading)
             }
-            storiesRecyclerView.visibility = if (stories.isEmpty()) View.GONE else View.VISIBLE
-            storiesEmptyState.visibility = if (stories.isEmpty()) View.VISIBLE else View.GONE
-            storiesEmptyState.text = storiesStateMessage
-                ?: root.context.getString(com.cliqheart.app.R.string.stories_unavailable)
+            storiesRecyclerView.visibility = View.VISIBLE
+            val hasOtherStories = stories.any { !it.isYourStory }
+            val emptyMessage = storiesStateMessage ?: if (!hasOtherStories && !storiesLoading) {
+                root.context.getString(com.cliqheart.app.R.string.stories_empty)
+            } else {
+                null
+            }
+            storiesEmptyState.visibility = if (emptyMessage == null) View.GONE else View.VISIBLE
+            storiesEmptyState.text = emptyMessage.orEmpty()
             storiesEmptyState.setOnClickListener { onStoriesRetry() }
             feedState.text = feedStateMessage.orEmpty()
             feedState.visibility = if (feedStateMessage == null) {

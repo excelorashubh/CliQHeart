@@ -13,11 +13,14 @@
         android:scaleType="fitCenter"
         android:visibility="gone" />
 
-    <VideoView
+    <androidx.media3.ui.PlayerView
         android:id="@+id/story_video"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:visibility="gone" />
+        android:visibility="gone"
+        app:resize_mode="fit"
+        app:surface_type="texture_view"
+        app:use_controller="false" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -43,6 +46,32 @@
         android:layout_height="48dp"
         android:layout_gravity="center"
         android:indeterminateTint="@color/white" />
+
+    <LinearLayout
+        android:id="@+id/story_video_error"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:background="#99000000"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/video_playback_failed"
+            android:textColor="@color/white"
+            android:textSize="14sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_retry_story_video"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="@string/retry"
+            android:textColor="@color/white"
+            android:textAllCaps="false" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"

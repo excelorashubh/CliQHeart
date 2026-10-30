@@ -21,6 +21,7 @@ data class PostModel(
     val isBookmarked: Boolean = false,
     val isReposted: Boolean = false,
     val timestamp: String,
+    val createdAtMillis: Long = 0,
 ) {
     val contentKey: String get() = "$contentType:$id"
 }

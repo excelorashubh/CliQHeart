@@ -19,6 +19,7 @@ import com.cliqheart.app.core.network.ApiClient
 import com.cliqheart.app.core.network.PostResponse
 import com.cliqheart.app.core.network.StoryResponse
 import com.cliqheart.app.core.network.UnreadCountResponse
+import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentHomeFeedBinding
 import com.cliqheart.app.feature.home.StoryViewerDialogFragment
@@ -35,6 +36,11 @@ import java.time.format.DateTimeParseException
 import retrofit2.Response
 
 internal const val POST_PUBLISHED_REQUEST_KEY = "cliqheart.post.published"
+internal const val STORY_PUBLISHED_REQUEST_KEY = "cliqheart.story.published"
+internal const val COMMENT_COUNT_RESULT_KEY = "cliqheart.comment.count.updated"
+internal const val ARG_COMMENT_CONTENT_ID = "content_id"
+internal const val ARG_COMMENT_CONTENT_TYPE = "content_type"
+internal const val ARG_COMMENT_COUNT = "comment_count"
 
 class HomeFeedFragment : Fragment() {
     private var _binding: FragmentHomeFeedBinding? = null
@@ -47,6 +53,7 @@ class HomeFeedFragment : Fragment() {
     private var reelsExhausted = false
     private var loadingPosts = false
     private var loadingStories = false
+    private var refreshStoriesRequested = false
     private val pendingInteractions = mutableSetOf<String>()
     private val viewedStoryIds = mutableSetOf<String>()
 
@@ -82,6 +89,19 @@ class HomeFeedFragment : Fragment() {
         ) { _, _ ->
             if (!loadingPosts) loadPosts(refresh = true)
         }
+        parentFragmentManager.setFragmentResultListener(
+            STORY_PUBLISHED_REQUEST_KEY,
+            viewLifecycleOwner,
+        ) { _, _ -> loadStories() }
+        parentFragmentManager.setFragmentResultListener(
+            COMMENT_COUNT_RESULT_KEY,
+            viewLifecycleOwner,
+        ) { _, result ->
+            val id = result.getString(ARG_COMMENT_CONTENT_ID) ?: return@setFragmentResultListener
+            val type = result.getString(ARG_COMMENT_CONTENT_TYPE) ?: return@setFragmentResultListener
+            val count = result.getInt(ARG_COMMENT_COUNT, -1)
+            if (count >= 0) feedAdapter?.updateCommentCount(type, id, count)
+        }
 
         loadPosts(refresh = true)
         loadStories()
@@ -93,12 +113,9 @@ class HomeFeedFragment : Fragment() {
             posts = emptyList(),
             onLikeClicked = ::toggleLike,
             onBookmarkClicked = ::toggleBookmark,
-            onCommentClicked = {
-                Toast.makeText(
-                    requireContext(),
-                    R.string.comments_unavailable,
-                    Toast.LENGTH_SHORT,
-                ).show()
+            onCommentClicked = { post ->
+                CommentsBottomSheetFragment.newInstance(post.id, post.contentType)
+                    .show(parentFragmentManager, COMMENTS_SHEET_TAG)
             },
             onRepostClicked = ::toggleRepost,
             onFollowClicked = ::followAuthor,
@@ -360,30 +377,48 @@ class HomeFeedFragment : Fragment() {
     }
 
     private fun loadStories() {
-        if (loadingStories) return
+        if (loadingStories) {
+            refreshStoriesRequested = true
+            return
+        }
         loadingStories = true
-        headerAdapter?.setStoriesState(getString(R.string.loading_stories))
+        val cachedUser = SecureTokenStore(requireContext()).readSession()?.currentUser
+        val cachedId = cachedUser?.id?.takeIf(String::isNotBlank) ?: cachedUser?._id
+        val yourStory = StoryModel(
+            ownerId = cachedId ?: YOUR_STORY_OWNER_ID,
+            username = getString(R.string.your_story),
+            avatarUrl = cachedUser?.avatarUrl.orEmpty(),
+            storyIds = emptyList(),
+            isYourStory = true,
+        )
+        headerAdapter?.setStories(listOf(yourStory), getString(R.string.loading_stories), loading = true)
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val profileResponse = ApiClient.service.getMyProfile()
-                if (!profileResponse.isSuccessful) {
-                    throw IOException(apiErrorMessage(profileResponse, getString(R.string.stories_load_failed)))
+                val profile = if (profileResponse.isSuccessful) {
+                    profileResponse.body()?.user ?: cachedUser
+                } else {
+                    cachedUser
+                } ?: throw IOException(apiErrorMessage(profileResponse, getString(R.string.stories_load_failed)))
+                if (!profile.id.isNullOrBlank() || !profile._id.isNullOrBlank()) {
+                    SecureTokenStore(requireContext()).saveCurrentUser(profile)
                 }
-                val profile = profileResponse.body()?.user
-                    ?: throw IOException(getString(R.string.stories_load_failed))
                 val storiesResponse = ApiClient.service.getStories()
                 if (!storiesResponse.isSuccessful) {
                     throw IOException(apiErrorMessage(storiesResponse, getString(R.string.stories_load_failed)))
                 }
                 val stories = storiesResponse.body()?.stories
                     ?: throw IOException(getString(R.string.stories_load_failed))
-                headerAdapter?.setStories(stories.toStoryModels(profile.id ?: profile._id, profile.username, profile.avatarUrl))
+                val currentUserId = profile.id?.takeIf(String::isNotBlank) ?: profile._id
+                headerAdapter?.setStories(
+                    stories.toStoryModels(currentUserId, profile.username, profile.avatarUrl),
+                )
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
                 Log.w(TAG, "Could not load Home stories.", exception)
                 headerAdapter?.setStories(
-                    emptyList(),
+                    listOf(yourStory),
                     exception.message ?: getString(R.string.stories_load_failed),
                 )
                 Toast.makeText(
@@ -393,6 +428,10 @@ class HomeFeedFragment : Fragment() {
                 ).show()
             } finally {
                 loadingStories = false
+                if (refreshStoriesRequested) {
+                    refreshStoriesRequested = false
+                    loadStories()
+                }
             }
         }
     }
@@ -402,14 +441,24 @@ class HomeFeedFragment : Fragment() {
         currentUsername: String?,
         currentAvatarUrl: String?,
     ): List<StoryModel> {
-        val groupedStories = filter { !it.id.isNullOrBlank() && !it.owner?.id.isNullOrBlank() }
+        val activeStories = asSequence()
+            .filter { story ->
+                val expiry = story.expiresAt.toEpochMillis()
+                !story.id.isNullOrBlank() && !story.owner?.id.isNullOrBlank() &&
+                    expiry > System.currentTimeMillis()
+            }
+            .distinctBy { it.id }
+            .toList()
+        val groupedStories = activeStories
             .groupBy { it.owner?.id.orEmpty() }
         val ownGroup = groupedStories.entries.firstOrNull { (ownerId, items) ->
             ownerId == currentUserId ||
                 items.firstOrNull()?.owner?.username.equals(currentUsername, ignoreCase = true)
         }
         val ownStories = ownGroup?.value.orEmpty()
-        val ownerId = currentUserId ?: ownGroup?.key ?: YOUR_STORY_OWNER_ID
+        val ownerId = currentUserId?.takeIf(String::isNotBlank)
+            ?: ownGroup?.key
+            ?: YOUR_STORY_OWNER_ID
         val yourStory = StoryModel(
             ownerId = ownerId,
             username = getString(R.string.your_story),
@@ -440,11 +489,9 @@ class HomeFeedFragment : Fragment() {
 
     private fun openStoryGroup(story: StoryModel) {
         if (story.storyIds.isEmpty()) {
-            Toast.makeText(
-                requireContext(),
-                R.string.story_creation_unavailable,
-                Toast.LENGTH_SHORT,
-            ).show()
+            if (story.isYourStory) {
+                StoryCreationDialogFragment().show(parentFragmentManager, STORY_CREATION_TAG)
+            }
             return
         }
         viewedStoryIds.addAll(story.storyIds)
@@ -518,8 +565,13 @@ class HomeFeedFragment : Fragment() {
         val media = media ?: return null
         val authorId = author.id?.takeIf(String::isNotBlank) ?: return null
         val username = author.username?.takeIf(String::isNotBlank) ?: return null
-        val mediaUrl = media.thumbnailUrl?.takeIf(String::isNotBlank)
-            ?: media.secureUrl?.takeIf(String::isNotBlank).orEmpty()
+        val mediaUrl = if (media.resourceType == "video") {
+            media.thumbnailUrl?.takeIf(String::isNotBlank)
+                ?: media.secureUrl?.takeIf(String::isNotBlank).orEmpty()
+        } else {
+            media.secureUrl?.takeIf(String::isNotBlank)
+                ?: media.thumbnailUrl?.takeIf(String::isNotBlank).orEmpty()
+        }
         return PostModel(
             id = postId,
             contentType = contentType,
@@ -541,6 +593,7 @@ class HomeFeedFragment : Fragment() {
             isBookmarked = isSaved == true,
             isReposted = isReposted == true,
             timestamp = createdAt.toRelativeTime(),
+            createdAtMillis = createdAt.toEpochMillis(),
         )
     }
 
@@ -574,5 +627,7 @@ class HomeFeedFragment : Fragment() {
         const val MAX_BADGE_COUNT = 99
         const val YOUR_STORY_OWNER_ID = "your-story"
         const val STORY_VIEWER_TAG = "home-story-viewer"
+        const val STORY_CREATION_TAG = "home-story-creation"
+        const val COMMENTS_SHEET_TAG = "home-post-comments"
     }
 }

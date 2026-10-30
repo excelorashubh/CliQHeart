@@ -1,7 +1,6 @@
 package com.cliqheart.app
 
 import android.view.View
-import android.widget.TextView
 import androidx.navigation.fragment.NavHostFragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.test.ext.junit.rules.ActivityScenarioRule
@@ -21,11 +20,13 @@ class HomeFeedStoriesTest {
     val activityRule = ActivityScenarioRule(MainActivity::class.java)
 
     @Test
-    fun storiesRowIsHorizontalAndShowsUnavailableStateWithoutMockProfiles() {
+    fun storiesRowRemainsVisibleAndHorizontalWhileStoriesLoad() {
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         activityRule.scenario.onActivity { activity ->
             val navHost = activity.supportFragmentManager
                 .findFragmentById(R.id.nav_host) as NavHostFragment
             navHost.navController.navigate(R.id.mainShellFragment)
+            navHost.childFragmentManager.executePendingTransactions()
         }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
@@ -41,19 +42,13 @@ class HomeFeedStoriesTest {
             val stories = homeFeed.requireView().findViewById<androidx.recyclerview.widget.RecyclerView>(
                 R.id.stories_recycler_view,
             )
-            val emptyState = homeFeed.requireView().findViewById<TextView>(R.id.stories_empty_state)
-
             assertNotNull(stories.layoutManager)
+            assertEquals(View.VISIBLE, stories.visibility)
             assertEquals(
                 LinearLayoutManager.HORIZONTAL,
                 (stories.layoutManager as LinearLayoutManager).orientation,
             )
-            assertEquals(View.GONE, stories.visibility)
-            assertEquals(View.VISIBLE, emptyState.visibility)
-            assertEquals(
-                activity.getString(R.string.stories_unavailable),
-                emptyState.text.toString(),
-            )
+            org.junit.Assert.assertTrue((stories.adapter?.itemCount ?: 0) >= 1)
         }
     }
 }

@@ -2,7 +2,6 @@ package com.cliqheart.app.feature.home.adapters
 
 import android.content.Intent
 import android.graphics.Rect
-import android.media.MediaPlayer
 import android.net.Uri
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
@@ -15,6 +14,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.PopupMenu
 import androidx.core.view.doOnLayout
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.R
 import com.cliqheart.app.databinding.ItemPostBinding
@@ -32,13 +35,15 @@ class FeedAdapter(
     private val posts = posts.toMutableList()
     private val expandedCaptions = mutableSetOf<String>()
     private val attachedHolders = mutableSetOf<PostViewHolder>()
+    private var player: ExoPlayer? = null
+    private var activeVideoHolder: PostViewHolder? = null
+    private var activeContentKey: String? = null
     val postCount: Int get() = posts.size
 
     class PostViewHolder(val binding: ItemPostBinding) : RecyclerView.ViewHolder(binding.root) {
         var boundPost: PostModel? = null
-        var player: MediaPlayer? = null
         var videoSource: String? = null
-        var videoPrepared = false
+        var videoHasFrame = false
         var isMuted = true
     }
 
@@ -46,6 +51,7 @@ class FeedAdapter(
         if (!append) posts.clear()
         val existingKeys = posts.mapTo(mutableSetOf()) { it.contentKey }
         posts.addAll(results.filter { existingKeys.add(it.contentKey) })
+        posts.sortByDescending { it.createdAtMillis }
         notifyDataSetChanged()
     }
 
@@ -54,6 +60,11 @@ class FeedAdapter(
         if (position < 0) return
         posts[position] = post
         notifyItemChanged(position)
+    }
+
+    fun updateCommentCount(contentType: String, postId: String, commentCount: Int) {
+        val post = posts.firstOrNull { it.contentType == contentType && it.id == postId } ?: return
+        updatePost(post.copy(commentCount = commentCount))
     }
 
     fun updateVisibleVideoPlayback() {
@@ -82,12 +93,14 @@ class FeedAdapter(
     fun releaseVideos() {
         attachedHolders.toList().forEach { holder ->
             pauseVideo(holder)
-            holder.binding.postMediaVideo.stopPlayback()
-            holder.player = null
-            holder.videoPrepared = false
             holder.videoSource = null
+            holder.videoHasFrame = false
         }
         attachedHolders.clear()
+        player?.release()
+        player = null
+        activeVideoHolder = null
+        activeContentKey = null
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PostViewHolder {
@@ -262,12 +275,8 @@ class FeedAdapter(
 
     override fun onViewRecycled(holder: PostViewHolder) {
         pauseVideo(holder)
-        holder.binding.postMediaVideo.stopPlayback()
-        holder.binding.postMediaVideo.setOnPreparedListener(null)
-        holder.binding.postMediaVideo.setOnErrorListener(null)
-        holder.player = null
         holder.videoSource = null
-        holder.videoPrepared = false
+        holder.videoHasFrame = false
         holder.boundPost = null
         attachedHolders.remove(holder)
         super.onViewRecycled(holder)
@@ -279,32 +288,41 @@ class FeedAdapter(
             val context = root.context
             if (videoUrl.isNullOrBlank()) {
                 pauseVideo(holder)
-                postMediaVideo.stopPlayback()
-                postMediaVideo.visibility = View.GONE
+                postMediaVideo.player = null
+                postMediaVideo.visibility = View.INVISIBLE
                 btnMuteVideo.visibility = View.GONE
+                postVideoLoading.visibility = View.GONE
+                postVideoError.visibility = View.GONE
                 postMediaImage.visibility = View.VISIBLE
                 holder.videoSource = null
-                holder.player = null
-                holder.videoPrepared = false
+                holder.videoHasFrame = false
                 return
             }
             val uri = Uri.parse(videoUrl)
             if (uri.scheme != "https" || uri.host.isNullOrBlank()) {
                 pauseVideo(holder)
-                postMediaVideo.stopPlayback()
-                postMediaVideo.visibility = View.GONE
+                postMediaVideo.player = null
+                postMediaVideo.visibility = View.INVISIBLE
                 btnMuteVideo.visibility = View.GONE
+                postVideoLoading.visibility = View.GONE
+                postVideoError.visibility = View.VISIBLE
                 postMediaImage.visibility = View.VISIBLE
                 holder.videoSource = null
-                holder.player = null
-                holder.videoPrepared = false
                 return
             }
 
             val isNewSource = holder.videoSource != videoUrl
-            if (isNewSource) holder.isMuted = true
-            postMediaImage.visibility = if (holder.videoPrepared) View.GONE else View.VISIBLE
-            postMediaVideo.visibility = if (holder.videoPrepared) View.VISIBLE else View.INVISIBLE
+            if (isNewSource) {
+                holder.isMuted = true
+                holder.videoHasFrame = false
+            }
+            postMediaVideo.player = if (activeVideoHolder == holder) player else null
+            postMediaImage.visibility = if (holder.videoHasFrame) View.GONE else View.VISIBLE
+            postMediaVideo.visibility = if (holder.videoHasFrame) View.VISIBLE else View.INVISIBLE
+            postVideoError.visibility = View.GONE
+            postVideoLoading.visibility = if (activeVideoHolder == holder &&
+                player?.playbackState == Player.STATE_BUFFERING
+            ) View.VISIBLE else View.GONE
             btnMuteVideo.visibility = View.VISIBLE
             btnMuteVideo.setImageResource(
                 if (holder.isMuted) R.drawable.ic_volume_muted else R.drawable.ic_volume_up,
@@ -315,7 +333,7 @@ class FeedAdapter(
             btnMuteVideo.setOnClickListener {
                 holder.isMuted = !holder.isMuted
                 val volume = if (holder.isMuted) 0f else 1f
-                holder.player?.setVolume(volume, volume)
+                if (activeVideoHolder == holder) player?.volume = volume
                 btnMuteVideo.setImageResource(
                     if (holder.isMuted) R.drawable.ic_volume_muted else R.drawable.ic_volume_up,
                 )
@@ -323,45 +341,83 @@ class FeedAdapter(
                     if (holder.isMuted) R.string.unmute_video else R.string.mute_video,
                 )
             }
-            postMediaVideo.setOnPreparedListener { player ->
-                holder.player = player
-                holder.videoPrepared = true
-                player.isLooping = true
-                val volume = if (holder.isMuted) 0f else 1f
-                player.setVolume(volume, volume)
-                if (holder.boundPost?.videoUrl == videoUrl) {
-                    postMediaImage.visibility = View.GONE
-                    postMediaVideo.visibility = View.VISIBLE
-                    updateVisibleVideoPlayback()
-                }
-            }
-            postMediaVideo.setOnErrorListener { _, what, extra ->
-                Log.w(TAG, "Post video playback failed ($what/$extra).")
-                holder.videoPrepared = false
-                holder.player = null
-                postMediaVideo.visibility = View.GONE
-                postMediaImage.visibility = View.VISIBLE
-                true
-            }
-            if (isNewSource) {
-                pauseVideo(holder)
-                postMediaVideo.stopPlayback()
-                holder.player = null
-                holder.videoPrepared = false
-                holder.videoSource = videoUrl
-                postMediaVideo.setVideoURI(uri)
-            }
+            btnRetryVideo.setOnClickListener { startVideo(holder, retry = true) }
+            if (isNewSource) holder.videoSource = videoUrl
             postMediaFrame.post { updateVisibleVideoPlayback() }
         }
     }
 
-    private fun startVideo(holder: PostViewHolder) {
-        if (holder.boundPost?.videoUrl.isNullOrBlank() || holder.player == null) return
-        if (!holder.binding.postMediaVideo.isPlaying) holder.binding.postMediaVideo.start()
+    private fun startVideo(holder: PostViewHolder, retry: Boolean = false) {
+        val post = holder.boundPost ?: return
+        val videoUrl = post.videoUrl?.takeIf(String::isNotBlank) ?: return
+        val context = holder.itemView.context
+        val exoPlayer = player ?: ExoPlayer.Builder(context).build().also { created ->
+            created.repeatMode = Player.REPEAT_MODE_ONE
+            created.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    updateActiveVideoState(playbackState)
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.w(TAG, "Post video playback failed.", error)
+                    activeVideoHolder?.let { active ->
+                        active.binding.postVideoLoading.visibility = View.GONE
+                        active.binding.postMediaVideo.visibility = View.INVISIBLE
+                        active.binding.postMediaImage.visibility = View.VISIBLE
+                        active.binding.postVideoError.visibility = View.VISIBLE
+                    }
+                }
+            })
+            player = created
+        }
+
+        if (activeVideoHolder != holder) {
+            activeVideoHolder?.binding?.postMediaVideo?.player = null
+            holder.binding.postMediaVideo.player = exoPlayer
+            activeVideoHolder = holder
+        }
+        exoPlayer.volume = if (holder.isMuted) 0f else 1f
+        val shouldReload = retry || activeContentKey != post.contentKey ||
+            exoPlayer.playerError != null || holder.videoSource != videoUrl
+        if (shouldReload) {
+            activeContentKey = post.contentKey
+            holder.videoSource = videoUrl
+            holder.videoHasFrame = false
+            holder.binding.postVideoError.visibility = View.GONE
+            holder.binding.postMediaVideo.visibility = View.INVISIBLE
+            holder.binding.postMediaImage.visibility = View.VISIBLE
+            exoPlayer.setMediaItem(MediaItem.fromUri(videoUrl))
+            exoPlayer.prepare()
+        }
+        exoPlayer.playWhenReady = true
     }
 
     private fun pauseVideo(holder: PostViewHolder) {
-        if (holder.binding.postMediaVideo.isPlaying) holder.binding.postMediaVideo.pause()
+        if (activeVideoHolder != holder) return
+        player?.pause()
+        holder.binding.postMediaVideo.player = null
+        holder.binding.postVideoLoading.visibility = View.GONE
+        activeVideoHolder = null
+    }
+
+    private fun updateActiveVideoState(playbackState: Int) {
+        val holder = activeVideoHolder ?: return
+        val binding = holder.binding
+        when (playbackState) {
+            Player.STATE_BUFFERING -> {
+                binding.postVideoLoading.visibility = View.VISIBLE
+                binding.postVideoError.visibility = View.GONE
+            }
+            Player.STATE_READY -> {
+                holder.videoHasFrame = true
+                binding.postVideoLoading.visibility = View.GONE
+                binding.postVideoError.visibility = View.GONE
+                binding.postMediaImage.visibility = View.GONE
+                binding.postMediaVideo.visibility = View.VISIBLE
+            }
+            Player.STATE_IDLE -> binding.postVideoLoading.visibility = View.GONE
+            Player.STATE_ENDED -> player?.seekToDefaultPosition()
+        }
     }
 
     private fun updateLikeButton(binding: ItemPostBinding, isLiked: Boolean) {

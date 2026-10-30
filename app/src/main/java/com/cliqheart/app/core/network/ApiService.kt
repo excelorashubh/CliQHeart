@@ -103,6 +103,10 @@ data class PostCreateRequest(
     val mediaId: String,
     val caption: String,
 )
+data class StoryCreateRequest(
+    val mediaId: String,
+    val caption: String = "",
+)
 data class PostOwnerResponse(
     val id: String? = null,
     val username: String? = null,
@@ -137,11 +141,35 @@ data class PostEnvelope(val post: PostResponse? = null)
 data class StoryResponse(
     val id: String? = null,
     val caption: String? = null,
+    val expiresAt: String? = null,
     val owner: PostOwnerResponse? = null,
     val media: PostMediaResponse? = null,
 )
 data class StoriesResponse(val stories: List<StoryResponse> = emptyList())
 data class StoryEnvelope(val story: StoryResponse? = null)
+data class CommentAuthorResponse(
+    val id: String? = null,
+    val username: String? = null,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+)
+data class CommentResponse(
+    val id: String? = null,
+    val text: String? = null,
+    val createdAt: String? = null,
+    val likeCount: Int? = null,
+    val isLiked: Boolean? = null,
+    val author: CommentAuthorResponse? = null,
+)
+data class CommentsResponse(
+    val comments: List<CommentResponse> = emptyList(),
+    val nextCursor: String? = null,
+)
+data class CommentCreateRequest(val text: String)
+data class CommentEnvelope(
+    val comment: CommentResponse? = null,
+    val commentCount: Int? = null,
+)
 data class StoryViewResponse(
     val viewCount: Int? = null,
     val isLiked: Boolean? = null,
@@ -260,6 +288,24 @@ interface ApiService {
 
     @GET("stories")
     suspend fun getStories(): Response<StoriesResponse>
+
+    @POST("stories")
+    suspend fun createStory(@Body request: StoryCreateRequest): Response<StoryEnvelope>
+
+    @GET("{collection}/{contentId}/comments")
+    suspend fun getComments(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+        @Query("limit") limit: Int = 20,
+        @Query("after") after: String? = null,
+    ): Response<CommentsResponse>
+
+    @POST("{collection}/{contentId}/comments")
+    suspend fun createComment(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+        @Body request: CommentCreateRequest,
+    ): Response<CommentEnvelope>
 
     @GET("stories/{storyId}")
     suspend fun getStory(@Path("storyId") storyId: String): Response<StoryEnvelope>

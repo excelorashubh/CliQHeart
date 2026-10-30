@@ -90,11 +90,48 @@
             android:scaleType="fitCenter"
             android:src="@drawable/bg_media_placeholder" />
 
-        <VideoView
+        <androidx.media3.ui.PlayerView
             android:id="@+id/post_media_video"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:visibility="invisible"
+            app:resize_mode="fit"
+            app:surface_type="texture_view"
+            app:use_controller="false" />
+
+        <ProgressBar
+            android:id="@+id/post_video_loading"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/white"
             android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/post_video_error"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:background="#99000000"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/video_playback_failed"
+                android:textColor="@color/white"
+                android:textSize="14sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_retry_video"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="@string/retry"
+                android:textColor="@color/white"
+                android:textAllCaps="false" />
+        </LinearLayout>
 
         <ImageButton
             android:id="@+id/btn_mute_video"
