@@ -43,6 +43,8 @@
     <string name="signup_subtitle">Create a new account to start sharing.</string>
     <string name="home">Home</string>
     <string name="discover">Discover</string>
+    <string name="reels">Reels</string>
+    <string name="search">Search</string>
     <string name="create">Create</string>
     <string name="activity">Activity</string>
     <string name="likes">Likes</string>
@@ -159,6 +161,6 @@
     <string name="story_load_failed">Could not load story.</string>
     <string name="story_media_unavailable">Story media unavailable.</string>
     <string name="username_at">@%1$s</string>
-    <string name="reposts_count">%1$d reposts</string>
+    <string name="reposts_count">%1$s reposts</string>
     <string name="story_by_user">Story by %1$s</string>
 </resources>

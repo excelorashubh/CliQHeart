@@ -40,7 +40,7 @@ class SplashFragment : Fragment() {
         restoring = true
         binding.splashProgress.visibility = View.VISIBLE
         viewLifecycleOwner.lifecycleScope.launch {
-            val store = SecureTokenStore(requireContext())
+            val store = SecureTokenStore(requireContext().applicationContext)
             try {
                 val saved = store.readSession()
                 val pendingRevocation = saved?.pendingRevocationToken
@@ -51,16 +51,18 @@ class SplashFragment : Fragment() {
                     } catch (exception: CancellationException) {
                         throw exception
                     } catch (_: Exception) {
-                        // Keep the encrypted pending token for the next launch.
+                        // Keep the pending token for the next launch attempt.
                     }
                 }
 
                 var session = store.readSession()
-                if (session?.refreshToken.isNullOrBlank()) {
+                val refreshToken = session?.refreshToken
+                if (refreshToken.isNullOrBlank()) {
                     showWelcome()
                     return@launch
                 }
-                val refresh = ApiClient.service.refresh(RefreshRequest(requireNotNull(session?.refreshToken)))
+
+                val refresh = ApiClient.service.refresh(RefreshRequest(refreshToken))
                 val tokens = refresh.body()
                 if (!refresh.isSuccessful || tokens?.accessToken.isNullOrBlank() || tokens?.refreshToken.isNullOrBlank()) {
                     if (refresh.code() == 401 || refresh.code() == 403) {
@@ -71,22 +73,25 @@ class SplashFragment : Fragment() {
                     }
                     return@launch
                 }
-                store.saveSession(
-                    requireNotNull(tokens.accessToken),
-                    requireNotNull(tokens.refreshToken),
-                    tokens.user ?: session?.currentUser,
-                )
+
+                val newAccess = tokens?.accessToken
+                val newRefresh = tokens?.refreshToken
+                if (newAccess.isNullOrBlank() || newRefresh.isNullOrBlank()) {
+                    store.clear()
+                    showWelcome()
+                    return@launch
+                }
+
+                store.saveSession(newAccess, newRefresh, tokens?.user ?: session?.currentUser)
                 session = store.readSession()
 
                 val response = ApiClient.service.getMyProfile()
                 if (response.isSuccessful && response.body()?.user != null) {
                     val current = store.readSession() ?: session
-                    store.saveSession(
-                        requireNotNull(current?.accessToken),
-                        requireNotNull(current.refreshToken),
-                        response.body()?.user,
-                    )
-                    findNavController().navigate(R.id.action_splash_to_mainShell)
+                    val validAccess = current?.accessToken ?: newAccess
+                    val validRefresh = current?.refreshToken ?: newRefresh
+                    store.saveSession(validAccess, validRefresh, response.body()?.user)
+                    showMainShell()
                 } else if (response.code() == 401 || response.code() == 403) {
                     store.clear()
                     showWelcome()
@@ -104,12 +109,23 @@ class SplashFragment : Fragment() {
     }
 
     private fun showWelcome() {
-        if (_binding == null) return
-        findNavController().navigate(R.id.action_splash_to_welcome)
+        if (_binding == null || !isAdded) return
+        val navController = findNavController()
+        if (navController.currentDestination?.id == R.id.splashFragment) {
+            navController.navigate(R.id.action_splash_to_welcome)
+        }
+    }
+
+    private fun showMainShell() {
+        if (_binding == null || !isAdded) return
+        val navController = findNavController()
+        if (navController.currentDestination?.id == R.id.splashFragment) {
+            navController.navigate(R.id.action_splash_to_mainShell)
+        }
     }
 
     private fun showRetry() {
-        if (_binding == null) return
+        if (_binding == null || !isAdded) return
         binding.splashProgress.visibility = View.GONE
         binding.splashFooter.text = getString(R.string.session_restore_failed)
         Snackbar.make(binding.root, R.string.session_restore_failed, Snackbar.LENGTH_INDEFINITE)

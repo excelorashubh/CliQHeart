@@ -4,7 +4,7 @@ import { NotificationModel } from '../notifications/notification.model';
 import { FollowModel } from './follow.model';
 import { recordProfessionalEvent } from '../professional/professional.service';
 import { ConversationModel } from '../messages/conversation.model';
-import { emitConversationCreated } from '../messages/realtime';
+import { emitConversationCreated, emitNotificationUnreadCount } from '../messages/realtime';
 
 export interface FollowMutationDependencies {
   startSession: () => Promise<ClientSession>;
@@ -20,7 +20,8 @@ export interface FollowMutationDependencies {
     actorId: string,
     createdId: string,
     session: ClientSession,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
+  publishNotificationUnreadCount?: (recipientId: string) => Promise<void>;
   recordRelationshipEvent?: (
     ownerId: string,
     viewerId: string,
@@ -65,7 +66,7 @@ const defaultDependencies: FollowMutationDependencies = {
     return deleted ? String(deleted._id) : undefined;
   },
   createFollowNotification: async (recipientId, actorId, createdId, session) => {
-    await NotificationModel.updateOne(
+    const result = await NotificationModel.updateOne(
       { deduplicationKey: `follow:${createdId}` },
       {
         $setOnInsert: {
@@ -77,6 +78,14 @@ const defaultDependencies: FollowMutationDependencies = {
       },
       { upsert: true, session },
     );
+    return result.upsertedCount > 0;
+  },
+  publishNotificationUnreadCount: async (recipientId) => {
+    const unreadCount = await NotificationModel.countDocuments({
+      recipientId,
+      readAt: { $exists: false },
+    });
+    emitNotificationUnreadCount(recipientId, unreadCount);
   },
   recordRelationshipEvent: (ownerId, viewerId, eventType, mutationKey) =>
     recordProfessionalEvent(ownerId, viewerId, eventType, undefined, mutationKey),
@@ -117,6 +126,7 @@ export async function changeFollowRelationship(
   let relationshipEvent:
     | { ownerId: string; viewerId: string; eventType: 'follow' | 'unfollow'; mutationKey: string }
     | undefined;
+  let notificationRecipientId: string | undefined;
   let createdConversation:
     | { conversationId: string; firstUserId: string; secondUserId: string }
     | undefined;
@@ -129,7 +139,9 @@ export async function changeFollowRelationship(
       if (following) {
         const result = await dependencies.createFollow(followerId, followedId, session);
         if (result.createdId) {
-          await dependencies.createFollowNotification(followedId, followerId, result.createdId, session);
+          if (await dependencies.createFollowNotification(followedId, followerId, result.createdId, session)) {
+            notificationRecipientId = followedId;
+          }
           relationshipEvent = {
             ownerId: followedId,
             viewerId: followerId,
@@ -167,6 +179,16 @@ export async function changeFollowRelationship(
         createdConversation.firstUserId,
         createdConversation.secondUserId,
       );
+    }
+    if (notificationRecipientId && dependencies.publishNotificationUnreadCount) {
+      try {
+        await dependencies.publishNotificationUnreadCount(notificationRecipientId);
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'notification_unread_publish_failed',
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        }));
+      }
     }
     if (relationshipEvent && dependencies.recordRelationshipEvent) {
       try {

@@ -269,6 +269,11 @@ interface ApiService {
     @GET("conversations/{conversationId}/messages")
     suspend fun getMessages(@Path("conversationId") conversationId: String): Response<MessagesResponse>
 
+    @PATCH("conversations/{conversationId}/read")
+    suspend fun markConversationRead(
+        @Path("conversationId") conversationId: String,
+    ): Response<Unit>
+
     @POST("conversations/{conversationId}/messages")
     suspend fun sendMessage(
         @Path("conversationId") conversationId: String,

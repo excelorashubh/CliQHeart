@@ -20,6 +20,7 @@ test('concurrent duplicate follows create one relationship and one notification'
   const activeUsers = new Set(['follower', 'target']);
   const relationships = new Set<string>();
   const notifications: string[] = [];
+  const publishedNotificationCounts: string[] = [];
   const session = createSession();
   let generatedId = 0;
   const dependencies: FollowMutationDependencies = {
@@ -37,6 +38,10 @@ test('concurrent duplicate follows create one relationship and one notification'
     },
     createFollowNotification: async (_recipientId, _actorId, createdId) => {
       notifications.push(createdId);
+      return true;
+    },
+    publishNotificationUnreadCount: async (recipientId) => {
+      publishedNotificationCounts.push(recipientId);
     },
   };
 
@@ -47,6 +52,7 @@ test('concurrent duplicate follows create one relationship and one notification'
 
   assert.deepEqual([...relationships], ['follower:target']);
   assert.deepEqual(notifications, ['edge-1']);
+  assert.deepEqual(publishedNotificationCounts, ['target']);
   assert.equal(session.ended(), true);
 });
 
@@ -63,7 +69,7 @@ test('follow rechecks active accounts while acquiring transaction locks', async 
       return { createdId: 'edge-id' };
     },
     deleteFollow: async () => {},
-    createFollowNotification: async () => { notificationCreated = true; },
+    createFollowNotification: async () => { notificationCreated = true; return true; },
   };
   targetActive = false;
 
@@ -96,7 +102,7 @@ function mutualFollowHarness() {
       relationships.delete(pair);
       return pair;
     },
-    createFollowNotification: async () => {},
+    createFollowNotification: async () => false,
     ensureMutualConversation: async (firstUserId, secondUserId) => {
       if (!relationships.has(`${secondUserId}:${firstUserId}`)) return undefined;
       const pair = [firstUserId, secondUserId].sort().join(':');

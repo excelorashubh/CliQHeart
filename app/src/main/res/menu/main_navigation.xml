@@ -2,20 +2,20 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:id="@+id/homeTab"
-        android:icon="@drawable/ic_cliqheart"
+        android:icon="@drawable/ic_home"
         android:title="@string/home" />
     <item
-        android:id="@+id/discoverTab"
+        android:id="@+id/reelsTab"
+        android:icon="@drawable/ic_reels"
+        android:title="@string/reels" />
+    <item
+        android:id="@+id/messagesTab"
+        android:icon="@drawable/ic_messages"
+        android:title="@string/messages" />
+    <item
+        android:id="@+id/searchTab"
         android:icon="@drawable/ic_discover"
-        android:title="@string/discover" />
-    <item
-        android:id="@+id/createTab"
-        android:icon="@drawable/ic_create"
-        android:title="@string/create" />
-    <item
-        android:id="@+id/activityTab"
-        android:icon="@drawable/ic_heart_selected"
-        android:title="@string/likes" />
+        android:title="@string/search" />
     <item
         android:id="@+id/profileTab"
         android:icon="@drawable/ic_profile"

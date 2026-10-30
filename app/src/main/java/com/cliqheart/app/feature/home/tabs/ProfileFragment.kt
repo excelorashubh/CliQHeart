@@ -118,6 +118,10 @@ class ProfileFragment : Fragment() {
 
     private fun showProfile(user: UserResponse) {
         currentProfile = user
+        if (isOwnProfile) {
+            (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)
+                ?.updateProfileAvatar(user.avatarUrl)
+        }
         binding.profileUsernameTitle.text = user.username?.let { "@$it" }.orEmpty()
         binding.profileDisplayName.text = user.displayName.orEmpty()
         binding.profileBio.text = user.bio.orEmpty()

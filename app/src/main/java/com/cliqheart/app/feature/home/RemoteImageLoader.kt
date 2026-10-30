@@ -34,26 +34,42 @@ object RemoteImageLoader {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
-    fun load(imageView: ImageView, imageUrl: String?, @DrawableRes placeholder: Int) {
+    fun load(
+        imageView: ImageView,
+        imageUrl: String?,
+        @DrawableRes placeholder: Int,
+        onImageLoaded: ((Bitmap?) -> Unit)? = null,
+    ) {
         imageView.setImageResource(placeholder)
         imageView.tag = imageUrl
-        val uri = imageUrl?.let(Uri::parse) ?: return
-        if (uri.scheme != "https" || uri.host.isNullOrBlank()) return
+        val uri = imageUrl?.let(Uri::parse)
+        if (uri == null || uri.scheme != "https" || uri.host.isNullOrBlank()) {
+            onImageLoaded?.invoke(null)
+            return
+        }
+        val validImageUrl: String = imageUrl
 
-        synchronized(bitmapCache) { bitmapCache.get(imageUrl) }?.let {
+        synchronized(bitmapCache) { bitmapCache.get(validImageUrl) }?.let {
             imageView.setImageBitmap(it)
+            onImageLoaded?.invoke(it)
             return
         }
 
         executor.execute {
+            var loadedBitmap: Bitmap? = null
             try {
-                val bitmap = download(imageUrl) ?: return@execute
-                synchronized(bitmapCache) { bitmapCache.put(imageUrl, bitmap) }
-                mainHandler.post {
-                    if (imageView.tag == imageUrl) imageView.setImageBitmap(bitmap)
+                loadedBitmap = download(validImageUrl)
+                loadedBitmap?.let { bitmap ->
+                    synchronized(bitmapCache) { bitmapCache.put(validImageUrl, bitmap) }
                 }
             } catch (error: IOException) {
                 Log.w(TAG, "Could not load remote image.", error)
+            }
+            mainHandler.post {
+                if (imageView.tag == validImageUrl) {
+                    loadedBitmap?.let(imageView::setImageBitmap)
+                    onImageLoaded?.invoke(loadedBitmap)
+                }
             }
         }
     }

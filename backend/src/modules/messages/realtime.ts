@@ -27,6 +27,7 @@ type ServerToClientEvents = {
   'typing:start': (payload: { conversationId: string; userId: string }) => void;
   'typing:stop': (payload: { conversationId: string; userId: string }) => void;
   'unread:update': (payload: { count: number }) => void;
+  'notification:unread': (payload: { count: number }) => void;
   'content:engagement': (payload: ContentEngagementEvent) => void;
 };
 
@@ -53,6 +54,7 @@ type ServerEventPayloads = {
   'typing:start': { conversationId: string; userId: string };
   'typing:stop': { conversationId: string; userId: string };
   'unread:update': { count: number };
+  'notification:unread': { count: number };
   'content:engagement': ContentEngagementEvent;
 };
 
@@ -272,6 +274,9 @@ export function emitToUser<K extends keyof ServerToClientEvents>(
     case 'unread:update':
       target.emit('unread:update', payload as ServerEventPayloads['unread:update']);
       break;
+    case 'notification:unread':
+      target.emit('notification:unread', payload as ServerEventPayloads['notification:unread']);
+      break;
   }
 }
 
@@ -292,6 +297,10 @@ export function emitConversationCreated(conversationId: string, firstUserId: str
 
 export function emitUnreadCount(userId: string, count: number): void {
   emitToUser(userId, 'unread:update', { count });
+}
+
+export function emitNotificationUnreadCount(userId: string, count: number): void {
+  emitToUser(userId, 'notification:unread', { count });
 }
 
 export function emitContentEngagement(payload: ContentEngagementEvent): void {

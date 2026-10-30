@@ -6,7 +6,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.util.Log
-import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -67,6 +66,8 @@ class HomeFeedFragment : Fragment() {
     private var storyItems: List<StoryModel> = emptyList()
     private var realtimeSocket: Socket? = null
     private var refreshingSocketAuth = false
+    private var notificationBadgeRevision = 0L
+    private var messageBadgeRevision = 0L
     private val processedEngagementEventIds = LinkedHashSet<String>()
 
     override fun onCreateView(
@@ -86,12 +87,11 @@ class HomeFeedFragment : Fragment() {
             loadPosts(refresh = true)
             loadUnreadBadges()
         }
+        binding.btnHeaderCreate.setOnClickListener {
+            (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)?.openCreate()
+        }
         binding.btnHeaderNotifications.setOnClickListener {
             (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)?.openActivity()
-        }
-
-        binding.btnHeaderMessages.setOnClickListener {
-            findNavController().navigate(R.id.messagesFragment)
         }
 
         parentFragmentManager.setFragmentResultListener(
@@ -120,7 +120,6 @@ class HomeFeedFragment : Fragment() {
 
         loadPosts(refresh = true)
         loadStories()
-        loadUnreadBadges()
     }
 
     private fun setupFeed() {
@@ -176,10 +175,27 @@ class HomeFeedFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         loadStories()
+        loadUnreadBadges()
         connectRealtime()
         bindingOrNull()?.feedRecyclerView?.post {
             feedAdapter?.updateVisibleVideoPlayback()
         }
+    }
+
+    fun onTabSelected() {
+        loadUnreadBadges()
+        connectRealtime()
+        bindingOrNull()?.feedRecyclerView?.post {
+            feedAdapter?.updateVisibleVideoPlayback()
+        }
+    }
+
+    fun pauseFeedPlayback() {
+        feedAdapter?.pauseVideos()
+    }
+
+    fun refreshUnreadCounts() {
+        if (_binding != null) loadUnreadBadges()
     }
 
     private fun loadPosts(refresh: Boolean) {
@@ -566,7 +582,31 @@ class HomeFeedFragment : Fragment() {
             realtimeSocket = socket
             socket.on(Socket.EVENT_CONNECT) {
                 runOnMainThread {
-                    if (realtimeSocket === socket) synchronizeEngagement()
+                    if (realtimeSocket === socket) {
+                        synchronizeEngagement()
+                        loadUnreadBadges()
+                    }
+                }
+            }
+            socket.on("unread:update") { arguments ->
+                val payload = arguments.firstOrNull() as? JSONObject ?: return@on
+                val count = payload.nonNegativeCount("count") ?: return@on
+                runOnMainThread {
+                    if (realtimeSocket === socket) {
+                        (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)
+                            ?.updateMessagesUnreadCount(count)
+                        messageBadgeRevision += 1
+                    }
+                }
+            }
+            socket.on("notification:unread") { arguments ->
+                val payload = arguments.firstOrNull() as? JSONObject ?: return@on
+                val count = payload.nonNegativeCount("count") ?: return@on
+                runOnMainThread {
+                    if (realtimeSocket === socket) {
+                        notificationBadgeRevision += 1
+                        updateNotificationUnreadCount(count)
+                    }
                 }
             }
             socket.on("content:engagement") { arguments ->
@@ -706,19 +746,33 @@ class HomeFeedFragment : Fragment() {
     }
 
     private fun loadUnreadBadges() {
-        loadUnreadBadge(binding.notificationsBadge, binding.btnHeaderNotifications, "notifications") {
-            ApiClient.service.getUnreadNotificationCount()
+        val notificationRequestRevision = ++notificationBadgeRevision
+        loadUnreadBadge(
+            getString(R.string.notifications),
+            notificationRequestRevision,
+            { notificationBadgeRevision },
+            ApiClient.service::getUnreadNotificationCount,
+        ) {
+            updateNotificationUnreadCount(it)
         }
-        loadUnreadBadge(binding.messagesBadge, binding.btnHeaderMessages, "messages") {
-            ApiClient.service.getUnreadMessageCount()
+        val messageRequestRevision = ++messageBadgeRevision
+        loadUnreadBadge(
+            getString(R.string.messages),
+            messageRequestRevision,
+            { messageBadgeRevision },
+            ApiClient.service::getUnreadMessageCount,
+        ) { count ->
+            (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)
+                ?.updateMessagesUnreadCount(count)
         }
     }
 
     private fun loadUnreadBadge(
-        badge: TextView,
-        actionButton: View,
         label: String,
+        requestRevision: Long,
+        currentRevision: () -> Long,
         request: suspend () -> Response<UnreadCountResponse>,
+        updateCount: (Int) -> Unit,
     ) {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -728,21 +782,33 @@ class HomeFeedFragment : Fragment() {
                 }
                 val count = response.body()?.unreadCount
                     ?: throw IOException(getString(R.string.unread_count_failed))
-                if (_binding == null) return@launch
-                if (count > 0) {
-                    badge.text = if (count > MAX_BADGE_COUNT) "$MAX_BADGE_COUNT+" else count.toString()
-                    badge.visibility = View.VISIBLE
-                    actionButton.contentDescription =
-                        getString(R.string.unread_action_label, label, count)
-                } else {
-                    badge.visibility = View.GONE
-                    actionButton.contentDescription = label
-                }
+                if (count < 0) throw IOException(getString(R.string.unread_count_failed))
+                if (_binding == null || requestRevision != currentRevision()) return@launch
+                updateCount(count)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
                 Log.w(TAG, "Could not load $label unread count.", exception)
             }
+        }
+    }
+
+    private fun updateNotificationUnreadCount(count: Int) {
+        val currentBinding = _binding ?: return
+        val unreadCount = count.coerceAtLeast(0)
+        if (unreadCount > 0) {
+            currentBinding.notificationsBadge.text =
+                if (unreadCount > MAX_BADGE_COUNT) "$MAX_BADGE_COUNT+" else unreadCount.toString()
+            currentBinding.notificationsBadge.visibility = View.VISIBLE
+            currentBinding.btnHeaderNotifications.contentDescription = getString(
+                R.string.unread_action_label,
+                getString(R.string.notifications),
+                unreadCount,
+            )
+        } else {
+            currentBinding.notificationsBadge.visibility = View.GONE
+            currentBinding.btnHeaderNotifications.contentDescription =
+                getString(R.string.notifications)
         }
     }
 

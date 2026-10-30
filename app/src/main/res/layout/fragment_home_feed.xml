@@ -34,6 +34,15 @@
             android:textSize="22sp"
             android:textStyle="bold" />
 
+        <ImageButton
+            android:id="@+id/btn_header_create"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/create"
+            android:src="@drawable/ic_create"
+            app:tint="@color/heart_text" />
+
         <FrameLayout
             android:layout_width="48dp"
             android:layout_height="48dp">
@@ -49,42 +58,20 @@
 
             <TextView
                 android:id="@+id/notifications_badge"
-                android:layout_width="18dp"
+                android:layout_width="wrap_content"
                 android:layout_height="18dp"
                 android:layout_gravity="top|end"
                 android:background="@drawable/bg_notification_badge"
                 android:gravity="center"
+                android:minWidth="18dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:textColor="@color/white"
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
         </FrameLayout>
 
-        <FrameLayout
-            android:layout_width="48dp"
-            android:layout_height="48dp">
-
-            <ImageButton
-                android:id="@+id/btn_header_messages"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/messages"
-                android:src="@drawable/ic_messages"
-                app:tint="@color/heart_text" />
-
-            <TextView
-                android:id="@+id/messages_badge"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:layout_gravity="top|end"
-                android:background="@drawable/bg_notification_badge"
-                android:gravity="center"
-                android:textColor="@color/white"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-        </FrameLayout>
     </LinearLayout>
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout

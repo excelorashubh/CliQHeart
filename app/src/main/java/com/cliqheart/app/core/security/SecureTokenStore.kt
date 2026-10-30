@@ -79,32 +79,29 @@ class SecureTokenStore(context: Context) {
     }
 
     fun readSession(): SessionPayload? {
-        val payloadJson = read() ?: return null
+        val payloadJson = runCatching { read() }.getOrNull() ?: return null
         return runCatching { gson.fromJson(payloadJson, SessionPayload::class.java) }.getOrNull()
     }
 
     fun save(token: String) {
         require(token.isNotBlank()) { "Token must not be blank." }
 
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-        val ciphertext = cipher.doFinal(token.toByteArray(StandardCharsets.UTF_8))
-        val saved = preferences.edit()
-            .putString(IV_KEY, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .putString(TOKEN_KEY, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
-            .commit()
-
-        check(saved) { "Could not save the encrypted token." }
+        runCatching {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+            val ciphertext = cipher.doFinal(token.toByteArray(StandardCharsets.UTF_8))
+            preferences.edit()
+                .putString(IV_KEY, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+                .putString(TOKEN_KEY, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+                .apply()
+        }
     }
 
-    fun read(): String? {
+    fun read(): String? = runCatching {
         val encodedIv = preferences.getString(IV_KEY, null)
         val encodedToken = preferences.getString(TOKEN_KEY, null)
-        if (encodedIv == null && encodedToken == null) {
+        if (encodedIv.isNullOrBlank() || encodedToken.isNullOrBlank()) {
             return null
-        }
-        check(encodedIv != null && encodedToken != null) {
-            "Encrypted token storage is incomplete."
         }
 
         val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -114,13 +111,14 @@ class SecureTokenStore(context: Context) {
             GCMParameterSpec(GCM_TAG_SIZE_BITS, Base64.decode(encodedIv, Base64.NO_WRAP)),
         )
         val token = cipher.doFinal(Base64.decode(encodedToken, Base64.NO_WRAP))
-        return String(token, StandardCharsets.UTF_8)
+        String(token, StandardCharsets.UTF_8)
+    }.getOrElse {
+        preferences.edit().clear().apply()
+        null
     }
 
     fun clear() {
-        check(preferences.edit().clear().commit()) {
-            "Could not clear the encrypted token."
-        }
+        runCatching { preferences.edit().clear().apply() }
     }
 
     private fun getOrCreateKey(): SecretKey {

@@ -7,6 +7,7 @@ import { PostModel } from '../content/post.model';
 import { ReelModel } from '../content/reel.model';
 import { requireAccessToken, type AuthenticatedRequest } from '../auth/require-access-token';
 import { NotificationModel } from './notification.model';
+import { emitNotificationUnreadCount } from '../messages/realtime';
 
 export function createNotificationRouter(config: AppConfig): Router {
   const router = Router();
@@ -88,10 +89,12 @@ export function createNotificationRouter(config: AppConfig): Router {
 
   router.patch('/notifications/read-all', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
+      const recipientId = authenticatedUserId(request);
       await NotificationModel.updateMany(
-        { recipientId: authenticatedUserId(request), readAt: { $exists: false } },
+        { recipientId, readAt: { $exists: false } },
         { $set: { readAt: new Date() } },
       );
+      await publishUnreadCount(recipientId);
       response.json({ read: true });
     } catch (error) {
       next(error);
@@ -105,8 +108,9 @@ export function createNotificationRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid notification ID.' });
         return;
       }
+      const recipientId = authenticatedUserId(request);
       const notification = await NotificationModel.findOneAndUpdate(
-        { _id: notificationId, recipientId: authenticatedUserId(request) },
+        { _id: notificationId, recipientId },
         { $set: { readAt: new Date() } },
         { new: true },
       ).select('_id');
@@ -114,6 +118,7 @@ export function createNotificationRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'Notification not found.' });
         return;
       }
+      await publishUnreadCount(recipientId);
       response.json({ read: true });
     } catch (error) {
       next(error);
@@ -121,6 +126,21 @@ export function createNotificationRouter(config: AppConfig): Router {
   });
 
   return router;
+}
+
+async function publishUnreadCount(recipientId: string): Promise<void> {
+  try {
+    const unreadCount = await NotificationModel.countDocuments({
+      recipientId,
+      readAt: { $exists: false },
+    });
+    emitNotificationUnreadCount(recipientId, unreadCount);
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'notification_unread_publish_failed',
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    }));
+  }
 }
 
 function authenticatedUserId(request: Request): string {

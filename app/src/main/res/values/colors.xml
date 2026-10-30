@@ -15,4 +15,5 @@
     <color name="nav_item_unselected">#FF666666</color>
     <color name="nav_divider">#FFE5E5E5</color>
     <color name="nav_ripple">#33E94078</color>
+    <color name="badge_background">#FFC2185B</color>
 </resources>

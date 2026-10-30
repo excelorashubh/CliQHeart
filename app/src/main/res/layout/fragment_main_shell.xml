@@ -15,18 +15,18 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#E5E5E5" />
+        android:background="@color/nav_divider" />
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottom_navigation"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#FFFFFF"
+        android:background="@color/nav_background"
         android:elevation="8dp"
         app:itemActiveIndicatorStyle="@null"
         app:itemIconSize="24dp"
         app:itemIconTint="@color/nav_item_icon_tint"
-        app:itemTextColor="@color/nav_item_icon_tint"
+        app:itemTextColor="@color/nav_item_text_tint"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/main_navigation" />
 </LinearLayout>

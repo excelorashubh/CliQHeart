@@ -166,7 +166,7 @@
 
             <ImageButton
                 android:id="@+id/btn_like"
-                android:layout_width="48dp"
+                android:layout_width="44dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/like"
@@ -176,8 +176,8 @@
                 android:id="@+id/post_like_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:minWidth="24dp"
+                android:layout_marginEnd="2dp"
+                android:minWidth="20dp"
                 android:gravity="start|center_vertical"
                 android:textColor="@color/heart_text"
                 android:textSize="12sp"
@@ -192,7 +192,7 @@
 
             <ImageButton
                 android:id="@+id/btn_comment"
-                android:layout_width="48dp"
+                android:layout_width="44dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/comment"
@@ -203,8 +203,8 @@
                 android:id="@+id/post_comment_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:minWidth="24dp"
+                android:layout_marginEnd="2dp"
+                android:minWidth="20dp"
                 android:gravity="start|center_vertical"
                 android:textColor="@color/heart_text"
                 android:textSize="12sp"
@@ -219,7 +219,7 @@
 
             <ImageButton
                 android:id="@+id/btn_repost"
-                android:layout_width="48dp"
+                android:layout_width="44dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/repost"
@@ -230,8 +230,8 @@
                 android:id="@+id/post_repost_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:minWidth="24dp"
+                android:layout_marginEnd="2dp"
+                android:minWidth="20dp"
                 android:gravity="start|center_vertical"
                 android:textColor="@color/heart_text"
                 android:textSize="12sp"
@@ -240,7 +240,7 @@
 
         <ImageButton
             android:id="@+id/btn_share"
-            android:layout_width="48dp"
+            android:layout_width="44dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/share"

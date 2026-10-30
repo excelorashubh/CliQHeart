@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.util.Log
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -66,10 +67,26 @@ class ChatFragment : Fragment() {
                 adapter.submitMessages(messages)
                 binding.chatState.visibility = View.GONE
                 if (messages.isNotEmpty()) binding.messagesRecycler.scrollToPosition(messages.lastIndex)
+                markConversationRead(id)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
                 showFailure()
+            }
+        }
+    }
+
+    private fun markConversationRead(id: String) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val response = ApiClient.service.markConversationRead(id)
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Could not mark conversation as read (HTTP ${response.code()}).")
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Log.w(TAG, "Could not mark conversation as read.", exception)
             }
         }
     }
@@ -115,6 +132,7 @@ class ChatFragment : Fragment() {
     }
 
     private companion object {
+        const val TAG = "ChatFragment"
         const val ARG_CONVERSATION_ID = "conversationId"
     }
 }

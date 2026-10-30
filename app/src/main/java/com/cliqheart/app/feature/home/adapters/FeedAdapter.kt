@@ -2,6 +2,7 @@ package com.cliqheart.app.feature.home.adapters
 
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.Outline
 import android.graphics.Rect
 import android.net.Uri
 import android.text.SpannableString
@@ -13,6 +14,7 @@ import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.PopupMenu
 import androidx.core.view.doOnLayout
 import androidx.media3.common.MediaItem
@@ -163,6 +165,8 @@ class FeedAdapter(
 
             postAuthorName.text = post.authorName
             postAuthorUsername.text = context.getString(R.string.username_at, post.authorUsername)
+            postAuthorAvatar.outlineProvider = CIRCULAR_AVATAR_OUTLINE
+            postAuthorAvatar.clipToOutline = true
             RemoteImageLoader.load(postAuthorAvatar, post.authorAvatarUrl, R.drawable.ic_profile)
             RemoteImageLoader.load(postMediaImage, post.imageUrl, R.drawable.bg_media_placeholder)
             bindVideo(holder, post)
@@ -178,15 +182,15 @@ class FeedAdapter(
 
             postLikeCount.text = compactCount(post.likeCount)
             postLikeCount.contentDescription =
-                context.getString(R.string.likes_count, post.likeCount.toString())
+                context.getString(R.string.likes_count, compactCount(post.likeCount))
             postTimestamp.text = post.timestamp
             postCommentCount.text = compactCount(post.commentCount)
             postCommentCount.contentDescription =
-                context.getString(R.string.comments_count, post.commentCount.toString())
+                context.getString(R.string.comments_count, compactCount(post.commentCount))
             postCommentsPreview.text = context.getString(R.string.view_comments)
             postRepostCount.text = compactCount(post.repostCount)
             postRepostCount.contentDescription =
-                context.getString(R.string.reposts_count, post.repostCount.toString())
+                context.getString(R.string.reposts_count, compactCount(post.repostCount))
 
             val captionText = SpannableStringBuilder()
             val username = SpannableString(post.authorUsername + " ")
@@ -519,6 +523,12 @@ class FeedAdapter(
         const val TAG = "FeedAdapter"
         const val CAPTION_COLLAPSE_LENGTH = 160
         const val CAPTION_MAX_LINES = 3
+        val CIRCULAR_AVATAR_OUTLINE = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setOval(0, 0, view.width, view.height)
+            }
+        }
+
         const val VISIBLE_VIDEO_FRACTION = 0.6f
         const val MENU_SHARE = 1
         const val MENU_REPOST = 2
