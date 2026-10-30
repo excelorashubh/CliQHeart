@@ -2,15 +2,25 @@ package com.cliqheart.app.feature.home.models
 
 data class PostModel(
     val id: String,
+    val contentType: String = "post",
+    val authorId: String,
     val authorName: String,
     val authorUsername: String,
     val authorAvatarUrl: String,
     val location: String? = null,
     val imageUrl: String,
+    val videoUrl: String? = null,
+    val mediaWidth: Int? = null,
+    val mediaHeight: Int? = null,
+    val isFollowing: Boolean = false,
     val caption: String,
-    var likeCount: Int,
+    val likeCount: Int,
     val commentCount: Int,
-    var isLiked: Boolean = false,
-    var isBookmarked: Boolean = false,
+    val repostCount: Int = 0,
+    val isLiked: Boolean = false,
+    val isBookmarked: Boolean = false,
+    val isReposted: Boolean = false,
     val timestamp: String,
-)
+) {
+    val contentKey: String get() = "$contentType:$id"
+}

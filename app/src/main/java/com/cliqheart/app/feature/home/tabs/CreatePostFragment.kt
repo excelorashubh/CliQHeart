@@ -167,6 +167,7 @@ class CreatePostFragment : Fragment() {
                 binding.captionInput.text?.clear()
                 binding.createPreviewImage.setImageDrawable(null)
                 binding.selectPhotoPlaceholder.visibility = View.VISIBLE
+                parentFragmentManager.setFragmentResult(POST_PUBLISHED_REQUEST_KEY, Bundle.EMPTY)
                 Toast.makeText(requireContext(), R.string.post_share_success, Toast.LENGTH_LONG).show()
             } catch (error: Exception) {
                 if (error is CancellationException) {

@@ -10,7 +10,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#FFFFFF"
+        android:background="@color/heart_surface"
         android:elevation="1dp"
         android:gravity="center_vertical"
         android:minHeight="56dp"
@@ -34,24 +34,41 @@
             android:textSize="22sp"
             android:textStyle="bold" />
 
-        <ImageButton
-            android:id="@+id/btn_header_search"
+        <FrameLayout
             android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/discover"
-            android:src="@drawable/ic_discover" />
+            android:layout_height="48dp">
+
+            <ImageButton
+                android:id="@+id/btn_header_notifications"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/notifications"
+                android:src="@drawable/ic_activity" />
+
+            <TextView
+                android:id="@+id/notifications_badge"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="top|end"
+                android:background="@drawable/bg_notification_badge"
+                android:gravity="center"
+                android:textColor="@color/white"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <FrameLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content">
+            android:layout_width="48dp"
+            android:layout_height="48dp">
 
             <ImageButton
                 android:id="@+id/btn_header_messages"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Messages"
+                android:contentDescription="@string/messages"
                 android:src="@drawable/ic_messages" />
 
             <TextView
@@ -59,12 +76,12 @@
                 android:layout_width="18dp"
                 android:layout_height="18dp"
                 android:layout_gravity="top|end"
-                android:background="@drawable/bg_story_ring"
+                android:background="@drawable/bg_notification_badge"
                 android:gravity="center"
-                android:text="3"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/white"
                 android:textSize="10sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:visibility="gone" />
         </FrameLayout>
     </LinearLayout>
 
@@ -79,7 +96,8 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
-            android:paddingTop="8dp" />
+            android:paddingTop="4dp"
+            android:paddingBottom="12dp" />
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 </LinearLayout>

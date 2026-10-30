@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import com.cliqheart.app.R
 import com.cliqheart.app.databinding.FragmentMainShellBinding
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
@@ -41,24 +42,13 @@ class MainShellFragment : Fragment() {
         }
 
         binding.bottomNavigation.setOnItemSelectedListener { item ->
-            val fragment: Fragment = when (item.itemId) {
-                R.id.homeTab -> HomeFeedFragment()
-                R.id.discoverTab -> DiscoverFragment()
-                R.id.createTab -> CreatePostFragment()
-                R.id.activityTab -> ActivityFragment()
-                R.id.profileTab -> ProfileFragment()
-                else -> return@setOnItemSelectedListener false
-            }
-            switchTab(fragment)
+            if (!showTab(item.itemId)) return@setOnItemSelectedListener false
             true
         }
 
-        if (savedInstanceState == null) {
-            switchTab(HomeFeedFragment())
-        } else {
-            binding.bottomNavigation.selectedItemId =
-                savedInstanceState.getInt(SELECTED_TAB_KEY, R.id.homeTab)
-        }
+        val selectedTab = savedInstanceState?.getInt(SELECTED_TAB_KEY, R.id.homeTab) ?: R.id.homeTab
+        binding.bottomNavigation.selectedItemId = selectedTab
+        showTab(selectedTab)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -69,14 +59,38 @@ class MainShellFragment : Fragment() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun switchTab(fragment: Fragment) {
-        childFragmentManager.beginTransaction()
-            .replace(R.id.tab_container, fragment)
-            .commit()
+    private fun showTab(tabId: Int): Boolean {
+        val (tag, newFragment) = when (tabId) {
+            R.id.homeTab -> "home" to { HomeFeedFragment() }
+            R.id.discoverTab -> "discover" to { DiscoverFragment() }
+            R.id.createTab -> "create" to { CreatePostFragment() }
+            R.id.activityTab -> "activity" to { ActivityFragment() }
+            R.id.profileTab -> "profile" to { ProfileFragment() }
+            else -> return false
+        }
+        val manager = childFragmentManager
+        val fragment = manager.findFragmentByTag(tag) ?: newFragment()
+        manager.beginTransaction().apply {
+            manager.fragments.filter { it.isAdded }.forEach {
+                hide(it)
+                setMaxLifecycle(it, Lifecycle.State.STARTED)
+            }
+            if (fragment.isAdded) {
+                show(fragment)
+            } else {
+                add(R.id.tab_container, fragment, tag)
+            }
+            setMaxLifecycle(fragment, Lifecycle.State.RESUMED)
+        }.commit()
+        return true
     }
 
     fun openDiscover() {
         if (_binding != null) binding.bottomNavigation.selectedItemId = R.id.discoverTab
+    }
+
+    fun openActivity() {
+        if (_binding != null) binding.bottomNavigation.selectedItemId = R.id.activityTab
     }
 
     override fun onDestroyView() {

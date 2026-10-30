@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="#FFFFFF"
+    android:background="@color/heart_surface"
     android:orientation="vertical">
 
     <FrameLayout
@@ -15,7 +15,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:clipToPadding="false"
-            android:paddingTop="8dp"
+            android:paddingTop="10dp"
             android:paddingBottom="8dp"
             android:visibility="gone" />
 
@@ -34,13 +34,15 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#F0E8EC" />
+        android:background="@color/heart_outline" />
 
     <TextView
+        android:id="@+id/feed_state"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="24dp"
-        android:text="@string/posts_unavailable"
-        android:textColor="@color/heart_muted" />
+        android:text="@string/loading_posts"
+        android:textColor="@color/heart_muted"
+        android:visibility="visible" />
 </LinearLayout>

@@ -4,10 +4,10 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="16dp"
-    android:background="#FFFFFF"
+    android:background="@color/heart_surface"
     android:orientation="vertical">
 
-    <!-- Header: Avatar, Name, Location, Options -->
+    <!-- Header: Avatar, Name, Location, Follow, Options -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -17,9 +17,9 @@
 
         <ImageView
             android:id="@+id/post_author_avatar"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:contentDescription="@string/profile"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:contentDescription="@string/profile_picture"
             android:scaleType="centerCrop"
             android:src="@drawable/ic_profile" />
 
@@ -39,6 +39,13 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/post_author_username"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/heart_muted"
+                android:textSize="12sp" />
+
+            <TextView
                 android:id="@+id/post_location"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -47,12 +54,24 @@
                 android:visibility="gone" />
         </LinearLayout>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/post_follow_button"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginEnd="4dp"
+            android:minWidth="64dp"
+            android:text="@string/follow"
+            android:textAllCaps="false"
+            android:textColor="@color/heart_primary"
+            android:visibility="gone" />
+
         <ImageButton
             android:id="@+id/post_more_button"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="More options"
+            android:contentDescription="@string/more_options"
             android:src="@drawable/ic_more_vert" />
     </LinearLayout>
 
@@ -66,9 +85,29 @@
             android:id="@+id/post_media_image"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:contentDescription="Post media"
-            android:scaleType="centerCrop"
-            android:src="@drawable/ic_cliqheart_logo" />
+            android:contentDescription="@string/post_media"
+            android:background="@color/black"
+            android:scaleType="fitCenter"
+            android:src="@drawable/bg_media_placeholder" />
+
+        <VideoView
+            android:id="@+id/post_media_video"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/btn_mute_video"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="12dp"
+            android:background="@drawable/bg_video_control"
+            android:contentDescription="@string/unmute_video"
+            android:padding="10dp"
+            android:src="@drawable/ic_volume_muted"
+            app:tint="@color/white"
+            android:visibility="gone" />
     </FrameLayout>
 
     <!-- Action Bar: Like, Comment, Share, Bookmark -->
@@ -86,7 +125,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Like"
+            android:contentDescription="@string/like"
             android:src="@drawable/ic_heart_outline" />
 
         <ImageButton
@@ -94,18 +133,27 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Comment"
+            android:contentDescription="@string/comment"
             android:src="@drawable/ic_comment"
-            android:tint="@color/heart_text" />
+            app:tint="@color/heart_text" />
+
+        <ImageButton
+            android:id="@+id/btn_repost"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/repost"
+            android:src="@drawable/ic_repost"
+            app:tint="@color/heart_text" />
 
         <ImageButton
             android:id="@+id/btn_share"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Share"
+            android:contentDescription="@string/share"
             android:src="@drawable/ic_send"
-            android:tint="@color/heart_text" />
+            app:tint="@color/heart_text" />
 
         <View
             android:layout_width="0dp"
@@ -117,10 +165,20 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Bookmark"
+            android:contentDescription="@string/bookmark"
             android:src="@drawable/ic_bookmark"
-            android:tint="@color/heart_text" />
+            app:tint="@color/heart_text" />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/post_repost_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:textColor="@color/heart_muted"
+        android:textSize="12sp"
+        android:visibility="gone" />
 
     <!-- Likes Count -->
     <TextView
@@ -143,6 +201,16 @@
         android:paddingEnd="12dp"
         android:textColor="@color/heart_text"
         android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/post_caption_toggle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:textColor="@color/heart_primary"
+        android:textSize="13sp"
+        android:visibility="gone" />
 
     <!-- View All Comments -->
     <TextView

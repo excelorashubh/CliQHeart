@@ -103,8 +103,58 @@ data class PostCreateRequest(
     val mediaId: String,
     val caption: String,
 )
-data class PostResponse(val id: String? = null)
+data class PostOwnerResponse(
+    val id: String? = null,
+    val username: String? = null,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+)
+data class PostMediaResponse(
+    val resourceType: String? = null,
+    val secureUrl: String? = null,
+    val thumbnailUrl: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+)
+data class PostResponse(
+    val id: String? = null,
+    val caption: String? = null,
+    val createdAt: String? = null,
+    val location: String? = null,
+    val owner: PostOwnerResponse? = null,
+    val media: PostMediaResponse? = null,
+    val likeCount: Int? = null,
+    val commentCount: Int? = null,
+    val repostCount: Int? = null,
+    val isLiked: Boolean? = null,
+    val isSaved: Boolean? = null,
+    val isReposted: Boolean? = null,
+    val isFollowing: Boolean? = null,
+)
+data class PostsResponse(val posts: List<PostResponse> = emptyList(), val nextCursor: String? = null)
+data class ReelsResponse(val reels: List<PostResponse> = emptyList(), val nextCursor: String? = null)
 data class PostEnvelope(val post: PostResponse? = null)
+data class StoryResponse(
+    val id: String? = null,
+    val caption: String? = null,
+    val owner: PostOwnerResponse? = null,
+    val media: PostMediaResponse? = null,
+)
+data class StoriesResponse(val stories: List<StoryResponse> = emptyList())
+data class StoryEnvelope(val story: StoryResponse? = null)
+data class StoryViewResponse(
+    val viewCount: Int? = null,
+    val isLiked: Boolean? = null,
+    val isOwner: Boolean? = null,
+)
+data class UnreadCountResponse(val unreadCount: Int? = null)
+data class EngagementResponse(
+    val liked: Boolean? = null,
+    val likeCount: Int? = null,
+    val saved: Boolean? = null,
+    val reposted: Boolean? = null,
+    val repostCount: Int? = null,
+)
 
 data class AuthResponse(
     val accessToken: String? = null,
@@ -131,6 +181,12 @@ interface ApiService {
 
     @GET("users/me")
     suspend fun getMyProfile(): Response<UserEnvelope>
+
+    @GET("notifications/unread-count")
+    suspend fun getUnreadNotificationCount(): Response<UnreadCountResponse>
+
+    @GET("messages/unread-count")
+    suspend fun getUnreadMessageCount(): Response<UnreadCountResponse>
 
     @GET("users/{userId}")
     suspend fun getProfile(@Path("userId") userId: String): Response<UserEnvelope>
@@ -189,4 +245,79 @@ interface ApiService {
 
     @POST("posts")
     suspend fun createPost(@Body request: PostCreateRequest): Response<PostEnvelope>
+
+    @GET("posts")
+    suspend fun getPosts(
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<PostsResponse>
+
+    @GET("reels")
+    suspend fun getReels(
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<ReelsResponse>
+
+    @GET("stories")
+    suspend fun getStories(): Response<StoriesResponse>
+
+    @GET("stories/{storyId}")
+    suspend fun getStory(@Path("storyId") storyId: String): Response<StoryEnvelope>
+
+    @POST("stories/{storyId}/view")
+    suspend fun markStoryViewed(@Path("storyId") storyId: String): Response<StoryViewResponse>
+
+    @POST("posts/{postId}/like")
+    suspend fun likePost(@Path("postId") postId: String): Response<EngagementResponse>
+
+    @retrofit2.http.DELETE("posts/{postId}/like")
+    suspend fun unlikePost(@Path("postId") postId: String): Response<EngagementResponse>
+
+    @POST("posts/{postId}/save")
+    suspend fun savePost(@Path("postId") postId: String): Response<EngagementResponse>
+
+    @retrofit2.http.DELETE("posts/{postId}/save")
+    suspend fun unsavePost(@Path("postId") postId: String): Response<EngagementResponse>
+
+    @POST("posts/{postId}/repost")
+    suspend fun repostPost(@Path("postId") postId: String): Response<EngagementResponse>
+
+    @retrofit2.http.DELETE("posts/{postId}/repost")
+    suspend fun undoRepostPost(@Path("postId") postId: String): Response<EngagementResponse>
+
+    @POST("{collection}/{contentId}/like")
+    suspend fun likeContent(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+    ): Response<EngagementResponse>
+
+    @retrofit2.http.DELETE("{collection}/{contentId}/like")
+    suspend fun unlikeContent(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+    ): Response<EngagementResponse>
+
+    @POST("{collection}/{contentId}/save")
+    suspend fun saveContent(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+    ): Response<EngagementResponse>
+
+    @retrofit2.http.DELETE("{collection}/{contentId}/save")
+    suspend fun unsaveContent(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+    ): Response<EngagementResponse>
+
+    @POST("{collection}/{contentId}/repost")
+    suspend fun repostContent(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+    ): Response<EngagementResponse>
+
+    @retrofit2.http.DELETE("{collection}/{contentId}/repost")
+    suspend fun undoRepostContent(
+        @Path("collection") collection: String,
+        @Path("contentId") contentId: String,
+    ): Response<EngagementResponse>
 }
