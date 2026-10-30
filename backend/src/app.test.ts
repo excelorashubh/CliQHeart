@@ -43,6 +43,51 @@ test('health endpoint reports healthy status when the database is connected', as
   assert.equal(response.body.database, 'connected');
 });
 
+test('root liveness and readiness endpoints distinguish database availability', async () => {
+  const unavailable = createApp({ config, databaseStatus: () => false });
+  const live = await request(unavailable).get('/health');
+  const notReady = await request(unavailable).get('/ready');
+  const versionedNotReady = await request(unavailable).get('/api/v1/ready');
+
+  assert.equal(live.status, 200);
+  assert.equal(live.body.status, 'ok');
+  assert.equal(live.body.database, 'disconnected');
+  assert.equal(notReady.status, 503);
+  assert.deepEqual(notReady.body, {
+    application: 'CliQHeart',
+    status: 'unavailable',
+    database: 'disconnected',
+    version: config.APP_VERSION,
+  });
+  assert.equal(versionedNotReady.status, 503);
+
+  const available = createApp({ config, databaseStatus: () => true });
+  const ready = await request(available).get('/ready');
+  assert.equal(ready.status, 200);
+  assert.equal(ready.body.status, 'ready');
+  assert.equal(ready.body.database, 'connected');
+});
+
+test('request correlation IDs are preserved only when they are valid UUIDs', async () => {
+  const entries: RequestLogEntry[] = [];
+  const app = createApp({
+    config,
+    requestLogger: (entry) => entries.push(entry),
+  });
+  const suppliedId = 'c0a80123-4567-489a-8abc-0123456789ab';
+  const correlated = await request(app)
+    .get('/health')
+    .set('X-Request-ID', suppliedId);
+  const invalid = await request(app)
+    .get('/health')
+    .set('X-Request-ID', 'not-a-uuid');
+
+  assert.equal(correlated.headers['x-request-id'], suppliedId);
+  assert.equal(entries.at(0)?.requestId, suppliedId);
+  assert.match(String(invalid.headers['x-request-id']), /^[0-9a-f-]{36}$/i);
+  assert.notEqual(invalid.headers['x-request-id'], 'bad\r\nid');
+});
+
 test('professional onboarding route is mounted under the API prefix and remains authenticated', async () => {
   const app = createApp({ config, requestLogger: () => undefined });
 

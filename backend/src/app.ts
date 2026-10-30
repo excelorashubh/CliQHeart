@@ -29,6 +29,9 @@ export interface AppOptions {
   requestLogger?: (entry: RequestLogEntry) => void;
 }
 
+const requestIdPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const logLevels = ['debug', 'info', 'warn', 'error'] as const;
 const apiRateLimit = 600;
 
@@ -61,7 +64,10 @@ export function createApp({
     app.set('trust proxy', 1);
   }
   app.use((request, response, next) => {
-    const requestId = randomUUID();
+    const suppliedRequestId = request.get('x-request-id');
+    const requestId = suppliedRequestId && requestIdPattern.test(suppliedRequestId)
+      ? suppliedRequestId
+      : randomUUID();
     const startedAt = Date.now();
     response.locals.requestId = requestId;
     response.setHeader('X-Request-ID', requestId);
@@ -87,6 +93,7 @@ export function createApp({
         'Authorization',
         'Content-Type',
         'X-CSRF-Token',
+        'X-Request-ID',
         'X-Session-Transport',
       ],
       origin: (origin, callback) => {
@@ -117,6 +124,7 @@ export function createApp({
     legacyHeaders: false,
     skip: (request) =>
       request.path === '/health' ||
+      request.path === '/ready' ||
       request.method === 'OPTIONS' ||
       [
         '/auth/login',
@@ -155,7 +163,32 @@ export function createApp({
     });
   });
 
-  app.use('/api/v1', createAuthRouter(config));
+  const readinessHandler: RequestHandler = (request, response) => {
+    response.locals.route = `${request.method} ${request.path}`;
+    const connected = databaseStatus();
+    response.status(connected ? 200 : 503).json({
+      application: config.APP_NAME,
+      status: connected ? 'ready' : 'unavailable',
+      database: connected ? 'connected' : 'disconnected',
+      version: config.APP_VERSION,
+    });
+  };
+  app.get('/health', (_request, response) => {
+    response.locals.route = 'GET /health';
+    const connected = databaseStatus();
+    response.status(200).json({
+      application: config.APP_NAME,
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      environment: config.NODE_ENV,
+      database: connected ? 'connected' : 'disconnected',
+      version: config.APP_VERSION,
+    });
+  });
+  app.get('/ready', readinessHandler);
+  api.get('/ready', readinessHandler);
+
+  app.use('/api/v1', createAuthRouter(config, databaseStatus));
   app.use('/api/v1', createMediaRouter(config));
   app.use('/api/v1', createContentRouter(config));
   app.use('/api/v1', createEngagementRouter(config));

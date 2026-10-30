@@ -143,6 +143,17 @@ test('login route rejects a missing identifier before accessing the database', a
   });
 });
 
+test('login returns service unavailable immediately while the database is disconnected', async () => {
+  const app = createApp({ config, databaseStatus: () => false });
+  const response = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ identifier: 'person@example.com', password: 'Password123!' });
+
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error, 'Authentication is temporarily unavailable.');
+  assert.equal(response.body.requestId, response.headers['x-request-id']);
+});
+
 test('browser cookie auth rejects untrusted origins and never returns refresh tokens in JSON', async () => {
   const app = createApp({ config, databaseStatus: () => false });
   const rejected = await request(app)

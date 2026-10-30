@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 class LoginFragment : Fragment() {
     private var _binding: FragmentLoginBinding? = null
     private val binding get() = requireNotNull(_binding)
+    private var loginInProgress = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -40,6 +41,8 @@ class LoginFragment : Fragment() {
     }
 
     private fun submitLogin() {
+        if (loginInProgress || _binding == null) return
+
         val email = binding.emailInput.text?.toString().orEmpty().trim()
         val password = binding.passwordInput.text?.toString().orEmpty()
 
@@ -50,6 +53,7 @@ class LoginFragment : Fragment() {
             return
         }
 
+        loginInProgress = true
         setSubmitLoading(true)
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -110,6 +114,7 @@ class LoginFragment : Fragment() {
                 showFailure(failure)
             } finally {
                 if (_binding != null) {
+                    loginInProgress = false
                     setSubmitLoading(false)
                 }
             }
@@ -130,11 +135,12 @@ class LoginFragment : Fragment() {
 
     private fun setSubmitLoading(loading: Boolean) {
         binding.submitButton.isEnabled = !loading
-        binding.submitButton.text = if (loading) getString(R.string.signing_in) else getString(R.string.continue_login)
+        binding.submitButton.text = if (loading) getString(R.string.auth_login_in_progress) else getString(R.string.continue_login)
         binding.loadingIndicator.visibility = if (loading) View.VISIBLE else View.GONE
     }
 
     override fun onDestroyView() {
+        loginInProgress = false
         _binding = null
         super.onDestroyView()
     }

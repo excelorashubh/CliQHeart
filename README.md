@@ -49,17 +49,19 @@ In another terminal, verify its readiness:
 Invoke-RestMethod http://localhost:4000/api/v1/health
 ```
 
-Readiness reports failure when MongoDB is unavailable. It does not include
-connection details. The exact required environment variables and API response
-contract are described in [docs/API.md](./docs/API.md) and
+The liveness endpoint remains available during database outages; use
+`/ready` to check MongoDB readiness. Responses do not include connection
+details. The exact required environment variables and API response contract
+are described in [docs/API.md](./docs/API.md) and
 [docs/DATABASE_SETUP.md](./docs/DATABASE_SETUP.md).
 
 ## Open and run Android
 
 Open the repository root (the directory containing `settings.gradle.kts`) in
-Android Studio and allow Gradle sync to finish. Select `emulatorDebug` for the
-default emulator API URL `http://10.0.2.2:4000/api/v1/`, or configure the
-computer's LAN IPv4 and select `deviceDebug` for a physical device. See
+Android Studio and allow Gradle sync to finish. Both debug variants default to
+the production API. Use the `cliqheartEmulatorApiBaseUrl` or
+`cliqheartDeviceApiBaseUrl` Gradle property to target a local development
+backend. See
 [docs/ANDROID_SETUP.md](./docs/ANDROID_SETUP.md) for the exact commands.
 
 Build and run local checks from PowerShell:
@@ -104,9 +106,10 @@ watch-mode tests.
 - **Backend exits during startup:** check required settings in `backend/.env`,
   Atlas network access, and the application user's database permissions. Never
   work around Atlas IP restrictions by opening access to all addresses.
-- **Android reports the API unavailable:** start the backend and confirm
-  `GET /api/v1/health` is reachable. Use `emulatorDebug` with `10.0.2.2` for
-  an emulator, or `deviceDebug` with the computer's LAN IPv4 for a phone.
+- **Android reports the API unavailable:** confirm
+  `GET https://cliqheart.onrender.com/api/v1/health` is reachable. For local
+  development, configure the emulator or phone API URL as described in
+  [docs/ANDROID_SETUP.md](./docs/ANDROID_SETUP.md).
 - **A physical device cannot reach the API:** configure a reachable LAN address
   and allow the development port through the computer's firewall; do not use a
   public Wi-Fi network for an unprotected development API.

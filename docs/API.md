@@ -9,13 +9,15 @@ validated for signature, issuer, audience, type, expiry, and an active account.
 Identifies the API, version, and the repository documentation path
 (`docs/API.md`) without revealing server configuration.
 
-## `GET /api/v1/health`
+## Health and readiness
 
-Returns readiness information: application name, API status, ISO timestamp,
-runtime environment, database connectivity, and application version. The
-database status is limited to a safe connected/disconnected indicator. When a
-mandatory database dependency is unavailable, the endpoint returns HTTP 503.
-It does not return a URI, host, username, password, IP allowlist, stack trace,
+`GET /health` (also available as `GET /api/v1/health`) is a liveness check.
+It returns HTTP 200 while the API process is serving requests and reports the
+database as a safe `connected`/`disconnected` value.
+
+`GET /ready` (also available as `GET /api/v1/ready`) is the database readiness
+check. It returns HTTP 200 only while MongoDB is connected, otherwise HTTP 503.
+Neither endpoint returns a URI, host, credentials, IP allowlist, stack trace,
 or internal path.
 
 Example response when ready:
@@ -33,7 +35,7 @@ Example response when ready:
 
 The API root includes `application`, `apiVersion`, `documentation`, `status`,
 and `version`. The timestamp is generated when the health request is handled.
-The health example is illustrative and does not claim an Atlas connection is
+The response is illustrative and does not claim an Atlas connection is
 configured.
 
 ## Authentication and sessions
@@ -42,6 +44,7 @@ configured.
 
 Both endpoints create a session and return an access token and public user
 response. Native clients also receive the rotating refresh token in JSON.
+Login returns HTTP 503 promptly if MongoDB is unavailable.
 Browser clients send `X-Session-Transport: cookie` from an allowed `Origin`;
 the refresh token is then set only in an HttpOnly cookie and omitted from JSON.
 New registrations are explicitly active; pending, suspended, deleted, and

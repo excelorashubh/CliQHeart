@@ -25,7 +25,7 @@ android {
         create("emulator") {
             dimension = "apiTarget"
             val emulatorApiBaseUrl = providers.gradleProperty("cliqheartEmulatorApiBaseUrl")
-                .orElse("http://10.0.2.2:4000/api/v1/")
+                .orElse("https://cliqheart.onrender.com/api/v1/")
                 .get()
             require(emulatorApiBaseUrl.endsWith("/") && emulatorApiBaseUrl.startsWith("http")) {
                 "cliqheartEmulatorApiBaseUrl must be an HTTP(S) URL ending in '/'."

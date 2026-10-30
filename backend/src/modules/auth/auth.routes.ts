@@ -11,7 +11,12 @@ import { rateLimit } from 'express-rate-limit';
 const refreshCookieName = 'cliqheart_refresh';
 const refreshCookiePath = '/api/v1/auth';
 
-export function createAuthRouter(config: AppConfig): Router {
+type DatabaseStatus = () => boolean;
+
+export function createAuthRouter(
+  config: AppConfig,
+  databaseStatus: DatabaseStatus = () => true,
+): Router {
   const router = Router();
   const service = new AuthService(config);
   const authenticate = requireAccessToken(config);
@@ -122,6 +127,13 @@ export function createAuthRouter(config: AppConfig): Router {
         return;
       }
       const payload = loginSchema.parse(request.body);
+      if (!databaseStatus()) {
+        response.status(503).json({
+          error: 'Authentication is temporarily unavailable.',
+          requestId: response.locals.requestId,
+        });
+        return;
+      }
       const result = await service.login(payload);
       sendSession(response, result, usesCookieTransport(request), 200);
     } catch (error) {
@@ -145,6 +157,14 @@ export function createAuthRouter(config: AppConfig): Router {
         ].includes(error.message)
       ) {
         response.status(403).json({ error: error.message });
+        return;
+      }
+
+      if (!databaseStatus()) {
+        response.status(503).json({
+          error: 'Authentication is temporarily unavailable.',
+          requestId: response.locals.requestId,
+        });
         return;
       }
 

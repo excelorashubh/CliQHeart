@@ -1,6 +1,8 @@
 package com.cliqheart.app.feature.auth
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.cliqheart.app.R
 import com.google.gson.Gson
 import com.google.gson.JsonParseException
@@ -18,12 +20,20 @@ object AuthNetworkErrors {
     fun fromException(context: Context, exception: Throwable): Failure {
         val causes = generateSequence(exception) { it.cause }
         return when {
+            exception is IOException && !hasValidatedNetwork(context) -> Failure(
+                context.getString(R.string.auth_no_internet),
+                retryable = true,
+            )
             causes.any { it is JsonParseException } -> Failure(
                 context.getString(R.string.auth_malformed_response),
                 retryable = true,
             )
             causes.any { it is SocketTimeoutException } -> Failure(
-                context.getString(R.string.auth_connection_timeout),
+                context.getString(
+                    if (causes.filterIsInstance<SocketTimeoutException>()
+                            .any { it.message?.contains("connect", ignoreCase = true) == true }
+                    ) R.string.auth_connect_timeout else R.string.auth_read_timeout,
+                ),
                 retryable = true,
             )
             causes.any { it is ConnectException } -> Failure(
@@ -32,7 +42,7 @@ object AuthNetworkErrors {
             )
             causes.any { it is UnknownHostException } -> Failure(
                 context.getString(R.string.auth_host_unresolved),
-                retryable = false,
+                retryable = true,
             )
             causes.any { it is IOException } -> Failure(
                 context.getString(R.string.auth_network_error),
@@ -59,6 +69,15 @@ object AuthNetworkErrors {
                 ?: context.getString(R.string.auth_account_inactive)
             return Failure(message, retryable = false)
         }
+        if (statusCode == 429) {
+            return Failure(context.getString(R.string.auth_rate_limited), retryable = true)
+        }
+        if (statusCode == 408) {
+            return Failure(context.getString(R.string.auth_server_timeout), retryable = true)
+        }
+        if (statusCode == 502 || statusCode == 503 || statusCode == 504) {
+            return Failure(context.getString(R.string.auth_service_unavailable), retryable = true)
+        }
         if (statusCode >= 500) {
             return Failure(
                 context.getString(R.string.auth_server_error, statusCode),
@@ -82,4 +101,13 @@ object AuthNetworkErrors {
             }
         fieldError ?: (body["error"] as? String) ?: (body["message"] as? String)
     }.getOrNull()
+
+    private fun hasValidatedNetwork(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? ConnectivityManager ?: return true
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
 }

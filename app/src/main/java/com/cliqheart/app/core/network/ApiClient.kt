@@ -3,6 +3,7 @@ package com.cliqheart.app.core.network
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import com.cliqheart.app.BuildConfig
 import com.cliqheart.app.core.security.SecureTokenStore
 import com.google.gson.Gson
@@ -21,11 +22,13 @@ import okio.source
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 object ApiClient {
+    private const val NETWORK_LOG_TAG = "CliQHeartNetwork"
     private val supportedImageTypes = setOf("image/jpeg", "image/png", "image/webp")
 
     @Volatile
@@ -67,14 +70,37 @@ object ApiClient {
             .addInterceptor { chain ->
                 val request = chain.request()
                 val token = tokenStore?.readSession()?.accessToken
-                val authenticatedRequest = if (token.isNullOrBlank()) {
+                val requestWithToken = if (token.isNullOrBlank()) {
                     request
                 } else {
                     request.newBuilder()
-                        .header("Authorization", "Bearer $token")
+                        .header("Authorization", "Bearer " + token)
                         .build()
                 }
-                chain.proceed(authenticatedRequest)
+                val requestId = UUID.randomUUID().toString()
+                val requestWithId = requestWithToken.newBuilder()
+                    .header("X-Request-ID", requestId)
+                    .build()
+                val path = requestWithId.url.encodedPath
+                val startedAt = System.nanoTime()
+                Log.i(
+                    NETWORK_LOG_TAG,
+                    """{"event":"request_started","requestId":"$requestId","method":"${requestWithId.method}","path":"$path"}""",
+                )
+                try {
+                    chain.proceed(requestWithId).also { response ->
+                        Log.i(
+                            NETWORK_LOG_TAG,
+                            """{"event":"request_completed","requestId":"$requestId","method":"${requestWithId.method}","path":"$path","status":${response.code},"durationMs":${(System.nanoTime() - startedAt) / 1_000_000}}""",
+                        )
+                    }
+                } catch (exception: IOException) {
+                    Log.w(
+                        NETWORK_LOG_TAG,
+                        """{"event":"request_failed","requestId":"$requestId","method":"${requestWithId.method}","path":"$path","category":"${exception.javaClass.simpleName}","durationMs":${(System.nanoTime() - startedAt) / 1_000_000}}""",
+                    )
+                    throw exception
+                }
             }
             .authenticator { _, response -> refreshAfterUnauthorized(response) }
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -206,7 +232,7 @@ object ApiClient {
             val currentAccessToken = current.accessToken ?: return null
             if (currentAccessToken != rejectedToken) {
                 return failedRequest.newBuilder()
-                    .header("Authorization", "Bearer $currentAccessToken")
+                    .header("Authorization", "Bearer " + currentAccessToken)
                     .build()
             }
             val currentRefreshToken = current.refreshToken ?: return null
@@ -240,7 +266,7 @@ object ApiClient {
                 }
                 store.saveSession(nextAccessToken, nextRefreshToken, refreshed.user ?: current.currentUser)
                 return failedRequest.newBuilder()
-                    .header("Authorization", "Bearer $nextAccessToken")
+                    .header("Authorization", "Bearer " + nextAccessToken)
                     .build()
             }
 

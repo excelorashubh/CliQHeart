@@ -13,19 +13,20 @@ the native Android application in `app/`; the application ID is
 
 ## Emulator API networking
 
-Start the backend on port 4000 and select the `emulatorDebug` build variant.
-Its centralized `BuildConfig.API_BASE_URL` defaults to
-`http://10.0.2.2:4000/api/v1/`. `10.0.2.2` is the Android emulator's special
-host route; `localhost` inside the emulator is the emulator itself.
+Select the `emulatorDebug` build variant to use the production API at
+`https://cliqheart.onrender.com/api/v1/`. To test against a local backend,
+start it on port 4000 and override the URL with the emulator's special host
+route, `http://10.0.2.2:4000/api/v1/`.
 
 Build it from PowerShell with:
 
 ```powershell
 .\gradlew.bat :app:assembleEmulatorDebug
+.\gradlew.bat :app:assembleEmulatorDebug "-PcliqheartEmulatorApiBaseUrl=http://10.0.2.2:4000/api/v1/"
 ```
 
-Cleartext traffic is enabled only in the debug manifest variant for this local
-development URL. Release builds reject cleartext traffic.
+Cleartext traffic is enabled only in the debug manifest variant for local
+development. Release builds reject cleartext traffic.
 
 ## Responsive UI checks
 
@@ -42,10 +43,8 @@ defaults with `adb shell wm size reset` and `adb shell wm density reset`.
 
 ## Physical device networking
 
-Select the `deviceDebug` build variant. The device variant has no fallback API
-host, so the build fails fast unless the computer's current LAN IPv4 is
-configured. The phone must use the computer's LAN address, never its own IP or
-`10.0.2.2`.
+Select `deviceDebug` to use the production API. For local development, configure
+the phone with the computer's LAN address, never its own IP or `10.0.2.2`.
 
 ```powershell
 $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' |

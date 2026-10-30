@@ -41,13 +41,11 @@ class MainShellFragment : Fragment() {
             insets
         }
 
-        binding.bottomNavigation.setOnItemSelectedListener { item ->
-            if (!showTab(item.itemId)) return@setOnItemSelectedListener false
-            true
-        }
-
         val selectedTab = savedInstanceState?.getInt(SELECTED_TAB_KEY, R.id.homeTab) ?: R.id.homeTab
         binding.bottomNavigation.selectedItemId = selectedTab
+        binding.bottomNavigation.setOnItemSelectedListener { item ->
+            showTab(item.itemId)
+        }
         showTab(selectedTab)
     }
 
