@@ -342,7 +342,7 @@ function FeedVideo({ item, autoPlay, claimActiveVideo, playActiveVideo, pauseAct
 }
 
 export function StoryFeed() {
-  const { user } = useAuth();
+  const { user, isInitializing } = useAuth();
   const [stories, setStories] = useState([]);
   const [activeGroupIndex, setActiveGroupIndex] = useState(-1);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
@@ -369,15 +369,21 @@ export function StoryFeed() {
     return () => controller.abort();
   }, [load]);
 
+  const getOwnerId = (owner) => owner?.id ?? owner?._id;
+  const currentUserId = getOwnerId(user);
   const groupedStories = [...stories.reduce((groups, story) => {
-    const ownerId = story.owner?.id;
+    const ownerId = getOwnerId(story.owner);
     if (!ownerId) return groups;
     const group = groups.get(ownerId) || { owner: story.owner, stories: [] };
     group.stories.push(story);
     groups.set(ownerId, group);
     return groups;
   }, new Map()).values()].sort((first, second) =>
-    Number(second.owner.id === user?.id) - Number(first.owner.id === user?.id));
+    Number(getOwnerId(second.owner) === currentUserId) - Number(getOwnerId(first.owner) === currentUserId));
+  const ownerStoryGroupIndex = currentUserId
+    ? groupedStories.findIndex((group) => getOwnerId(group.owner) === currentUserId)
+    : -1;
+  const ownerStoryGroup = groupedStories[ownerStoryGroupIndex];
 
   const activeGroup = groupedStories[activeGroupIndex];
   const activeStory = activeGroup?.stories[activeStoryIndex];
@@ -421,26 +427,35 @@ export function StoryFeed() {
   return <>
     <section className="home-stories" aria-label="Stories">
       <div className="home-stories-strip">
-        <Link className="home-story home-story--create" to="/create?kind=story" aria-label="Create a story">
-          <span className="home-story-ring"><Avatar name={user?.displayName} src={user?.avatarUrl} size="large" /><span className="home-story-plus">+</span></span>
-          <span>Your story</span>
-        </Link>
+        {ownerStoryGroup
+          ? <button className="home-story home-story--owner" type="button" onClick={() => openStory(ownerStoryGroupIndex)} aria-label="Your story">
+            <span className={`home-story-ring${ownerStoryGroup.stories.every((story) => viewedStoryIds.has(story.id)) ? ' is-viewed' : ''}`}>
+              <Avatar name={user?.displayName} src={user?.avatarUrl} size="large" />
+              <span className="home-story-plus" aria-hidden="true">+</span>
+            </span>
+            <span>Your story</span>
+          </button>
+          : <Link className="home-story home-story--create" to="/create?kind=story" aria-label="Create a story">
+            <span className="home-story-ring"><Avatar name={user?.displayName} src={user?.avatarUrl} size="large" /><span className="home-story-plus">+</span></span>
+            <span>Your story</span>
+          </Link>}
         {loading && <div className="home-story-loading"><Skeleton rows={1} /></div>}
         {!loading && error && <div className="home-story-error" role="status">{error} <RetryButton error={error} onRetry={() => load()} className="text-link" label="Retry" /></div>}
-        {!loading && !error && groupedStories.map((group, index) => {
+        {!isInitializing && !loading && !error && groupedStories.map((group, index) => {
+          if (index === ownerStoryGroupIndex) return null;
           const seen = group.stories.every((story) => viewedStoryIds.has(story.id));
           return <button className="home-story" type="button" key={group.owner.id} onClick={() => openStory(index)}>
             <span className={`home-story-ring${seen ? ' is-viewed' : ''}`}>
               <Avatar
                 name={group.owner.displayName}
-                src={group.owner.id === user?.id ? user.avatarUrl : group.owner.avatarUrl}
+                src={getOwnerId(group.owner) === currentUserId ? user.avatarUrl : group.owner.avatarUrl}
                 size="large"
               />
             </span>
-            <span>{group.owner.id === user?.id ? 'Your story' : `@${group.owner.username}`}</span>
+            <span>@{group.owner.username}</span>
           </button>;
         })}
-        {!loading && !error && groupedStories.length === 0 && <p className="home-story-empty">Stories from people you follow will appear here.</p>}
+        {!isInitializing && !loading && !error && groupedStories.length === 0 && <p className="home-story-empty">Stories from people you follow will appear here.</p>}
       </div>
     </section>
     {activeGroup && <div className="story-viewer-backdrop" role="presentation" onMouseDown={(event) => {
@@ -449,8 +464,9 @@ export function StoryFeed() {
       <section className="story-viewer" role="dialog" aria-modal="true" aria-label={`Stories from @${activeGroup.owner.username}`}>
         <button className="story-viewer-close" type="button" onClick={() => setActiveGroupIndex(-1)} aria-label="Close stories">×</button>
         <div className="story-viewer-owner">
-          <Avatar name={activeGroup.owner.displayName} src={activeGroup.owner.id === user?.id ? user.avatarUrl : activeGroup.owner.avatarUrl} size="small" />
+          <Avatar name={activeGroup.owner.displayName} src={getOwnerId(activeGroup.owner) === currentUserId ? user.avatarUrl : activeGroup.owner.avatarUrl} size="small" />
           <span>@{activeGroup.owner.username}</span>
+          {getOwnerId(activeGroup.owner) === currentUserId && <Link className="story-viewer-add" to="/create?kind=story">Add another story</Link>}
         </div>
         {activeStory && <article className="story-viewer-item" key={activeStory.id}>
           {activeStory.media?.resourceType === 'video'

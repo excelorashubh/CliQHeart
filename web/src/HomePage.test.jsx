@@ -80,6 +80,8 @@ describe('HomePage feed experience', () => {
     expect(container.querySelector('video')).not.toHaveProperty('autoplay', true);
     expect(screen.getAllByText('Suggested for you')).toHaveLength(2);
     expect(postApi).toHaveBeenCalledWith(30, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(screen.getByRole('link', { name: 'Create a story' })).toHaveAttribute('href', '/create?kind=story');
+    expect(screen.getAllByText('Your story')).toHaveLength(1);
 
     fireEvent.click(storyButton);
     expect(screen.getByRole('dialog', { name: 'Stories from @friend' })).toBeInTheDocument();
@@ -89,6 +91,46 @@ describe('HomePage feed experience', () => {
     );
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('renders the owner once and groups all of their active stories in the viewer', async () => {
+    vi.spyOn(contentApi, 'stories').mockResolvedValue({
+      stories: [
+        {
+          id: 'owner-story-1',
+          owner: { id: 'current-user', username: 'current_user', displayName: 'Current User', avatarUrl: '' },
+          media: { resourceType: 'image', secureUrl: 'https://images.example/owner-1.jpg' },
+        },
+        {
+          id: 'friend-story',
+          owner: { id: 'friend-id', username: 'friend', displayName: 'Friend', avatarUrl: '' },
+          media: { resourceType: 'image', secureUrl: 'https://images.example/friend.jpg' },
+        },
+        {
+          id: 'owner-story-2',
+          owner: { id: 'current-user', username: 'current_user', displayName: 'Current User', avatarUrl: '' },
+          media: { resourceType: 'image', secureUrl: 'https://images.example/owner-2.jpg' },
+        },
+      ],
+    });
+    vi.spyOn(contentApi, 'posts').mockResolvedValue({ posts: [], nextCursor: null });
+    vi.spyOn(contentApi, 'reels').mockResolvedValue({ reels: [], nextCursor: null });
+    vi.spyOn(userApi, 'suggestions').mockResolvedValue({ users: [] });
+
+    renderHome();
+
+    expect(await screen.findByRole('button', { name: 'Your story' })).toBeInTheDocument();
+    expect(screen.getAllByText('Your story')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: '@friend' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create a story' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Your story' }));
+    expect(await screen.findByRole('dialog', { name: 'Stories from @current_user' })).toBeInTheDocument();
+    expect(screen.getByAltText('Story from current_user')).toHaveAttribute('src', 'https://images.example/owner-1.jpg');
+    expect(screen.getByRole('link', { name: 'Add another story' })).toHaveAttribute('href', '/create?kind=story');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next story' }));
+    expect(screen.getByAltText('Story from current_user')).toHaveAttribute('src', 'https://images.example/owner-2.jpg');
   });
 
   it('follows a real suggested account and removes it from the suggestion list after success', async () => {
