@@ -6,6 +6,7 @@ import {
 import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './Feedback.jsx';
 import { EngagementActions } from './EngagementActions.jsx';
+import { HashtagText } from './HashtagText.jsx';
 import { StoryViewer } from './StoryViewer.jsx';
 import { contentApi, userApi } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -724,7 +725,7 @@ export function ContentCaption({ username, caption, postId, compact = false }) {
 
   return <div className="content-card-caption-block" data-post-id={postId}>
     <p ref={captionRef} className={`content-card-caption${!isExpanded ? ' is-collapsed' : ''}${compact ? ' is-home-preview' : ''}`}>
-      <strong>@{username}</strong> {caption}
+      <strong>@{username}</strong> <HashtagText>{caption}</HashtagText>
     </p>
     {isLong && <button
       type="button"

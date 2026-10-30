@@ -6,6 +6,7 @@ import { ReelTagModel } from './reel-tag.model';
 import { NotificationModel } from '../notifications/notification.model';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
+import { HashtagModel } from './hashtag.model';
 import { StoryModel } from './story.model';
 import { StoryLikeModel, StoryReactionModel, StoryReportModel, StoryViewModel } from './story-engagement.models';
 
@@ -74,8 +75,23 @@ test('published content models validate and preserve composer metadata', () => {
   assert.equal(post.validateSync(), undefined);
   assert.equal(post.altText, 'Friends at the coast');
   assert.equal(post.location, 'Lisbon');
+  assert.deepEqual(post.hashtags, []);
   assert.equal(reel.validateSync(), undefined);
   assert.equal(reel.aiDisclosure, true);
   assert.equal(reel.location, 'Studio');
+  assert.deepEqual(reel.hashtags, []);
   assert.equal(story.validateSync(), undefined);
+});
+
+test('hashtag references use normalized, indexed names and popularity counts', () => {
+  const indexes = HashtagModel.schema.indexes();
+  const postIndexes = PostModel.schema.indexes();
+  const reelIndexes = ReelModel.schema.indexes();
+  const hashtag = new HashtagModel({ name: 'travel', normalizedName: 'travel', usageCount: 1 });
+  assert.equal(hashtag.validateSync(), undefined);
+  assert.ok(indexes.some(([fields, options]) =>
+    fields.normalizedName === 1 && options.unique === true));
+  assert.ok(indexes.some(([fields]) => fields.usageCount === -1));
+  assert.ok(postIndexes.some(([fields]) => fields.hashtags === 1 && fields.createdAt === -1));
+  assert.ok(reelIndexes.some(([fields]) => fields.hashtags === 1 && fields.createdAt === -1));
 });

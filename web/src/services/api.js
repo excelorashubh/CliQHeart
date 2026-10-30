@@ -291,6 +291,7 @@ export const contentApi = {
   post: (id, options) => apiRequest(`posts/${encodeURIComponent(id)}`, options),
   reel: (id, options) => apiRequest(`reels/${encodeURIComponent(id)}`, options),
   createPost: (body) => apiRequest('posts', { method: 'POST', body }),
+  updatePost: (id, body) => apiRequest(`posts/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
   deletePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   stories: (options = {}) => apiRequest('stories', options),
   story: (id, options = {}) => apiRequest(`stories/${encodeURIComponent(id)}`, options),
@@ -318,6 +319,7 @@ export const contentApi = {
     return apiRequest(`reels?${params}`, options);
   },
   createReel: (body) => apiRequest('reels', { method: 'POST', body }),
+  updateReel: (id, body) => apiRequest(`reels/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
   deleteReel: (id) => apiRequest(`reels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   savePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}/save`, { method: 'POST' }),
   unsavePost: (id) => apiRequest(`posts/${encodeURIComponent(id)}/save`, { method: 'DELETE' }),
@@ -354,6 +356,16 @@ export const contentApi = {
     `${contentType === 'reel' ? 'reels' : 'posts'}/${encodeURIComponent(contentId)}/tags/me`,
     { method: 'DELETE' },
   ),
+  searchHashtags: (query, options = {}) => apiRequest(
+    `hashtags/search?${new URLSearchParams({ q: query })}`,
+    options,
+  ),
+  trendingHashtags: (options = {}) => apiRequest('hashtags/trending', options),
+  hashtag: (tag, { after, limit = 30, signal } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (after) params.set('after', after);
+    return apiRequest(`hashtags/${encodeURIComponent(tag)}?${params}`, { signal });
+  },
 };
 
 export const notificationApi = {

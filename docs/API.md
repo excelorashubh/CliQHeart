@@ -288,6 +288,21 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
   `GET /api/v1/reels/:reelId` returns a Reel detail;
   `GET /api/v1/users/:userId/reels` returns a user's Reels; owners can remove
   their own Reels with `DELETE /api/v1/reels/:reelId`.
+- Post and Reel captions support up to 30 unique hashtags. Names are Unicode
+  normalized and case-insensitive; content stores normalized names without
+  the leading `#`. Owners can update their own caption and metadata with
+  `PATCH /api/v1/posts/:postId` or `PATCH /api/v1/reels/:reelId`.
+- `GET /api/v1/hashtags/search?q=<prefix>` returns matching existing tags with
+  persisted usage counts. `GET /api/v1/hashtags/trending` returns the most-used
+  tags. `GET /api/v1/hashtags/:tag?limit=<n>&after=<cursor>` returns matching
+  visible Posts and Reels in a merged, cursor-paginated feed. Content is passed
+  through the same active-owner and ready-media checks as ordinary content
+  feeds.
+
+Before deploying this feature to a database with existing captions, run
+`npm run db:backfill-hashtags` from `backend/` with application content writes
+paused. This idempotent migration fills normalized Post/Reel references and
+rebuilds hashtag usage counts from persisted content.
 
 ### Likes, comments, replies, and reposts
 

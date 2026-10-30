@@ -11,6 +11,8 @@ import { Avatar, Brand } from './components/Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './components/Feedback.jsx';
 import { ContentFeed, StoryFeed } from './components/Content.jsx';
 import { EngagementActions } from './components/EngagementActions.jsx';
+import { HashtagComposer } from './components/HashtagComposer.jsx';
+import { HashtagText } from './components/HashtagText.jsx';
 import { MediaUploader } from './components/MediaUploader.jsx';
 import { ReelsExperience } from './components/ReelsExperience.jsx';
 import { authApi, contentApi, mediaApi, messageApi, notificationApi, userApi } from './services/api.js';
@@ -424,6 +426,8 @@ function HomeSuggestions({ user }) {
 export function SearchPage() {
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState([]);
+  const [hashtagResults, setHashtagResults] = useState([]);
+  const [hashtagError, setHashtagError] = useState('');
   const [resultsQuery, setResultsQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -442,6 +446,8 @@ export function SearchPage() {
     setLoadingMore(false);
     if (term.length < 2) {
       setUsers([]);
+      setHashtagResults([]);
+      setHashtagError('');
       setResultsQuery('');
       setNextCursor(null);
       setError('');
@@ -454,9 +460,20 @@ export function SearchPage() {
     const controller = new AbortController();
     setLoading(true);
     setError('');
+    setHashtagError('');
     const timer = window.setTimeout(async () => {
+      const hashtagQuery = term.replace(/^#/, '');
+      contentApi.searchHashtags(hashtagQuery, { signal: controller.signal })
+        .then((result) => {
+          if (version === searchVersion.current) setHashtagResults(result.hashtags || []);
+        })
+        .catch((reason) => {
+          if (reason.name !== 'AbortError' && version === searchVersion.current) {
+            setHashtagError(reason.message || 'Could not search hashtags.');
+          }
+        });
       try {
-        const result = await userApi.search(term, { signal: controller.signal });
+        const result = await userApi.search(hashtagQuery, { signal: controller.signal });
         if (version === searchVersion.current) {
           setUsers(result.users || []);
           setResultsQuery(term);
@@ -526,18 +543,22 @@ export function SearchPage() {
       <input type="search" autoFocus placeholder="Search by name or username…" value={query} onChange={(event) => {
         setQuery(event.target.value);
         setUsers([]);
+        setHashtagResults([]);
         setResultsQuery('');
         setNextCursor(null);
         setError('');
         setFollowError('');
+        setHashtagError('');
       }} aria-label="Search users by name or username" aria-controls="search-results" />
       {query && <button type="button" className="search-clear" aria-label="Clear search" onClick={() => {
         setQuery('');
         setUsers([]);
+        setHashtagResults([]);
         setResultsQuery('');
         setNextCursor(null);
         setError('');
         setFollowError('');
+        setHashtagError('');
       }}>Clear</button>}
     </label>
     {term ? <>
@@ -547,6 +568,15 @@ export function SearchPage() {
       {loading && <Skeleton rows={4} />}
       {!loading && error && <ErrorState error={error} onRetry={() => setRun((value) => value + 1)} />}
       {followError && <p className="inline-error" role="alert">{followError}</p>}
+      {hashtagError && <p className="inline-error" role="alert">{hashtagError}</p>}
+      {!loading && hashtagResults.length > 0 && <section className="search-hashtag-results" aria-label="Matching hashtags">
+        <h2>Hashtags</h2>
+        {hashtagResults.map((item) => <Link
+          className="search-hashtag-result"
+          key={item.normalizedName}
+          to={`/explore/tags/${encodeURIComponent(item.normalizedName)}`}
+        ><span>#{item.name}</span><small>{item.usageCount} {item.usageCount === 1 ? 'post' : 'posts'}</small></Link>)}
+      </section>}
       {!loading && !error && term.length >= 2 && showingResults && users.length === 0 && <EmptyState title="No people found" description="Try another name or username." icon={Search} />}
       {!loading && showingResults && users.length > 0 && <div className="user-results">{users.map((person) => <article className="user-result" key={person.id}>
         <Link to={`/profile/${person.id}`} className="user-result-profile"><Avatar name={person.displayName} src={person.avatarUrl} size="large" /><span><b>{person.displayName}</b><small>@{person.username}</small>{person.bio && <small className="user-bio">{person.bio}</small>}</span></Link>
@@ -1591,7 +1621,12 @@ export function CreatePage() {
             : 'Choose one photo or video for this post. Carousel posts are not supported yet.'}</p>
         <label className="create-field">
           <span>Caption</span>
-          <textarea aria-label="Caption" rows="5" maxLength={kind === 'story' ? 500 : 2200} value={caption} onChange={(event) => setCaption(event.target.value)} disabled={busy} />
+          {kind === 'story'
+            ? <textarea aria-label="Caption" rows="5" maxLength={500} value={caption} onChange={(event) => setCaption(event.target.value)} disabled={busy} />
+            : <>
+              <span className="hashtag-section-label">Hashtags <small>Type # in your caption to search or create one</small></span>
+              <HashtagComposer caption={caption} onChange={setCaption} disabled={busy} maxLength={2200} />
+            </>}
           <small>{caption.length}/{kind === 'story' ? 500 : 2200}</small>
         </label>
         {kind !== 'story' && <label className="create-field">
@@ -1630,7 +1665,7 @@ export function CreatePage() {
                 ? <img src={media.secureUrl} alt={altText || 'Selected media preview'} />
                 : <p>Your media preview will appear here after upload.</p>}
           </div>
-          <p className="create-preview-caption"><strong>@{user?.username || 'your-username'}</strong>{caption ? ` ${caption}` : ' Your caption will appear here.'}</p>
+          <p className="create-preview-caption"><strong>@{user?.username || 'your-username'}</strong>{caption ? <> <HashtagText>{caption}</HashtagText></> : ' Your caption will appear here.'}</p>
           {locationName.trim() && <p className="create-preview-location">{locationName.trim()}</p>}
           {kind === 'reel' && aiDisclosure && <span className="create-ai-label">AI-generated or altered</span>}
         </article>
@@ -1894,7 +1929,7 @@ export function ContentDetailPage({ kind }) {
     <div className="content-engagement">
       <EngagementActions item={item} kind={kind === 'reel' ? 'reels' : 'posts'} onShare={shareContent} />
     </div>
-    {item.caption && <p className="content-card-caption"><strong>@{item.owner.username}</strong> {item.caption}</p>}
+    {item.caption && <p className="content-card-caption"><strong>@{item.owner.username}</strong> <HashtagText>{item.caption}</HashtagText></p>}
     {item.location && <p className="content-card-location">{item.location}</p>}
     {kind === 'reel' && item.aiDisclosure && <p className="content-card-location">AI-generated or altered content</p>}
     {actionError && <p className="inline-error" role="alert">{actionError}</p>}

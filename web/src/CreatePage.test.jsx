@@ -50,6 +50,21 @@ describe('CreatePage', () => {
     expect(await screen.findByRole('link', { name: 'View published post' })).toHaveAttribute('href', '/post/post-id');
   });
 
+  it('publishes hashtags together with the post caption', async () => {
+    vi.spyOn(contentApi, 'searchHashtags').mockResolvedValue({ hashtags: [] });
+    render(<MemoryRouter><CreatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: 'Use verified upload' }));
+    fireEvent.change(screen.getByLabelText('Caption'), {
+      target: { value: 'A real moment #Photography #Travel' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+
+    await waitFor(() => expect(contentApi.createPost).toHaveBeenCalledWith({
+      mediaId: 'media-post',
+      caption: 'A real moment #Photography #Travel',
+    }));
+  });
+
   it('uses the signed-in profile identity in the preview', () => {
     render(<MemoryRouter><CreatePage /></MemoryRouter>);
     expect(screen.getByText('Test User')).toBeInTheDocument();
@@ -85,6 +100,7 @@ describe('CreatePage', () => {
   });
 
   it('publishes the video selection through the Reel endpoint', async () => {
+    vi.spyOn(contentApi, 'searchHashtags').mockResolvedValue({ hashtags: [] });
     render(<MemoryRouter><CreatePage /></MemoryRouter>);
     fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
     fireEvent.click(screen.getByRole('button', { name: 'Use verified upload' }));
@@ -98,6 +114,22 @@ describe('CreatePage', () => {
       caption: 'A short video',
       location: 'Studio',
       aiDisclosure: true,
+    }));
+  });
+
+  it('publishes hashtags with the Reel caption', async () => {
+    vi.spyOn(contentApi, 'searchHashtags').mockResolvedValue({ hashtags: [] });
+    render(<MemoryRouter><CreatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use verified upload' }));
+    fireEvent.change(screen.getByLabelText('Caption'), {
+      target: { value: 'A quick trip #Travel' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+
+    await waitFor(() => expect(contentApi.createReel).toHaveBeenCalledWith({
+      mediaId: 'media-reel',
+      caption: 'A quick trip #Travel',
     }));
   });
 

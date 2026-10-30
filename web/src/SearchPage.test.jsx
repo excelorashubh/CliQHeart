@@ -102,8 +102,24 @@ describe('SearchPage', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search users by name or username' }), {
       target: { value: 'nobody' },
     });
-
     expect(await screen.findByText('No people found')).toBeInTheDocument();
+  });
+
+  it('shows backend hashtag matches alongside people search', async () => {
+    vi.spyOn(userApi, 'search').mockResolvedValue({ users: [], nextCursor: null });
+    vi.spyOn(contentApi, 'searchHashtags').mockResolvedValue({
+      hashtags: [{ name: 'travel', normalizedName: 'travel', usageCount: 9 }],
+    });
+    renderSearchPage();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search users by name or username' }), {
+      target: { value: '#tra' },
+    });
+
+    expect(await screen.findByRole('link', { name: /#travel.*9 posts/i })).toHaveAttribute(
+      'href',
+      '/explore/tags/travel',
+    );
+    expect(userApi.search).toHaveBeenCalledWith('tra', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it('shows an error and retries a failed user search', async () => {

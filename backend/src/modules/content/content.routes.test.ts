@@ -11,6 +11,7 @@ import { FollowModel } from '../users/follow.model';
 import { MediaModel } from '../media/media.model';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
+import { HashtagModel } from './hashtag.model';
 import { StoryModel } from './story.model';
 import { StoryLikeModel, StoryViewModel } from './story-engagement.models';
 import { createContentRouter } from './content.routes';
@@ -107,6 +108,95 @@ test('post publishing accepts the JSON mediaId, caption, location, and altText c
   assert.equal(response.body.post.caption, 'A real moment');
   assert.equal(response.body.post.location, 'Lisbon');
   assert.equal(response.body.post.altText, 'Friends at the coast');
+});
+
+test('post publishing persists unique case-insensitive hashtags and increments popularity', async (t) => {
+  const { app, token } = createContentApp(t);
+  let createdFields: Record<string, unknown> = {};
+  t.mock.method(PostModel, 'create', async (fields: Record<string, unknown>) => {
+    createdFields = fields;
+    return { ...fields, createdAt: new Date() };
+  });
+  const updateHashtag = t.mock.method(HashtagModel, 'updateOne', async () => ({ matchedCount: 1 }));
+  const response = await request(app)
+    .post('/api/v1/posts')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ mediaId: mediaIds.post, caption: '#Photography #Travel #photography' });
+
+  assert.equal(response.status, 201);
+  assert.deepEqual(createdFields.hashtags, ['photography', 'travel']);
+  assert.deepEqual(updateHashtag.mock.calls.map((call) => call.arguments[0]), [
+    { normalizedName: 'photography' },
+    { normalizedName: 'travel' },
+  ]);
+  assert.equal(response.body.post.caption, '#Photography #Travel #photography');
+  assert.deepEqual(response.body.post.hashtags, ['photography', 'travel']);
+});
+
+test('content rejects more than 30 unique hashtags', async (t) => {
+  const { app, token, claimMedia } = createContentApp(t);
+  const hashtags = Array.from({ length: 31 }, (_, index) => `#tag${index}`).join(' ');
+  const response = await request(app)
+    .post('/api/v1/posts')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ mediaId: mediaIds.post, caption: hashtags });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'Invalid content request.');
+  assert.ok(response.body.details.some((detail: { field: string; message: string }) =>
+    detail.field === 'caption' && /30 unique hashtags/i.test(detail.message)));
+  assert.equal(claimMedia.mock.calls.length, 0);
+});
+
+test('editing a post updates stored hashtags and adjusts only changed popularity counts', async (t) => {
+  const { app, token, media } = createContentApp(t);
+  const existing = {
+    _id: new Types.ObjectId(mediaIds.post),
+    ownerId: new Types.ObjectId(userId),
+    mediaId: media._id,
+    caption: '#Travel #Photography',
+    hashtags: ['travel', 'photography'],
+  };
+  t.mock.method(PostModel, 'findOne', () => ({ lean: async () => existing }));
+  const edited = { ...existing, caption: '#Travel #Tech', hashtags: ['travel', 'tech'] };
+  t.mock.method(PostModel, 'findOneAndUpdate', () => ({ lean: async () => edited }));
+  t.mock.method(MediaModel, 'findById', () => ({ lean: async () => media }));
+  const updateHashtag = t.mock.method(HashtagModel, 'updateOne', async () => ({ matchedCount: 1 }));
+
+  const response = await request(app)
+    .patch(`/api/v1/posts/${mediaIds.post}`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ caption: '#Travel #Tech' });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.post.hashtags, ['travel', 'tech']);
+  assert.deepEqual(updateHashtag.mock.calls.map((call) => call.arguments[0]), [
+    { normalizedName: 'tech' },
+    { normalizedName: 'photography', usageCount: { $gt: 0 } },
+  ]);
+});
+
+test('hashtag search uses normalized backend records and returns popularity counts', async (t) => {
+  const { app, token } = createContentApp(t);
+  const hashtag = { name: 'travel', normalizedName: 'travel', usageCount: 7 };
+  let lookupFilter: Record<string, unknown> | undefined;
+  t.mock.method(HashtagModel, 'find', (filter: Record<string, unknown>) => {
+    lookupFilter = filter;
+    return {
+      sort: () => ({ limit: () => ({ lean: async () => [hashtag] }) }),
+    };
+  });
+  const response = await request(app)
+    .get('/api/v1/hashtags/search?q=%23Tra')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.hashtags[0].normalizedName, 'travel');
+  assert.equal(response.body.hashtags[0].usageCount, 7);
+  assert.deepEqual(lookupFilter, {
+    normalizedName: { $regex: '^tra' },
+    usageCount: { $gt: 0 },
+  });
 });
 
 test('Reel publishing requires verified video media and accepts its supported metadata', async (t) => {

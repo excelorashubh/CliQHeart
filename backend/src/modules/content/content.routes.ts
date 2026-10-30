@@ -9,6 +9,7 @@ import { MediaModel } from '../media/media.model';
 import { isVerifiedDurationSeconds } from '../media/duration';
 import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
+import { HashtagModel } from './hashtag.model';
 import { StoryModel } from './story.model';
 import { BookmarkModel } from './bookmark.model';
 import { CommentLikeModel, CommentModel, LikeModel, RepostModel } from './engagement.models';
@@ -23,16 +24,26 @@ const publishBaseSchema = {
   mediaId: z.string().regex(/^[a-f\d]{24}$/i),
   caption: z.string().trim().max(2200).default(''),
 };
+const updatePostSchema = z.object({
+  caption: z.string().trim().max(2200).optional(),
+  location: z.string().trim().max(120).optional(),
+  altText: z.string().trim().max(500).optional(),
+}).strict().refine((value) => Object.keys(value).length > 0).superRefine(validateHashtagCount);
+const updateReelSchema = z.object({
+  caption: z.string().trim().max(2200).optional(),
+  location: z.string().trim().max(120).optional(),
+  aiDisclosure: z.boolean().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0).superRefine(validateHashtagCount);
 const postPublishSchema = z.object({
   ...publishBaseSchema,
   location: z.string().trim().max(120).optional(),
   altText: z.string().trim().max(500).optional(),
-}).strict();
+}).strict().superRefine(validateHashtagCount);
 const reelPublishSchema = z.object({
   ...publishBaseSchema,
   location: z.string().trim().max(120).optional(),
   aiDisclosure: z.boolean().optional(),
-}).strict();
+}).strict().superRefine(validateHashtagCount);
 const addTagSchema = z.object({ userId: z.string().regex(/^[a-f\d]{24}$/i) }).strict();
 
 const storySchema = z.object({
@@ -53,9 +64,124 @@ export function createContentRouter(config: AppConfig): Router {
   const router = Router();
   const authenticate = requireAccessToken(config);
 
+  router.get('/hashtags/search', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const query = typeof request.query.q === 'string'
+        ? normalizeHashtagQuery(request.query.q)
+        : '';
+      if (!query) {
+        response.json({ hashtags: [] });
+        return;
+      }
+      const hashtags = await HashtagModel.find({
+        normalizedName: { $regex: `^${escapeRegex(query)}` },
+        usageCount: { $gt: 0 },
+      }).sort({ usageCount: -1, normalizedName: 1 }).limit(10).lean();
+      response.json({
+        hashtags: hashtags.map((hashtag) => ({
+          name: hashtag.name,
+          normalizedName: hashtag.normalizedName,
+          usageCount: hashtag.usageCount,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/hashtags/trending', authenticate, async (_request: Request, response: Response, next: NextFunction) => {
+    try {
+      const hashtags = await HashtagModel.find({ usageCount: { $gt: 0 } })
+        .sort({ usageCount: -1, normalizedName: 1 }).limit(10).lean();
+      response.json({
+        hashtags: hashtags.map((hashtag) => ({
+          name: hashtag.name,
+          normalizedName: hashtag.normalizedName,
+          usageCount: hashtag.usageCount,
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/hashtags/:tag', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const tag = normalizeHashtagName(request.params.tag ?? '');
+      if (!tag) {
+        response.status(400).json({ error: 'Invalid hashtag.' });
+        return;
+      }
+      const hashtag = await HashtagModel.findOne({ normalizedName: tag }).lean();
+      if (!hashtag || hashtag.usageCount === 0) {
+        response.status(404).json({ error: 'Hashtag not found.' });
+        return;
+      }
+      const limit = pageSizeSchema.parse(request.query.limit ?? 30);
+      const cursor = parseHashtagCursor(request.query.after);
+      if (request.query.after !== undefined && !cursor) {
+        response.status(400).json({ error: 'Invalid hashtag cursor.' });
+        return;
+      }
+      const cursorFilter = cursor
+        ? {
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+          ],
+        }
+        : {};
+      const [posts, reels] = await Promise.all([
+        PostModel.find({ hashtags: tag, ...cursorFilter })
+          .sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+        ReelModel.find({ hashtags: tag, ...cursorFilter })
+          .sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+      ]);
+      const merged = [
+        ...posts.map((item) => ({ item, kind: 'post' as const })),
+        ...reels.map((item) => ({ item, kind: 'reel' as const })),
+      ].sort((first, second) =>
+        new Date(second.item.createdAt ?? 0).getTime() - new Date(first.item.createdAt ?? 0).getTime() ||
+        String(second.item._id).localeCompare(String(first.item._id)));
+      const hasMore = merged.length > limit;
+      const page = hasMore ? merged.slice(0, limit) : merged;
+      const [postPayloads, reelPayloads] = await Promise.all([
+        contentListPayload(page.filter((entry) => entry.kind === 'post').map((entry) => entry.item), authenticatedUserId(request), 'post'),
+        contentListPayload(page.filter((entry) => entry.kind === 'reel').map((entry) => entry.item), authenticatedUserId(request), 'reel'),
+      ]);
+      const payloadByKey = new Map([
+        ...postPayloads.map((item) => [`post:${item.id}`, item] as const),
+        ...reelPayloads.map((item) => [`reel:${item.id}`, item] as const),
+      ]);
+      const items = page.flatMap(({ item, kind }) => {
+        const content = payloadByKey.get(`${kind}:${String(item._id)}`);
+        return content ? [{ ...content, contentType: kind }] : [];
+      });
+      const lastItem = page.at(-1)?.item;
+      response.json({
+        hashtag: {
+          name: hashtag.name,
+          normalizedName: hashtag.normalizedName,
+          usageCount: hashtag.usageCount,
+        },
+        items,
+        nextCursor: hasMore && lastItem?.createdAt
+          ? `${new Date(lastItem.createdAt).getTime()}_${String(lastItem._id)}`
+          : null,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid hashtag page size.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
   router.post('/posts', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const { mediaId, caption, location, altText } = postPublishSchema.parse(request.body);
+      const hashtags = extractHashtags(caption);
       const ownerId = authenticatedUserId(request);
       const postId = new Types.ObjectId();
       const media = await claimMedia(mediaId, ownerId, 'post', ['image', 'video'], postId);
@@ -63,22 +189,22 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(409).json({ error: 'Choose a verified post upload owned by your account.' });
         return;
       }
-      try {
-        const post = await PostModel.create({
+      const post = await PostModel.create({
           _id: postId,
           ownerId,
           mediaId: media._id,
           caption,
+          hashtags,
           ...(location ? { location } : {}),
           ...(altText ? { altText } : {}),
+        }).catch(async (error: unknown) => {
+          await releaseMedia(media._id, postId, 'post');
+          throw error;
         });
-        response.status(201).json({
-          post: { ...await contentPayload(post, media), isSaved: false },
-        });
-      } catch (error) {
-        await releaseMedia(media._id, postId, 'post');
-        throw error;
-      }
+      await synchronizeHashtagUsage([], hashtags);
+      response.status(201).json({
+        post: { ...await contentPayload(post, media), isSaved: false },
+      });
     } catch (error) {
       handleValidationError(error, request, response, config);
       if (!(error instanceof ZodError)) next(error);
@@ -154,6 +280,43 @@ export function createContentRouter(config: AppConfig): Router {
       response.json({ post: visiblePost });
     } catch (error) {
       next(error);
+    }
+  });
+
+  router.patch('/posts/:postId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const postId = request.params.postId;
+      if (!postId || !Types.ObjectId.isValid(postId)) {
+        response.status(400).json({ error: 'Invalid post ID.' });
+        return;
+      }
+      const updates = updatePostSchema.parse(request.body);
+      const existing = await PostModel.findOne({ _id: postId, ownerId: authenticatedUserId(request) }).lean();
+      if (!existing) {
+        response.status(404).json({ error: 'Post not found.' });
+        return;
+      }
+      const caption = updates.caption ?? existing.caption ?? '';
+      const hashtags = extractHashtags(caption);
+      const post = await PostModel.findOneAndUpdate(
+        { _id: postId, ownerId: authenticatedUserId(request) },
+        { $set: { ...updates, caption, hashtags } },
+        { new: true, runValidators: true },
+      ).lean();
+      if (!post) {
+        response.status(404).json({ error: 'Post not found.' });
+        return;
+      }
+      await synchronizeHashtagUsage(existing.hashtags ?? [], hashtags);
+      const media = await MediaModel.findById(post.mediaId).lean();
+      if (!media) {
+        response.status(404).json({ error: 'Post media not found.' });
+        return;
+      }
+      response.json({ post: { ...await contentPayload(post, media), isSaved: false } });
+    } catch (error) {
+      handleValidationError(error, request, response, config);
+      if (!(error instanceof ZodError)) next(error);
     }
   });
 
@@ -536,6 +699,7 @@ export function createContentRouter(config: AppConfig): Router {
         CommentLikeModel.deleteMany({ commentId: { $in: commentIds } }),
         RepostModel.deleteMany({ contentId: postId, contentType: 'post' }),
         NotificationModel.deleteMany({ $or: [{ postId }, { commentId: { $in: commentIds } }] }),
+        synchronizeHashtagUsage(post.hashtags ?? [], []),
       ]);
       await releaseMedia(post.mediaId, post._id, 'post');
       response.status(204).end();
@@ -864,6 +1028,7 @@ export function createContentRouter(config: AppConfig): Router {
   router.post('/reels', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const { mediaId, caption, location, aiDisclosure } = reelPublishSchema.parse(request.body);
+      const hashtags = extractHashtags(caption);
       const ownerId = authenticatedUserId(request);
       const reelId = new Types.ObjectId();
       const media = await claimMedia(mediaId, ownerId, 'reel', ['video'], reelId);
@@ -881,20 +1046,57 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(409).json({ error: 'Choose a verified video no longer than 180 seconds.' });
         return;
       }
-      try {
-        const reel = await ReelModel.create({
+      const reel = await ReelModel.create({
           _id: reelId,
           ownerId,
           mediaId: media._id,
           caption,
+          hashtags,
           ...(location ? { location } : {}),
           ...(aiDisclosure ? { aiDisclosure } : {}),
+        }).catch(async (error: unknown) => {
+          await releaseMedia(media._id, reelId, 'reel');
+          throw error;
         });
-        response.status(201).json({ reel: await contentPayload(reel, media) });
-      } catch (error) {
-        await releaseMedia(media._id, reelId, 'reel');
-        throw error;
+      await synchronizeHashtagUsage([], hashtags);
+      response.status(201).json({ reel: await contentPayload(reel, media) });
+    } catch (error) {
+      handleValidationError(error, request, response, config);
+      if (!(error instanceof ZodError)) next(error);
+    }
+  });
+
+  router.patch('/reels/:reelId', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const reelId = request.params.reelId;
+      if (!reelId || !Types.ObjectId.isValid(reelId)) {
+        response.status(400).json({ error: 'Invalid Reel ID.' });
+        return;
       }
+      const updates = updateReelSchema.parse(request.body);
+      const existing = await ReelModel.findOne({ _id: reelId, ownerId: authenticatedUserId(request) }).lean();
+      if (!existing) {
+        response.status(404).json({ error: 'Reel not found.' });
+        return;
+      }
+      const caption = updates.caption ?? existing.caption ?? '';
+      const hashtags = extractHashtags(caption);
+      const reel = await ReelModel.findOneAndUpdate(
+        { _id: reelId, ownerId: authenticatedUserId(request) },
+        { $set: { ...updates, caption, hashtags } },
+        { new: true, runValidators: true },
+      ).lean();
+      if (!reel) {
+        response.status(404).json({ error: 'Reel not found.' });
+        return;
+      }
+      await synchronizeHashtagUsage(existing.hashtags ?? [], hashtags);
+      const media = await MediaModel.findById(reel.mediaId).lean();
+      if (!media) {
+        response.status(404).json({ error: 'Reel media not found.' });
+        return;
+      }
+      response.json({ reel: await contentPayload(reel, media) });
     } catch (error) {
       handleValidationError(error, request, response, config);
       if (!(error instanceof ZodError)) next(error);
@@ -1042,6 +1244,7 @@ export function createContentRouter(config: AppConfig): Router {
         CommentLikeModel.deleteMany({ commentId: { $in: commentIds } }),
         RepostModel.deleteMany({ contentId: reelId, contentType: 'reel' }),
         NotificationModel.deleteMany({ $or: [{ reelId }, { commentId: { $in: commentIds } }] }),
+        synchronizeHashtagUsage(reel.hashtags ?? [], []),
       ]);
       await releaseMedia(reel.mediaId, reel._id, 'reel');
       response.status(204).end();
@@ -1091,6 +1294,7 @@ async function contentPayload(
     ownerId: unknown;
     mediaId: unknown;
     caption?: string;
+    hashtags?: string[];
     location?: string | null;
     altText?: string | null;
     aiDisclosure?: boolean | null;
@@ -1115,6 +1319,7 @@ async function contentPayload(
   return {
     id: String(content._id),
     caption: content.caption ?? '',
+    hashtags: content.hashtags ?? extractHashtags(content.caption ?? ''),
     ...(content.location ? { location: content.location } : {}),
     ...(content.altText ? { altText: content.altText } : {}),
     ...(content.aiDisclosure ? { aiDisclosure: content.aiDisclosure } : {}),
@@ -1146,6 +1351,7 @@ async function contentListPayload(
     ownerId: unknown;
     mediaId: unknown;
     caption?: string;
+    hashtags?: string[];
     location?: string | null;
     altText?: string | null;
     aiDisclosure?: boolean | null;
@@ -1217,6 +1423,7 @@ async function contentListPayload(
     return [{
       id: String(item._id),
       caption: item.caption ?? '',
+      hashtags: item.hashtags ?? extractHashtags(item.caption ?? ''),
       ...(item.location ? { location: item.location } : {}),
       ...(item.altText ? { altText: item.altText } : {}),
       ...(item.aiDisclosure ? { aiDisclosure: item.aiDisclosure } : {}),
@@ -1255,6 +1462,77 @@ function authenticatedUserId(request: Request): string {
   const userId = (request as AuthenticatedRequest).authenticatedUserId;
   if (!userId) throw new Error('Authenticated user context is missing.');
   return userId;
+}
+
+function validateHashtagCount(value: { caption?: string | undefined }, context: z.RefinementCtx): void {
+  if (extractHashtags(value.caption ?? '').length > 30) {
+    context.addIssue({
+      code: 'custom',
+      path: ['caption'],
+      message: 'A post or Reel can contain at most 30 unique hashtags.',
+    });
+  }
+}
+
+function extractHashtags(caption: string): string[] {
+  const tags = new Set<string>();
+  for (const match of caption.matchAll(/#([\p{L}\p{N}_]+)/gu)) {
+    const tag = normalizeHashtagName(match[1] ?? '');
+    if (tag) tags.add(tag);
+  }
+  return [...tags];
+}
+
+function normalizeHashtagName(value: string): string | null {
+  const normalized = value.trim().replace(/^#/, '').normalize('NFKC').toLocaleLowerCase('en-US');
+  return /^[\p{L}\p{N}_]{1,50}$/u.test(normalized) ? normalized : null;
+}
+
+function normalizeHashtagQuery(value: string): string {
+  const normalized = value.trim().replace(/^#/, '').normalize('NFKC').toLocaleLowerCase('en-US');
+  return /^[\p{L}\p{N}_]{1,50}$/u.test(normalized) ? normalized : '';
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseHashtagCursor(value: unknown): { createdAt: Date; id: Types.ObjectId } | null {
+  if (typeof value !== 'string') return null;
+  const [timestampText, idText, ...extra] = value.split('_');
+  const timestamp = Number(timestampText);
+  if (extra.length || !Number.isSafeInteger(timestamp) || !idText || !Types.ObjectId.isValid(idText)) {
+    return null;
+  }
+  return { createdAt: new Date(timestamp), id: new Types.ObjectId(idText) };
+}
+
+async function synchronizeHashtagUsage(previousTags: string[], nextTags: string[]): Promise<void> {
+  const previous = new Set(previousTags.map(normalizeHashtagName).filter((tag): tag is string => Boolean(tag)));
+  const next = new Set(nextTags.map(normalizeHashtagName).filter((tag): tag is string => Boolean(tag)));
+  const additions = [...next].filter((tag) => !previous.has(tag));
+  const removals = [...previous].filter((tag) => !next.has(tag));
+  await Promise.all([
+    ...additions.map(async (tag) => {
+      try {
+        await HashtagModel.updateOne(
+          { normalizedName: tag },
+          {
+            $setOnInsert: { name: tag, normalizedName: tag },
+            $inc: { usageCount: 1 },
+          },
+          { upsert: true },
+        );
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) throw error;
+        await HashtagModel.updateOne({ normalizedName: tag }, { $inc: { usageCount: 1 } });
+      }
+    }),
+    ...removals.map((tag) => HashtagModel.updateOne(
+      { normalizedName: tag, usageCount: { $gt: 0 } },
+      { $inc: { usageCount: -1 } },
+    )),
+  ]);
 }
 
 function validStoryId(value: string | undefined, response: Response): string | null {

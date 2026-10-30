@@ -11,6 +11,7 @@ import {
   HomePage, LoginPage, RegisterPage, SearchPage, ExplorePeoplePage, ProfilePage, MessagesPage,
   SettingsPage, CapabilityPage, CreatePage, ReelsPage, NotFoundPage, LandingPage, ContentDetailPage, NotificationsPage, StoryPage,
 } from './pages.jsx';
+import { HashtagPage } from './pages/HashtagPage.jsx';
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -72,6 +73,7 @@ export default function App() {
     <Route path="/register" element={<GuestOnly><RegisterPage /></GuestOnly>} />
     <Route path="/signup" element={<GuestOnly><RegisterPage /></GuestOnly>} />
     <Route path="/search" element={<Protected><SearchPage /></Protected>} />
+    <Route path="/explore/tags/:tag" element={<Protected><HashtagPage /></Protected>} />
     <Route path="/explore/people/" element={<Protected><ExplorePeoplePage /></Protected>} />
     <Route path="/discover" element={<Navigate to="/search" replace />} />
     <Route path="/explore" element={<Navigate to="/search" replace />} />

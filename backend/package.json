@@ -13,6 +13,7 @@
     "test:watch": "tsx --test --watch src/**/*.test.ts",
     "account:remediate-trial": "tsx src/scripts/remediate-trial-account.ts",
     "db:migrate-bookmark-index": "tsx src/scripts/migrate-bookmark-index.ts",
+    "db:backfill-hashtags": "tsx src/scripts/backfill-hashtags.ts",
     "lint": "eslint . --ext .ts"
   },
   "engines": {

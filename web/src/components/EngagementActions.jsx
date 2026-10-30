@@ -30,11 +30,16 @@ export function EngagementActions({ item, kind, onShare, onSavedChange, vertical
   const [saved, setSaved] = useState(Boolean(item.isSaved));
   const [busy, setBusy] = useState({});
   const busyRef = useRef(new Set());
+  const initializedItemState = useRef(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [commentsOpen, setCommentsOpen] = useState(false);
 
   useEffect(() => {
+    if (!initializedItemState.current) {
+      initializedItemState.current = true;
+      return;
+    }
     setLiked(Boolean(item.isLiked));
     setLikeCount(Number.isFinite(item.likeCount) ? item.likeCount : null);
     setCommentCount(Number.isFinite(item.commentCount) ? item.commentCount : null);

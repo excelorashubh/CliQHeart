@@ -8,6 +8,7 @@ import { Avatar } from './Brand.jsx';
 import { contentApi, userApi } from '../services/api.js';
 import { getReelPath, getReelUrl } from '../services/reelUrl.js';
 import { EngagementActions } from './EngagementActions.jsx';
+import { HashtagText } from './HashtagText.jsx';
 
 const pageSize = 10;
 
@@ -126,7 +127,7 @@ function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onF
           >{followBusy ? 'Updating…' : isFollowing ? 'Following' : 'Follow'}</button>}
         </div>
         {item.caption && <>
-          <p className={`reel-caption${captionExpanded ? ' is-expanded' : ''}`}>{item.caption}</p>
+          <p className={`reel-caption${captionExpanded ? ' is-expanded' : ''}`}><HashtagText>{item.caption}</HashtagText></p>
           {item.caption.length > 120 && <button className="reel-caption-toggle" type="button" onClick={() => setCaptionExpanded((value) => !value)} aria-expanded={captionExpanded}>
             {captionExpanded ? 'Show less' : 'Read more'}
           </button>}
