@@ -639,7 +639,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .profile-title { gap: 6px; }
   .profile-title h1 { width: 100%; margin: 0 0 4px; font-size: 18px; }
   .profile-title .button { min-height: 31px; padding: 0 9px; font-size: 10px; }
-  .profile-counts { justify-content: space-between; gap: 7px; margin: 17px 0 13px; padding-inline: 20px; font-size: 10px; }
+  .profile-counts { justify-content: space-between; gap: 7px; margin: 17px 0 13px; padding-inline: 25px; font-size: 10px; }
   .profile-bio { font-size: 11px; }
   .settings-card { padding: 17px 15px; }
 }
