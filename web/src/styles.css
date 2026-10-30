@@ -1012,6 +1012,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 @media (max-width: 760px) {
   .home-feed-page { width: 100%; padding: 15px 0 22px; }
+  .home-section-heading { display: none; }
   .home-posts-section .content-card-video-wrap,
   .home-posts-section .content-card-video-wrap > video { max-height: 75vh; }
   .home-posts-section .content-engagement { padding-inline: 8px; }
@@ -1023,7 +1024,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .home-feed-actions { gap: 8px; }
   .home-discover-link { font-size: 10px; }
   .home-create-button { min-height: 34px; }
-  .home-stories { margin: 0 0 17px; padding: 11px 12px; border-right: 0; border-left: 0; border-radius: 0; }
+  .home-stories { margin: 0 0; padding: 11px 12px; border-right: 0; border-left: 0; border-radius: 0; }
   .home-stories-strip { min-height: 80px; gap: 13px; }
   .home-story-ring { width: 56px; height: 56px; flex-basis: 56px; }
   .home-story-ring .avatar { width: 50px; height: 50px; }
