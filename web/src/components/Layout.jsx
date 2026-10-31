@@ -1,29 +1,32 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
-  BarChart3, Bell, Compass, Home, LogOut, MessageCircle, PlusSquare, Search, UserRound,
-  Settings, Video, Menu, X,
+  BarChart3, Bell, Compass, LogOut, PlusSquare, Search, UserRound,
+  Settings, Menu, X,
 } from 'lucide-react';
+import { BiHomeHeart } from 'react-icons/bi';
+import { RiSendInsFill } from 'react-icons/ri';
 import { Brand, Avatar } from './Brand.jsx';
+import { ReelsIcon } from './ReelsIcon.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { notificationApi } from '../services/api.js';
 
 const links = [
-  { name: 'Home', to: '/', Icon: Home },
+  { name: 'Home', to: '/', Icon: BiHomeHeart },
   { name: 'Search', to: '/search', Icon: Search },
   { name: 'Explore', to: '/explore/people/', Icon: Compass },
-  { name: 'Reels', to: '/reels', Icon: Video },
-  { name: 'Messages', to: '/messages', Icon: MessageCircle },
+  { name: 'Reels', to: '/reels', Icon: ReelsIcon },
+  { name: 'Messages', to: '/messages', Icon: RiSendInsFill },
   { name: 'Notifications', to: '/notifications', Icon: Bell },
   { name: 'Create', to: '/create', Icon: PlusSquare },
   { name: 'Profile', to: '/profile', Icon: UserRound, profile: true },
 ];
 
 const mobileLinks = [
-  { name: 'Home', to: '/', Icon: Home },
+  { name: 'Home', to: '/', Icon: BiHomeHeart },
   { name: 'Search', to: '/search', Icon: Search },
-  { name: 'Reels', to: '/reels', Icon: Video },
-  { name: 'Chats', to: '/messages', Icon: MessageCircle },
+  { name: 'Reels', to: '/reels', Icon: ReelsIcon },
+  { name: 'Chats', to: '/messages', Icon: RiSendInsFill },
 ];
 
 export function AppLayout({ children }) {

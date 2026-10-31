@@ -233,7 +233,7 @@ class MainShellFragment : Fragment() {
         navigation.menu.let { menu ->
             for (index in 0 until menu.size()) {
                 val item = menu.getItem(index)
-                if (item.itemId != R.id.profileTab) {
+                if (item.itemId != R.id.profileTab && item.itemId != R.id.reelsTab) {
                     item.icon?.let { DrawableCompat.setTintList(it, tint) }
                 }
             }
