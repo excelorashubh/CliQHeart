@@ -1,14 +1,15 @@
 package com.cliqheart.app.feature.home.tabs
 
 import android.os.Bundle
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.NavOptions
 import com.cliqheart.app.R
@@ -18,22 +19,20 @@ import com.cliqheart.app.core.network.UserResponse
 import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentProfileBinding
+import com.cliqheart.app.feature.home.MainShellViewModel
+import com.cliqheart.app.feature.home.RemoteImageLoader
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 class ProfileFragment : Fragment() {
     private var _binding: FragmentProfileBinding? = null
     private val binding get() = requireNotNull(_binding)
+    private val homeDataViewModel: MainShellViewModel by activityViewModels()
     private var profileJob: Job? = null
-    private var avatarJob: Job? = null
     private var currentProfile: UserResponse? = null
+    private var profileLoaded = false
     private val viewedUserId: String? get() = arguments?.getString(ARG_PROFILE_USER_ID)
     private val isOwnProfile: Boolean get() = viewedUserId == null
 
@@ -49,7 +48,37 @@ class ProfileFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.limitContentWidth(720)
 
-        SecureTokenStore(requireContext()).readSession()?.currentUser?.let(::showProfile)
+        if (isOwnProfile) {
+            homeDataViewModel.currentUser.value?.let {
+                profileLoaded = true
+                showProfile(it)
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    launch {
+                        homeDataViewModel.currentUser.collect { user ->
+                            if (user != null) {
+                                profileLoaded = true
+                                binding.profileState.visibility = View.GONE
+                                if (currentProfile != user) showProfile(user)
+                            }
+                        }
+                    }
+                    launch {
+                        homeDataViewModel.profileError.collect { error ->
+                            if (homeDataViewModel.currentUser.value == null && error != null) {
+                                binding.profileState.text = error
+                                binding.profileState.visibility = View.VISIBLE
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            SecureTokenStore(requireContext()).readSession()?.currentUser?.let {
+                showProfile(it)
+            }
+        }
         binding.statPostsCount.text = "—"
         binding.statFollowersCount.text = "—"
         binding.statFollowingCount.text = "—"
@@ -85,11 +114,17 @@ class ProfileFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        if (_binding != null) loadProfile()
+        if (_binding != null && !profileLoaded) {
+            if (isOwnProfile) homeDataViewModel.refreshProfileIfMissing() else loadProfile()
+        }
     }
 
-    private fun loadProfile() {
-        profileJob?.cancel()
+    private fun loadProfile(force: Boolean = false) {
+        if (profileJob?.isActive == true || (profileLoaded && !force)) return
+        if (isOwnProfile) {
+            homeDataViewModel.refreshProfileIfMissing()
+            return
+        }
         profileJob = viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val userId = viewedUserId
@@ -100,8 +135,9 @@ class ProfileFragment : Fragment() {
                 }
                 val user = response.body()?.user
                 if (response.isSuccessful && user != null) {
-                    if (isOwnProfile) SecureTokenStore(requireContext()).saveCurrentUser(user)
+                    if (isOwnProfile) homeDataViewModel.updateCurrentUser(user)
                     binding.profileState.visibility = View.GONE
+                    profileLoaded = true
                     showProfile(user)
                 } else {
                     binding.profileState.text = getString(R.string.profile_load_failed)
@@ -119,8 +155,7 @@ class ProfileFragment : Fragment() {
     private fun showProfile(user: UserResponse) {
         currentProfile = user
         if (isOwnProfile) {
-            (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)
-                ?.updateProfileAvatar(user.avatarUrl)
+            homeDataViewModel.updateCurrentUser(user)
         }
         binding.profileUsernameTitle.text = user.username?.let { "@$it" }.orEmpty()
         binding.profileDisplayName.text = user.displayName.orEmpty()
@@ -139,53 +174,7 @@ class ProfileFragment : Fragment() {
     }
 
     private fun loadAvatar(imageUrl: String?) {
-        avatarJob?.cancel()
-        binding.profileAvatar.setImageResource(R.drawable.ic_profile)
-        if (imageUrl.isNullOrBlank() || !imageUrl.startsWith("https://", ignoreCase = true)) return
-        avatarJob = viewLifecycleOwner.lifecycleScope.launch {
-            val bitmap = try {
-                withContext(Dispatchers.IO) { downloadAvatar(imageUrl) }
-            } catch (exception: CancellationException) {
-                throw exception
-            } catch (_: IOException) {
-                null
-            }
-            if (bitmap != null && _binding != null) binding.profileAvatar.setImageBitmap(bitmap)
-        }
-    }
-
-    private fun downloadAvatar(imageUrl: String): Bitmap? {
-        val connection = URL(imageUrl).openConnection() as? HttpURLConnection ?: return null
-        connection.connectTimeout = 8_000
-        connection.readTimeout = 8_000
-        connection.instanceFollowRedirects = false
-        return try {
-            connection.connect()
-            if (connection.responseCode !in 200..299) return null
-            if (connection.contentLengthLong > MAX_AVATAR_BYTES) return null
-            val bytes = ByteArrayOutputStream()
-            connection.inputStream.use { input ->
-                val buffer = ByteArray(8192)
-                var total = 0
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    total += count
-                    if (total > MAX_AVATAR_BYTES) return null
-                    bytes.write(buffer, 0, count)
-                }
-            }
-            val imageBytes = bytes.toByteArray()
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-            val options = BitmapFactory.Options().apply {
-                inSampleSize = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / MAX_AVATAR_DIMENSION)
-            }
-            BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
-        } finally {
-            connection.disconnect()
-        }
+        RemoteImageLoader.load(binding.profileAvatar, imageUrl, R.drawable.ic_profile)
     }
 
     private fun toggleFollow() {
@@ -201,7 +190,7 @@ class ProfileFragment : Fragment() {
                     ApiClient.service.followUser(userId)
                 }
                 if (response.isSuccessful && response.body()?.following == !wasFollowing) {
-                    loadProfile()
+                    loadProfile(force = true)
                 } else {
                     binding.btnEditProfile.text = if (wasFollowing) getString(R.string.following) else getString(R.string.follow)
                     Toast.makeText(requireContext(), R.string.profile_action_failed, Toast.LENGTH_SHORT).show()
@@ -305,7 +294,6 @@ class ProfileFragment : Fragment() {
 
     override fun onDestroyView() {
         profileJob?.cancel()
-        avatarJob?.cancel()
         _binding = null
         super.onDestroyView()
     }
@@ -316,7 +304,5 @@ class ProfileFragment : Fragment() {
         const val ARG_CONVERSATION_ID = "conversationId"
         const val FOLLOWERS = "followers"
         const val FOLLOWING = "following"
-        const val MAX_AVATAR_BYTES = 4 * 1024 * 1024
-        const val MAX_AVATAR_DIMENSION = 256
     }
 }

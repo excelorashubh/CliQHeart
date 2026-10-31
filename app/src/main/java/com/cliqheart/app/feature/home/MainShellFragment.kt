@@ -19,8 +19,11 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
+import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.cliqheart.app.R
-import com.cliqheart.app.core.security.SecureTokenStore
+import com.cliqheart.app.core.network.UserResponse
 import com.cliqheart.app.databinding.FragmentMainShellBinding
 import com.cliqheart.app.feature.home.RemoteImageLoader
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
@@ -29,11 +32,17 @@ import com.cliqheart.app.feature.home.tabs.DiscoverFragment
 import com.cliqheart.app.feature.home.tabs.HomeFeedFragment
 import com.cliqheart.app.feature.home.tabs.MessagesFragment
 import com.cliqheart.app.feature.home.tabs.ProfileFragment
+import kotlinx.coroutines.launch
 
 class MainShellFragment : Fragment() {
     private var _binding: FragmentMainShellBinding? = null
     private val binding get() = requireNotNull(_binding)
+    private val homeDataViewModel: MainShellViewModel by activityViewModels()
     private var profileAvatarUrl: String? = null
+    private var profileAvatarLoadingUrl: String? = null
+    private var profileAvatarLoadedUrl: String? = null
+    private var profileAvatarAttempts = 0
+    private var profileAvatarLastAttemptAt = 0L
     private val backStackListener = androidx.fragment.app.FragmentManager.OnBackStackChangedListener {
         if (childFragmentManager.backStackEntryCount == 0) {
             (childFragmentManager.findFragmentByTag(HOME_FRAGMENT_TAG) as? HomeFeedFragment)
@@ -70,9 +79,16 @@ class MainShellFragment : Fragment() {
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             showTab(item.itemId)
         }
-        SecureTokenStore(requireContext()).readSession()?.currentUser?.avatarUrl
-            ?.let(::updateProfileAvatar)
+        observeCurrentUser()
+        homeDataViewModel.initialize()
         showTab(selectedTab)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        homeDataViewModel.refreshProfileIfMissing()
+        homeDataViewModel.refreshStoriesIfStale()
+        retryProfileAvatarIfNeeded()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -85,7 +101,8 @@ class MainShellFragment : Fragment() {
 
     private fun showTab(tabId: Int): Boolean {
         val (tag, newFragment) = when (tabId) {
-            R.id.homeTab, R.id.reelsTab -> "home" to { HomeFeedFragment() }
+            R.id.homeTab -> HOME_FRAGMENT_TAG to { HomeFeedFragment() }
+            R.id.reelsTab -> REELS_FRAGMENT_TAG to { HomeFeedFragment.newReelsInstance() }
             R.id.messagesTab -> "messages" to { MessagesFragment() }
             R.id.searchTab -> "search" to { DiscoverFragment() }
             R.id.profileTab -> "profile" to { ProfileFragment() }
@@ -154,18 +171,67 @@ class MainShellFragment : Fragment() {
     }
 
     fun updateProfileAvatar(imageUrl: String?) {
+        val currentUser = homeDataViewModel.currentUser.value ?: return
+        homeDataViewModel.updateCurrentUser(currentUser.copy(avatarUrl = imageUrl))
+    }
+
+    fun updateCurrentUser(user: UserResponse) {
+        homeDataViewModel.updateCurrentUser(user)
+    }
+
+    fun retryProfileAvatarIfNeeded() {
+        val failedUrl = profileAvatarUrl ?: return
+        if (profileAvatarFailedUrl != failedUrl ||
+            profileAvatarAttempts >= MAX_AVATAR_ATTEMPTS ||
+            System.currentTimeMillis() - profileAvatarLastAttemptAt < AVATAR_RETRY_INTERVAL_MS
+        ) return
+        updateProfileAvatarIcon(failedUrl)
+    }
+
+    private fun observeCurrentUser() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                homeDataViewModel.currentUser.collect { user ->
+                    updateProfileAvatarIcon(user?.avatarUrl)
+                }
+            }
+        }
+    }
+
+    private fun updateProfileAvatarIcon(imageUrl: String?) {
         val normalizedUrl = imageUrl?.trim()?.takeIf(String::isNotEmpty)
-        if (normalizedUrl == profileAvatarUrl || _binding == null) return
+        if (_binding == null) return
+        if (normalizedUrl == profileAvatarUrl &&
+            (normalizedUrl == null || normalizedUrl == profileAvatarLoadedUrl ||
+                normalizedUrl == profileAvatarLoadingUrl ||
+                profileAvatarAttempts >= MAX_AVATAR_ATTEMPTS)
+        ) return
+        if (normalizedUrl != profileAvatarUrl) {
+            profileAvatarAttempts = 0
+            profileAvatarLastAttemptAt = 0L
+        }
         profileAvatarUrl = normalizedUrl
+        profileAvatarFailedUrl = null
+        profileAvatarLoadingUrl = null
+        profileAvatarLoadedUrl = null
         if (normalizedUrl == null) {
             setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
             return
         }
 
         setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
+        profileAvatarAttempts += 1
+        profileAvatarLastAttemptAt = System.currentTimeMillis()
+        profileAvatarLoadingUrl = normalizedUrl
         val imageView = android.widget.ImageView(requireContext())
         RemoteImageLoader.load(imageView, normalizedUrl, R.drawable.ic_profile) { bitmap ->
-            if (_binding == null || profileAvatarUrl != normalizedUrl || bitmap == null) return@load
+            if (_binding == null || profileAvatarUrl != normalizedUrl) return@load
+            profileAvatarLoadingUrl = null
+            if (bitmap == null) {
+                profileAvatarFailedUrl = normalizedUrl
+                return@load
+            }
+            profileAvatarLoadedUrl = normalizedUrl
             setProfileIcon(createProfileAvatarDrawable(bitmap))
         }
     }
@@ -222,6 +288,11 @@ class MainShellFragment : Fragment() {
     override fun onDestroyView() {
         childFragmentManager.removeOnBackStackChangedListener(backStackListener)
         profileAvatarUrl = null
+        profileAvatarFailedUrl = null
+        profileAvatarLoadingUrl = null
+        profileAvatarLoadedUrl = null
+        profileAvatarAttempts = 0
+        profileAvatarLastAttemptAt = 0L
         _binding = null
         super.onDestroyView()
     }
@@ -313,10 +384,15 @@ class MainShellFragment : Fragment() {
 
     private companion object {
         const val HOME_FRAGMENT_TAG = "home"
+        const val REELS_FRAGMENT_TAG = "reels"
         const val ACTIVITY_FRAGMENT_TAG = "activity_overlay"
         const val CREATE_FRAGMENT_TAG = "create_overlay"
         const val SELECTED_TAB_KEY = "selected_tab_id"
         const val PROFILE_ICON_SIZE_DP = 24
         const val PROFILE_BORDER_DP = 1.5f
+        const val MAX_AVATAR_ATTEMPTS = 3
+        const val AVATAR_RETRY_INTERVAL_MS = 30_000L
     }
+
+    private var profileAvatarFailedUrl: String? = null
 }

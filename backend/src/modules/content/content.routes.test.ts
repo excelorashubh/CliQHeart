@@ -354,6 +354,95 @@ test('post, Reel, and Story publishing require authentication', async () => {
   assert.deepEqual(responses.map((response) => response.status), [401, 401, 401, 401, 401, 401, 401, 401]);
 });
 
+test('Stories feed serializes active Stories for the viewer and followed owners', async (t) => {
+  const { app, token } = buildApp(t);
+  const followedOwnerId = 'fedcbafedcbafedcbafedcba';
+  const stories = [
+    {
+      _id: new Types.ObjectId(),
+      ownerId: new Types.ObjectId(userId),
+      mediaId: new Types.ObjectId(mediaIds.story),
+      caption: 'Own story',
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+    {
+      _id: new Types.ObjectId(),
+      ownerId: new Types.ObjectId(followedOwnerId),
+      mediaId: new Types.ObjectId(mediaIds.reel),
+      caption: 'Followed story',
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  ];
+  let followFilter: unknown;
+  t.mock.method(FollowModel, 'find', (filter: unknown) => {
+    followFilter = filter;
+    return {
+      select() { return this; },
+      lean: async () => [{ followedId: new Types.ObjectId(followedOwnerId) }],
+    };
+  });
+  let storyFilter: unknown;
+  t.mock.method(StoryModel, 'find', (filter: unknown) => {
+    storyFilter = filter;
+    return {
+      sort() { return this; },
+      limit() { return this; },
+      lean: async () => stories,
+    };
+  });
+  t.mock.method(StoryViewModel, 'find', () => ({
+    select() { return this; },
+    lean: async () => [],
+  }));
+  t.mock.method(UserModel, 'find', () => ({
+    select() { return this; },
+    lean: async () => [
+      { _id: new Types.ObjectId(userId), username: 'viewer', displayName: 'Viewer' },
+      { _id: new Types.ObjectId(followedOwnerId), username: 'followed', displayName: 'Followed' },
+    ],
+  }));
+  t.mock.method(MediaModel, 'find', () => ({
+    lean: async () => [
+      {
+        _id: new Types.ObjectId(mediaIds.story),
+        resourceType: 'image',
+        secureUrl: 'https://res.cloudinary.com/test/image/upload/own.jpg',
+      },
+      {
+        _id: new Types.ObjectId(mediaIds.reel),
+        resourceType: 'image',
+        secureUrl: 'https://res.cloudinary.com/test/image/upload/followed.jpg',
+      },
+    ],
+  }));
+
+  const response = await request(app)
+    .get('/api/v1/stories')
+    .auth(token, { type: 'bearer' });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(followFilter, { followerId: userId });
+  const actualStoryFilter = storyFilter as {
+    ownerId: { $in: string[] };
+    expiresAt: { $gt: Date };
+  };
+  assert.deepEqual(actualStoryFilter.ownerId.$in, [userId, followedOwnerId]);
+  assert.ok(actualStoryFilter.expiresAt.$gt instanceof Date);
+  assert.deepEqual(
+    response.body.stories.map((story: { caption: string; owner: { username: string }; isViewed: boolean }) => ({
+      caption: story.caption,
+      owner: story.owner.username,
+      isViewed: story.isViewed,
+    })),
+    [
+      { caption: 'Own story', owner: 'viewer', isViewed: false },
+      { caption: 'Followed story', owner: 'followed', isViewed: false },
+    ],
+  );
+});
+
 test('story view writes are idempotent and only the owner can load viewer identities', async (t) => {
   const { app, token: ownerToken } = buildApp(t);
   const viewerId = '1123456789abcdef01234567';

@@ -752,12 +752,35 @@ export function createContentRouter(config: AppConfig): Router {
         viewerId,
       }).select('storyId').lean();
       const viewedIds = new Set(viewedStories.map((view) => String(view.storyId)));
-      const storyPayload = await contentListPayload(stories, undefined, 'story');
+      const serializationCounts = {
+        excludedWithoutActiveOwner: 0,
+        excludedWithoutReadyMedia: 0,
+        excludedByBoth: 0,
+      };
+      const storyPayload = await contentListPayload(
+        stories,
+        undefined,
+        'story',
+        serializationCounts,
+      );
+      const responseStories = storyPayload.map((story) => ({
+        ...story,
+        isViewed: viewedIds.has(story.id),
+      }));
+      console.info(JSON.stringify({
+        level: 'info',
+        event: 'stories_feed_counts',
+        requestId: response.locals.requestId,
+        authentication: 'passed',
+        followedOwnerCount: follows.length,
+        matchedVisibleUnexpiredStoryCount: stories.length,
+        excludedWithoutActiveOwner: serializationCounts.excludedWithoutActiveOwner,
+        excludedWithoutReadyMedia: serializationCounts.excludedWithoutReadyMedia,
+        excludedByBoth: serializationCounts.excludedByBoth,
+        serializedStoryCount: responseStories.length,
+      }));
       response.json({
-        stories: storyPayload.map((story) => ({
-          ...story,
-          isViewed: viewedIds.has(story.id),
-        })),
+        stories: responseStories,
       });
     } catch (error) {
       next(error);
@@ -1372,6 +1395,11 @@ async function contentListPayload(
   }>,
   viewerId?: string,
   contentType: 'post' | 'reel' | 'story' = 'post',
+  serializationCounts?: {
+    excludedWithoutActiveOwner: number;
+    excludedWithoutReadyMedia: number;
+    excludedByBoth: number;
+  },
 ) {
   if (!content.length) return [];
   const ownerIds = [...new Set(content.map((item) => String(item.ownerId)))];
@@ -1431,7 +1459,18 @@ async function contentListPayload(
   return content.flatMap((item) => {
     const owner = ownerById.get(String(item.ownerId));
     const asset = mediaById.get(String(item.mediaId));
-    if (!owner || !asset) return [];
+    if (!owner || !asset) {
+      if (!owner && serializationCounts) {
+        serializationCounts.excludedWithoutActiveOwner += 1;
+      }
+      if (!asset && serializationCounts) {
+        serializationCounts.excludedWithoutReadyMedia += 1;
+      }
+      if (!owner && !asset && serializationCounts) {
+        serializationCounts.excludedByBoth += 1;
+      }
+      return [];
+    }
     return [{
       id: String(item._id),
       caption: item.caption ?? '',

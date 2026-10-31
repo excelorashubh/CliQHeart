@@ -8,10 +8,14 @@ import android.view.ViewGroup
 import android.util.Log
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.PagerSnapHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.BuildConfig
 import com.cliqheart.app.R
@@ -19,12 +23,14 @@ import com.cliqheart.app.core.network.ApiClient
 import com.cliqheart.app.core.network.EngagementContentRequest
 import com.cliqheart.app.core.network.EngagementSyncRequest
 import com.cliqheart.app.core.network.PostResponse
-import com.cliqheart.app.core.network.StoryResponse
 import com.cliqheart.app.core.network.UnreadCountResponse
+import com.cliqheart.app.core.network.UserResponse
 import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentHomeFeedBinding
+import com.cliqheart.app.feature.home.MainShellViewModel
 import com.cliqheart.app.feature.home.StoryViewerDialogFragment
+import com.cliqheart.app.feature.home.toStoryModels
 import com.cliqheart.app.feature.home.adapters.FeedAdapter
 import com.cliqheart.app.feature.home.adapters.HomeFeedHeaderAdapter
 import com.cliqheart.app.feature.home.apiErrorMessage
@@ -34,6 +40,7 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import io.socket.engineio.client.transports.WebSocket
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.IOException
@@ -51,6 +58,8 @@ internal const val ARG_COMMENT_COUNT = "comment_count"
 internal const val STORY_VIEWED_RESULT_KEY = "cliqheart.story.viewed"
 
 class HomeFeedFragment : Fragment() {
+    private val isReelsMode: Boolean
+        get() = arguments?.getBoolean(ARG_REELS_MODE) == true
     private var _binding: FragmentHomeFeedBinding? = null
     private val binding get() = requireNotNull(_binding)
     private var feedAdapter: FeedAdapter? = null
@@ -60,10 +69,9 @@ class HomeFeedFragment : Fragment() {
     private var postsExhausted = false
     private var reelsExhausted = false
     private var loadingPosts = false
-    private var loadingStories = false
-    private var refreshStoriesRequested = false
     private val pendingInteractions = mutableSetOf<String>()
     private var storyItems: List<StoryModel> = emptyList()
+    private val homeDataViewModel: MainShellViewModel by activityViewModels()
     private var realtimeSocket: Socket? = null
     private var refreshingSocketAuth = false
     private var notificationBadgeRevision = 0L
@@ -81,11 +89,25 @@ class HomeFeedFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.limitContentWidth(680)
+        if (isReelsMode) {
+            binding.homeHeader.visibility = View.GONE
+            binding.feedRecyclerView.setPadding(0, 0, 0, 0)
+            binding.reelsState.visibility = View.VISIBLE
+            binding.reelsState.text = getString(R.string.loading_reels)
+            binding.reelsState.setOnClickListener {
+                if (!loadingPosts) loadPosts(refresh = true)
+            }
+        } else {
+            binding.reelsState.visibility = View.GONE
+        }
         setupFeed()
 
         binding.swipeRefreshLayout.setOnRefreshListener {
             loadPosts(refresh = true)
-            loadUnreadBadges()
+            if (!isReelsMode) {
+                loadUnreadBadges()
+                homeDataViewModel.refreshStories()
+            }
         }
         binding.btnHeaderCreate.setOnClickListener {
             (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)?.openCreate()
@@ -103,11 +125,11 @@ class HomeFeedFragment : Fragment() {
         parentFragmentManager.setFragmentResultListener(
             STORY_PUBLISHED_REQUEST_KEY,
             viewLifecycleOwner,
-        ) { _, _ -> loadStories() }
+        ) { _, _ -> homeDataViewModel.refreshStories() }
         parentFragmentManager.setFragmentResultListener(
             STORY_VIEWED_RESULT_KEY,
             viewLifecycleOwner,
-        ) { _, _ -> loadStories() }
+        ) { _, _ -> homeDataViewModel.refreshStories() }
         parentFragmentManager.setFragmentResultListener(
             COMMENT_COUNT_RESULT_KEY,
             viewLifecycleOwner,
@@ -118,8 +140,8 @@ class HomeFeedFragment : Fragment() {
             if (count >= 0) feedAdapter?.updateCommentCount(type, id, count)
         }
 
+        observeHomeData()
         loadPosts(refresh = true)
-        loadStories()
     }
 
     private fun setupFeed() {
@@ -133,28 +155,38 @@ class HomeFeedFragment : Fragment() {
             },
             onRepostClicked = ::toggleRepost,
             onFollowClicked = ::followAuthor,
+            reelsMode = isReelsMode,
         )
         feedAdapter = adapter
-        val header = HomeFeedHeaderAdapter(
-            onFeedRetry = {
-                if (!loadingPosts) loadPosts(refresh = true)
-            },
-            onStoryClick = ::openStoryGroup,
-            onStoriesRetry = ::loadStories,
-        )
-        headerAdapter = header
-        if (storyItems.isEmpty()) storyItems = listOf(createYourStoryModel())
-        header.setStories(
-            storyItems,
-            stateMessage = getString(R.string.loading_stories),
-            loading = true,
-        )
-        binding.feedRecyclerView.layoutManager = LinearLayoutManager(requireContext())
-        binding.feedRecyclerView.adapter = ConcatAdapter(header, adapter)
+        if (isReelsMode) {
+            headerAdapter = null
+            binding.feedRecyclerView.layoutManager = LinearLayoutManager(requireContext())
+            binding.feedRecyclerView.adapter = adapter
+            PagerSnapHelper().attachToRecyclerView(binding.feedRecyclerView)
+        } else {
+            val header = HomeFeedHeaderAdapter(
+                onFeedRetry = {
+                    if (!loadingPosts) loadPosts(refresh = true)
+                },
+                onStoryClick = ::openStoryGroup,
+                onStoriesRetry = homeDataViewModel::refreshStories,
+            )
+            headerAdapter = header
+            if (storyItems.isEmpty()) {
+                storyItems = listOf(createYourStoryModel(homeDataViewModel.currentUser.value))
+            }
+            header.setStories(
+                storyItems,
+                stateMessage = getString(R.string.loading_stories),
+                loading = true,
+            )
+            binding.feedRecyclerView.layoutManager = LinearLayoutManager(requireContext())
+            binding.feedRecyclerView.adapter = ConcatAdapter(header, adapter)
+        }
         binding.feedRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 feedAdapter?.updateVisibleVideoPlayback()
-                if (dy <= 0 || loadingPosts || (postsExhausted && reelsExhausted)) return
+                if (dy <= 0 || loadingPosts || isFeedExhausted()) return
                 val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
                 if (layoutManager.findLastVisibleItemPosition() >=
                     layoutManager.itemCount - PREFETCH_THRESHOLD
@@ -174,7 +206,6 @@ class HomeFeedFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        loadStories()
         loadUnreadBadges()
         connectRealtime()
         bindingOrNull()?.feedRecyclerView?.post {
@@ -199,7 +230,7 @@ class HomeFeedFragment : Fragment() {
     }
 
     private fun loadPosts(refresh: Boolean) {
-        if (loadingPosts || (!refresh && postsExhausted && reelsExhausted)) return
+        if (loadingPosts || (!refresh && isFeedExhausted())) return
         loadingPosts = true
         if (refresh) {
             nextPostCursor = null
@@ -208,13 +239,15 @@ class HomeFeedFragment : Fragment() {
             reelsExhausted = false
         }
         if (refresh && feedAdapter?.postCount == 0) {
-            showFeedState(getString(R.string.loading_posts))
+            showFeedState(
+                getString(if (isReelsMode) R.string.loading_reels else R.string.loading_posts),
+            )
         }
         if (refresh) binding.swipeRefreshLayout.isRefreshing = true
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val postPage = if (postsExhausted) {
+                val postPage = if (isReelsMode || postsExhausted) {
                     null
                 } else {
                     val response = ApiClient.service.getPosts(PAGE_SIZE, nextPostCursor)
@@ -248,16 +281,22 @@ class HomeFeedFragment : Fragment() {
                     .mapNotNull { (contentType, response) -> response.toPostModel(contentType) }
                 feedAdapter?.submitPosts(posts, append = !refresh)
                 if (feedAdapter?.postCount == 0) {
-                    showFeedState(getString(R.string.feed_empty))
+                    showFeedState(
+                        getString(if (isReelsMode) R.string.reels_empty else R.string.feed_empty),
+                    )
                 } else {
                     hideFeedState()
                 }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
-                val message = exception.message
-                    ?.takeIf(String::isNotBlank)
-                    ?: getString(R.string.feed_load_failed)
+                val message = if (isReelsMode) {
+                    getString(R.string.reels_load_failed)
+                } else {
+                    exception.message
+                        ?.takeIf(String::isNotBlank)
+                        ?: getString(R.string.feed_load_failed)
+                }
                 if (feedAdapter?.postCount == 0) {
                     showFeedState(message)
                 } else {
@@ -416,131 +455,47 @@ class HomeFeedFragment : Fragment() {
         }
     }
 
-    private fun loadStories() {
-        if (loadingStories) {
-            refreshStoriesRequested = true
-            return
-        }
-        loadingStories = true
-        val cachedUser = SecureTokenStore(requireContext()).readSession()?.currentUser
-        val yourStory = createYourStoryModel()
-        if (storyItems.isEmpty()) {
-            headerAdapter?.setStories(
-                listOf(yourStory),
-                getString(R.string.loading_stories),
-                loading = true,
-            )
-        } else {
-            headerAdapter?.setStoriesState(getString(R.string.loading_stories))
-        }
+    private fun observeHomeData() {
         viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val profileResponse = ApiClient.service.getMyProfile()
-                val profile = if (profileResponse.isSuccessful) {
-                    profileResponse.body()?.user ?: cachedUser
-                } else {
-                    cachedUser
-                } ?: throw IOException(apiErrorMessage(profileResponse, getString(R.string.stories_load_failed)))
-                if (!profile.id.isNullOrBlank() || !profile._id.isNullOrBlank()) {
-                    SecureTokenStore(requireContext()).saveCurrentUser(profile)
-                }
-                val storiesResponse = ApiClient.service.getStories()
-                if (!storiesResponse.isSuccessful) {
-                    throw IOException(apiErrorMessage(storiesResponse, getString(R.string.stories_load_failed)))
-                }
-                val stories = storiesResponse.body()?.stories
-                    ?: throw IOException(getString(R.string.stories_load_failed))
-                val currentUserId = profile.id?.takeIf(String::isNotBlank) ?: profile._id
-                storyItems = stories.toStoryModels(currentUserId, profile.username, profile.avatarUrl)
-                headerAdapter?.setStories(storyItems)
-            } catch (exception: CancellationException) {
-                throw exception
-            } catch (exception: Exception) {
-                Log.w(TAG, "Could not load Home stories.", exception)
-                if (storyItems.isEmpty()) storyItems = listOf(yourStory)
-                headerAdapter?.setStories(
-                    storyItems,
-                    exception.message ?: getString(R.string.stories_load_failed),
-                )
-                Toast.makeText(
-                    requireContext(),
-                    exception.message ?: getString(R.string.stories_load_failed),
-                    Toast.LENGTH_LONG,
-                ).show()
-            } finally {
-                loadingStories = false
-                if (refreshStoriesRequested) {
-                    refreshStoriesRequested = false
-                    loadStories()
-                }
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(
+                    homeDataViewModel.currentUser,
+                    homeDataViewModel.stories,
+                ) { user, state -> user to state }
+                    .collect { (user, state) ->
+                        storyItems = state.stories.toStoryModels(
+                            currentUserId = user?.id?.takeIf(String::isNotBlank) ?: user?._id,
+                            currentUsername = user?.username,
+                            currentAvatarUrl = user?.avatarUrl,
+                            yourStoryLabel = getString(R.string.your_story),
+                        )
+                        if (state.lastSuccessAt > 0) {
+                            val mappedStoryCount = storyItems.sumOf { it.storyIds.size }
+                            Log.i(
+                                TAG,
+                                "Stories mapped: responseCount=${state.stories.size}, " +
+                                    "mappedRecordCount=$mappedStoryCount, " +
+                                    "otherOwnerCount=${storyItems.count { !it.isYourStory }}.",
+                            )
+                        }
+                        headerAdapter?.setStories(
+                            storyItems,
+                            state.errorMessage,
+                            state.isLoading,
+                        )
+                    }
             }
         }
     }
 
-    private fun List<StoryResponse>.toStoryModels(
-        currentUserId: String?,
-        currentUsername: String?,
-        currentAvatarUrl: String?,
-    ): List<StoryModel> {
-        val activeStories = asSequence()
-            .filter { story ->
-                val expiry = story.expiresAt.toEpochMillis()
-                !story.id.isNullOrBlank() &&
-                    !(story.owner?.id ?: story.owner?._id).isNullOrBlank() &&
-                    expiry > System.currentTimeMillis()
-            }
-            .distinctBy { it.id?.lowercase() }
-            .toList()
-        val groupedStories = activeStories
-            .groupBy { (it.owner?.id?.takeIf(String::isNotBlank) ?: it.owner?._id).orEmpty().lowercase() }
-        val normalizedCurrentUserId = currentUserId.orEmpty().lowercase()
-        val ownGroup = groupedStories.entries.firstOrNull { (ownerId, items) ->
-            ownerId == normalizedCurrentUserId ||
-                (!currentUsername.isNullOrBlank() &&
-                    items.firstOrNull()?.owner?.username.equals(currentUsername, ignoreCase = true))
-        }
-        val ownStories = ownGroup?.value.orEmpty()
-        val ownerId = currentUserId?.takeIf(String::isNotBlank)
-            ?: ownGroup?.key
-            ?: YOUR_STORY_OWNER_ID
-        val yourStory = StoryModel(
-            ownerId = ownerId,
-            username = getString(R.string.your_story),
-            avatarUrl = currentAvatarUrl.orEmpty(),
-            storyIds = ownStories.mapNotNull { it.id },
-            hasNewStory = ownStories.any { it.isViewed != true },
-            isYourStory = true,
-        )
-        val others = groupedStories
-            .filter { (groupOwnerId, items) ->
-                groupOwnerId != ownGroup?.key &&
-                    (currentUsername.isNullOrBlank() ||
-                        !items.firstOrNull()?.owner?.username.equals(currentUsername, ignoreCase = true))
-            }
-            .values
-            .mapNotNull { items ->
-                val owner = items.firstOrNull()?.owner ?: return@mapNotNull null
-                val storyIds = items.mapNotNull { it.id }
-                StoryModel(
-                    ownerId = owner.id?.takeIf(String::isNotBlank) ?: owner._id.orEmpty(),
-                    username = owner.username.orEmpty(),
-                    avatarUrl = owner.avatarUrl.orEmpty(),
-                    storyIds = storyIds,
-                    hasNewStory = items.any { it.isViewed != true },
-                )
-            }
-        return listOf(yourStory) + others.distinctBy { it.ownerId.lowercase() }
-    }
-
-    private fun createYourStoryModel(): StoryModel {
-        val cachedUser = SecureTokenStore(requireContext()).readSession()?.currentUser
-        val ownerId = cachedUser?.id?.takeIf(String::isNotBlank)
-            ?: cachedUser?._id?.takeIf(String::isNotBlank)
+    private fun createYourStoryModel(user: UserResponse?): StoryModel {
+        val ownerId = user?.id?.takeIf(String::isNotBlank)
+            ?: user?._id?.takeIf(String::isNotBlank)
             ?: YOUR_STORY_OWNER_ID
         return StoryModel(
             ownerId = ownerId,
             username = getString(R.string.your_story),
-            avatarUrl = cachedUser?.avatarUrl.orEmpty(),
+            avatarUrl = user?.avatarUrl.orEmpty(),
             storyIds = emptyList(),
             isYourStory = true,
         )
@@ -585,6 +540,9 @@ class HomeFeedFragment : Fragment() {
                     if (realtimeSocket === socket) {
                         synchronizeEngagement()
                         loadUnreadBadges()
+                        homeDataViewModel.synchronizeAfterReconnect()
+                        (parentFragment as? com.cliqheart.app.feature.home.MainShellFragment)
+                            ?.retryProfileAvatarIfNeeded()
                     }
                 }
             }
@@ -813,12 +771,28 @@ class HomeFeedFragment : Fragment() {
     }
 
     private fun showFeedState(message: String) {
-        headerAdapter?.setFeedState(message)
+        if (isReelsMode) {
+            bindingOrNull()?.reelsState?.apply {
+                text = message
+                visibility = View.VISIBLE
+            }
+            bindingOrNull()?.feedRecyclerView?.visibility = View.GONE
+        } else {
+            headerAdapter?.setFeedState(message)
+        }
     }
 
     private fun hideFeedState() {
-        headerAdapter?.setFeedState(null)
+        if (isReelsMode) {
+            bindingOrNull()?.reelsState?.visibility = View.GONE
+            bindingOrNull()?.feedRecyclerView?.visibility = View.VISIBLE
+        } else {
+            headerAdapter?.setFeedState(null)
+        }
     }
+
+    private fun isFeedExhausted(): Boolean =
+        if (isReelsMode) reelsExhausted else postsExhausted && reelsExhausted
 
     override fun onDestroyView() {
         disconnectRealtime()
@@ -893,7 +867,8 @@ class HomeFeedFragment : Fragment() {
         ).toString()
     }
 
-    private companion object {
+    companion object {
+        const val ARG_REELS_MODE = "reels_mode"
         const val TAG = "HomeFeed"
         const val PAGE_SIZE = 30
         const val PREFETCH_THRESHOLD = 5
@@ -905,5 +880,9 @@ class HomeFeedFragment : Fragment() {
         const val STORY_VIEWER_TAG = "home-story-viewer"
         const val STORY_CREATION_TAG = "home-story-creation"
         const val COMMENTS_SHEET_TAG = "home-post-comments"
+
+        fun newReelsInstance() = HomeFeedFragment().apply {
+            arguments = Bundle().apply { putBoolean(ARG_REELS_MODE, true) }
+        }
     }
 }

@@ -27,6 +27,7 @@
         app:itemIconSize="24dp"
         app:itemIconTint="@color/nav_item_icon_tint"
         app:itemTextColor="@color/nav_item_text_tint"
-        app:labelVisibilityMode="labeled"
+        app:itemHorizontalTranslationEnabled="false"
+        app:labelVisibilityMode="unlabeled"
         app:menu="@menu/main_navigation" />
 </LinearLayout>

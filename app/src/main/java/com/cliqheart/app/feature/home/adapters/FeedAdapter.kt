@@ -38,6 +38,7 @@ class FeedAdapter(
     private val onCommentClicked: (PostModel) -> Unit,
     private val onRepostClicked: (PostModel) -> Unit,
     private val onFollowClicked: (PostModel) -> Unit,
+    private val reelsMode: Boolean = false,
 ) : RecyclerView.Adapter<FeedAdapter.PostViewHolder>() {
     private val posts = posts.toMutableList()
     private val expandedCaptions = mutableSetOf<String>()
@@ -144,6 +145,17 @@ class FeedAdapter(
     override fun onBindViewHolder(holder: PostViewHolder, position: Int) {
         val post = posts[position]
         val context = holder.itemView.context
+        if (reelsMode) {
+            holder.itemView.doOnLayout { item ->
+                val parentHeight = (item.parent as? View)?.height ?: 0
+                if (parentHeight > 0 && item.layoutParams.height != parentHeight) {
+                    item.layoutParams = item.layoutParams.apply {
+                        height = parentHeight
+                        if (this is ViewGroup.MarginLayoutParams) bottomMargin = 0
+                    }
+                }
+            }
+        }
 
         with(holder.binding) {
             holder.boundPost = post
@@ -155,9 +167,12 @@ class FeedAdapter(
                 } else {
                     0.75f
                 }
-                val desiredHeight = (frame.width * ratio)
-                    .toInt()
-                    .coerceAtMost((frame.resources.displayMetrics.heightPixels * 0.78f).toInt())
+                val maxHeight = if (reelsMode) {
+                    (frame.resources.displayMetrics.heightPixels * 0.72f).toInt()
+                } else {
+                    (frame.resources.displayMetrics.heightPixels * 0.78f).toInt()
+                }
+                val desiredHeight = (frame.width * ratio).toInt().coerceAtMost(maxHeight)
                 if (frame.layoutParams.height != desiredHeight) {
                     frame.layoutParams = frame.layoutParams.apply { height = desiredHeight }
                 }

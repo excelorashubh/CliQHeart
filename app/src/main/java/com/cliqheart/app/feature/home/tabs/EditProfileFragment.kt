@@ -5,20 +5,22 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.cliqheart.app.R
 import com.cliqheart.app.core.network.ApiClient
 import com.cliqheart.app.core.network.ProfileUpdateRequest
-import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.databinding.FragmentEditProfileBinding
 import com.cliqheart.app.feature.home.apiErrorMessage
+import com.cliqheart.app.feature.home.MainShellViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 class EditProfileFragment : Fragment() {
     private var _binding: FragmentEditProfileBinding? = null
     private val binding get() = requireNotNull(_binding)
+    private val homeDataViewModel: MainShellViewModel by activityViewModels()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, state: Bundle?): View {
         _binding = FragmentEditProfileBinding.inflate(inflater, container, false)
@@ -26,7 +28,7 @@ class EditProfileFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        val cachedUser = SecureTokenStore(requireContext()).readSession()?.currentUser
+        val cachedUser = homeDataViewModel.currentUser.value
         if (cachedUser != null) populate(cachedUser)
         binding.saveProfileButton.setOnClickListener { saveProfile() }
         loadProfile()
@@ -41,7 +43,7 @@ class EditProfileFragment : Fragment() {
                     showFailure(apiErrorMessage(response, getString(R.string.profile_save_failed)))
                     return@launch
                 }
-                SecureTokenStore(requireContext()).saveCurrentUser(user)
+                homeDataViewModel.updateCurrentUser(user)
                 populate(user)
                 binding.saveProfileButton.isEnabled = true
             } catch (exception: CancellationException) {
@@ -83,7 +85,7 @@ class EditProfileFragment : Fragment() {
                     showFailure(apiErrorMessage(response, getString(R.string.profile_save_failed)))
                     return@launch
                 }
-                SecureTokenStore(requireContext()).saveCurrentUser(user)
+                homeDataViewModel.updateCurrentUser(user)
                 binding.editProfileState.text = getString(R.string.profile_updated)
                 binding.editProfileState.visibility = View.VISIBLE
                 findNavController().popBackStack()

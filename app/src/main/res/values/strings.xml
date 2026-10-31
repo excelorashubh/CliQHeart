@@ -146,6 +146,9 @@
     <string name="loading_posts">Loading posts…</string>
     <string name="feed_empty">No posts yet. Check back soon.</string>
     <string name="feed_load_failed">Could not load posts. Tap to retry.</string>
+    <string name="loading_reels">Loading Reels…</string>
+    <string name="reels_empty">No Reels are available yet.</string>
+    <string name="reels_load_failed">Could not load Reels. Tap to retry.</string>
     <string name="comments_unavailable">Comments are not available in this Android version yet.</string>
     <string name="log_out">Log out</string>
     <string name="logging_out">Logging out...</string>

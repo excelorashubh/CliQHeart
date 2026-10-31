@@ -3,6 +3,7 @@ package com.cliqheart.app.feature.home.adapters
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.View
+import android.util.Log
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.databinding.ItemHomeFeedHeaderBinding
@@ -18,6 +19,7 @@ class HomeFeedHeaderAdapter(
     private var storiesStateMessage: String? = null
     private var storiesLoading = false
     private var storiesAdapter: StoriesAdapter? = null
+    private var lastLoggedEmptyState: String? = null
 
     class HeaderViewHolder(val binding: ItemHomeFeedHeaderBinding) :
         RecyclerView.ViewHolder(binding.root)
@@ -78,6 +80,25 @@ class HomeFeedHeaderAdapter(
             } else {
                 null
             }
+            val emptyStateReason = when {
+                storiesStateMessage != null -> "request_error"
+                storiesLoading -> "loading"
+                !hasOtherStories -> "no_mapped_other_story_tiles"
+                else -> "stories_available"
+            }
+            val storyRecordCount = stories.sumOf { it.storyIds.size }
+            val emptyStateVisible = emptyMessage != null
+            val currentEmptyState = "$emptyStateReason:${stories.size}:$storyRecordCount:$emptyStateVisible"
+            if (currentEmptyState != lastLoggedEmptyState) {
+                Log.i(
+                    TAG,
+                    "Stories empty-state: reason=$emptyStateReason, " +
+                        "visible=$emptyStateVisible, " +
+                        "storyTileCount=${stories.size}, " +
+                        "storyRecordCount=$storyRecordCount.",
+                )
+                lastLoggedEmptyState = currentEmptyState
+            }
             storiesEmptyState.visibility = if (emptyMessage == null) View.GONE else View.VISIBLE
             storiesEmptyState.text = emptyMessage.orEmpty()
             storiesEmptyState.setOnClickListener { onStoriesRetry() }
@@ -92,4 +113,8 @@ class HomeFeedHeaderAdapter(
     }
 
     override fun getItemCount(): Int = 1
+
+    private companion object {
+        const val TAG = "HomeStoriesUI"
+    }
 }
