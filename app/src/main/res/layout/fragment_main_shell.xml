@@ -25,7 +25,6 @@
         android:elevation="8dp"
         app:itemActiveIndicatorStyle="@null"
         app:itemIconSize="24dp"
-        app:itemIconTint="@color/nav_item_icon_tint"
         app:itemTextColor="@color/nav_item_text_tint"
         app:itemHorizontalTranslationEnabled="false"
         app:labelVisibilityMode="unlabeled"

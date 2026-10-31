@@ -21,6 +21,8 @@ import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentProfileBinding
 import com.cliqheart.app.feature.home.MainShellViewModel
 import com.cliqheart.app.feature.home.RemoteImageLoader
+import com.cliqheart.app.feature.home.getEffectiveAvatarUrl
+import com.cliqheart.app.feature.home.getFallbackAvatarUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
@@ -160,7 +162,12 @@ class ProfileFragment : Fragment() {
         binding.profileUsernameTitle.text = user.username?.let { "@$it" }.orEmpty()
         binding.profileDisplayName.text = user.displayName.orEmpty()
         binding.profileBio.text = user.bio.orEmpty()
-        loadAvatar(user.avatarUrl)
+        RemoteImageLoader.load(
+            binding.profileAvatar,
+            user.getEffectiveAvatarUrl(),
+            R.drawable.ic_profile,
+            user.getFallbackAvatarUrl(),
+        )
         binding.statFollowersCount.text = user.followersCount?.toString() ?: "—"
         binding.statFollowingCount.text = user.followingCount?.toString() ?: "—"
         binding.btnEditProfile.text = if (isOwnProfile) {

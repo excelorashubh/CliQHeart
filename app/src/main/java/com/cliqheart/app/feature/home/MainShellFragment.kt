@@ -14,7 +14,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.StateListDrawable
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -24,6 +23,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.cliqheart.app.R
 import com.cliqheart.app.core.network.UserResponse
+import com.cliqheart.app.core.security.ProfileAvatarCache
 import com.cliqheart.app.databinding.FragmentMainShellBinding
 import com.cliqheart.app.feature.home.RemoteImageLoader
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
@@ -62,6 +62,13 @@ class MainShellFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         configureNavigationIcons()
+        val user = homeDataViewModel.currentUser.value
+        val userId = user?.id?.takeIf(String::isNotBlank) ?: user?._id ?: user?.username ?: "default"
+        val cachedBitmap = ProfileAvatarCache.loadAvatarBitmap(requireContext(), userId)
+        if (cachedBitmap != null) {
+            setProfileIcon(createProfileAvatarDrawable(cachedBitmap))
+        }
+
         childFragmentManager.addOnBackStackChangedListener(backStackListener)
         ViewCompat.setOnApplyWindowInsetsListener(binding.bottomNavigation) { bottomNav, insets ->
             val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
@@ -185,26 +192,29 @@ class MainShellFragment : Fragment() {
             profileAvatarAttempts >= MAX_AVATAR_ATTEMPTS ||
             System.currentTimeMillis() - profileAvatarLastAttemptAt < AVATAR_RETRY_INTERVAL_MS
         ) return
-        updateProfileAvatarIcon(failedUrl)
+        val currentUser = homeDataViewModel.currentUser.value
+        updateProfileAvatarIcon(failedUrl, currentUser.getFallbackAvatarUrl())
     }
 
     private fun observeCurrentUser() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 homeDataViewModel.currentUser.collect { user ->
-                    updateProfileAvatarIcon(user?.avatarUrl)
+                    updateProfileAvatarIcon(
+                        user.getEffectiveAvatarUrl(),
+                        user.getFallbackAvatarUrl(),
+                    )
                 }
             }
         }
     }
 
-    private fun updateProfileAvatarIcon(imageUrl: String?) {
+    private fun updateProfileAvatarIcon(imageUrl: String?, fallbackUrl: String? = null) {
         val normalizedUrl = imageUrl?.trim()?.takeIf(String::isNotEmpty)
         if (_binding == null) return
         if (normalizedUrl == profileAvatarUrl &&
             (normalizedUrl == null || normalizedUrl == profileAvatarLoadedUrl ||
-                normalizedUrl == profileAvatarLoadingUrl ||
-                profileAvatarAttempts >= MAX_AVATAR_ATTEMPTS)
+                normalizedUrl == profileAvatarLoadingUrl)
         ) return
         if (normalizedUrl != profileAvatarUrl) {
             profileAvatarAttempts = 0
@@ -219,12 +229,20 @@ class MainShellFragment : Fragment() {
             return
         }
 
-        setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
+        val currentUser = homeDataViewModel.currentUser.value
+        val userId = currentUser?.id?.takeIf(String::isNotBlank) ?: currentUser?._id ?: currentUser?.username ?: "default"
+        val cachedBitmap = ProfileAvatarCache.loadAvatarBitmap(requireContext(), userId)
+        if (cachedBitmap != null && profileAvatarLoadedUrl == null) {
+            setProfileIcon(createProfileAvatarDrawable(cachedBitmap))
+        } else {
+            setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
+        }
+
         profileAvatarAttempts += 1
         profileAvatarLastAttemptAt = System.currentTimeMillis()
         profileAvatarLoadingUrl = normalizedUrl
         val imageView = android.widget.ImageView(requireContext())
-        RemoteImageLoader.load(imageView, normalizedUrl, R.drawable.ic_profile) { bitmap ->
+        RemoteImageLoader.load(imageView, normalizedUrl, R.drawable.ic_profile, fallbackUrl) { bitmap ->
             if (_binding == null || profileAvatarUrl != normalizedUrl) return@load
             profileAvatarLoadingUrl = null
             if (bitmap == null) {
@@ -232,6 +250,7 @@ class MainShellFragment : Fragment() {
                 return@load
             }
             profileAvatarLoadedUrl = normalizedUrl
+            ProfileAvatarCache.saveAvatarBitmap(requireContext(), userId, bitmap)
             setProfileIcon(createProfileAvatarDrawable(bitmap))
         }
     }
@@ -304,9 +323,9 @@ class MainShellFragment : Fragment() {
         navigation.menu.let { menu ->
             for (index in 0 until menu.size()) {
                 val item = menu.getItem(index)
-                if (item.itemId != R.id.profileTab && item.itemId != R.id.reelsTab) {
-                    item.icon?.let { DrawableCompat.setTintList(it, tint) }
-                }
+                item.isVisible = true
+                item.isEnabled = true
+                item.iconTintList = if (item.itemId == R.id.reelsTab) null else tint
             }
         }
         setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
@@ -314,14 +333,19 @@ class MainShellFragment : Fragment() {
 
     private fun setProfileIcon(drawable: Drawable?) {
         val item = _binding?.bottomNavigation?.menu?.findItem(R.id.profileTab) ?: return
-        item.icon = drawable
-        if (drawable is StateListDrawable) return
-        drawable?.let {
-            DrawableCompat.setTintList(
-                it,
-                ContextCompat.getColorStateList(requireContext(), R.color.nav_item_icon_tint),
-            )
+        val size = (PROFILE_ICON_SIZE_DP * resources.displayMetrics.density).toInt()
+        val profileIcon = drawable?.mutate()?.apply {
+            setBounds(0, 0, size, size)
         }
+        item.isVisible = true
+        item.isEnabled = true
+        item.contentDescription = getString(R.string.profile)
+        item.iconTintList = if (profileIcon is StateListDrawable) {
+            null
+        } else {
+            ContextCompat.getColorStateList(requireContext(), R.color.nav_item_icon_tint)
+        }
+        item.icon = profileIcon
     }
 
     private fun createProfileAvatarDrawable(source: Bitmap): StateListDrawable {
@@ -332,15 +356,24 @@ class MainShellFragment : Fragment() {
         val unselected = drawProfileAvatar(source, size, strokeWidth, R.color.heart_outline)
         selected.density = resources.displayMetrics.densityDpi
         unselected.density = resources.displayMetrics.densityDpi
+
+        val selectedDrawable = BitmapDrawable(resources, selected).apply {
+            setBounds(0, 0, size, size)
+        }
+        val unselectedDrawable = BitmapDrawable(resources, unselected).apply {
+            setBounds(0, 0, size, size)
+        }
+
         return StateListDrawable().apply {
             addState(
                 intArrayOf(android.R.attr.state_checked),
-                BitmapDrawable(resources, selected),
+                selectedDrawable,
             )
             addState(
                 intArrayOf(),
-                BitmapDrawable(resources, unselected),
+                unselectedDrawable,
             )
+            setBounds(0, 0, size, size)
             setEnterFadeDuration(120)
             setExitFadeDuration(120)
         }

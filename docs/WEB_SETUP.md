@@ -4,6 +4,20 @@ The website is a separate React + JavaScript + Vite application in `web/`.
 It calls the existing `/api/v1` backend directly; it does not create another
 database, backend, or user account system.
 
+## Android app download
+
+The landing page only enables **Download Android App** when the build-time
+variable `VITE_ANDROID_APP_DOWNLOAD_URL` contains a public HTTPS release URL.
+Configure it on the static-site build after publishing a signed production APK
+or a verified public release page. Do not point it at a debug APK, local file,
+private storage URL, or an unpublished placeholder. If the variable is missing
+or not HTTPS, the button stays disabled and explains that a production app is
+not yet available.
+
+Vite embeds this value in public browser code, so it must be a public download
+URL and must not contain credentials or signed/private access tokens. Rebuild
+and redeploy the website after setting or changing it.
+
 ## Run locally
 
 Requirements: Node.js 20 or newer and npm.

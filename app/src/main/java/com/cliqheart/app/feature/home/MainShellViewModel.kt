@@ -63,7 +63,7 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
             _currentUser.value = cachedUser
         }
 
-        if (_currentUser.value == null) loadProfileIfMissing()
+        loadProfile(force = true)
         if (initialStoriesRequestedForKey != nextUserKey) {
             initialStoriesRequestedForKey = nextUserKey
             requestStories()
@@ -108,30 +108,32 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun refreshProfileIfMissing() {
-        if (_currentUser.value == null) loadProfileIfMissing()
+        loadProfile(force = _currentUser.value?.avatarUrl.isNullOrBlank())
     }
 
-    private fun loadProfileIfMissing() {
+    fun loadProfile(force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (_currentUser.value != null || profileJob?.isActive == true ||
+        if (profileJob?.isActive == true) return
+        if (!force && _currentUser.value?.avatarUrl?.isNotBlank() == true &&
             now - profileLastAttemptAt < PROFILE_RETRY_INTERVAL_MS
         ) return
+
         profileLastAttemptAt = now
         _profileError.value = null
         profileJob = viewModelScope.launch {
             try {
                 val response = ApiClient.service.getMyProfile()
                 val user = response.body()?.user
-                if (!response.isSuccessful || user == null) {
-                    Log.w(TAG, "Could not load the current user profile (${response.code()}).")
+                if (response.isSuccessful && user != null) {
+                    updateCurrentUser(user)
+                } else {
+                    Log.w(TAG, "Could not load current user profile (${response.code()}).")
                     _profileError.value = getApplication<Application>().getString(R.string.profile_load_failed)
-                    return@launch
                 }
-                updateCurrentUser(user)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
-                Log.w(TAG, "Could not load the current user profile.", exception)
+                Log.w(TAG, "Could not load current user profile.", exception)
                 _profileError.value = getApplication<Application>().getString(R.string.profile_load_failed)
             }
         }

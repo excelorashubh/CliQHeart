@@ -9,6 +9,9 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
 import com.cliqheart.app.feature.home.MainShellFragment
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
 import com.cliqheart.app.feature.home.tabs.CreatePostFragment
@@ -56,6 +59,10 @@ class BottomNavigationTest {
                     (64 * navigation.resources.displayMetrics.density).toInt(),
             )
             assertEquals(5, navigation.menu.size())
+            val profileItem = navigation.menu.findItem(R.id.profileTab)
+            assertNotNull(profileItem)
+            assertTrue(profileItem.isVisible)
+            assertTrue(profileItem.isEnabled)
             assertEquals(
                 0,
                 activity.resources.getIdentifier(
@@ -90,7 +97,31 @@ class BottomNavigationTest {
                 assertEquals(fragmentClass, currentFragment!!::class.java)
                 assertEquals(itemId, navigation.selectedItemId)
             }
+
+            for (selectedItemId in listOf(R.id.homeTab, R.id.profileTab)) {
+                navigation.selectedItemId = selectedItemId
+                shell.childFragmentManager.executePendingTransactions()
+                val profileItemView = navigation.findViewById<View>(R.id.profileTab)
+                assertNotNull(profileItemView)
+                assertTrue(profileItemView.isClickable)
+                val profileIcon = findImageView(profileItemView)
+                assertNotNull(profileIcon)
+                assertEquals(View.VISIBLE, profileIcon!!.visibility)
+                assertNotNull(profileIcon.drawable)
+                assertTrue(profileIcon.width > 0)
+                assertTrue(profileIcon.height > 0)
+            }
+
         }
+    }
+
+    private fun findImageView(view: View): ImageView? {
+        if (view is ImageView) return view
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) {
+            findImageView(view.getChildAt(index))?.let { return it }
+        }
+        return null
     }
 
     @Test

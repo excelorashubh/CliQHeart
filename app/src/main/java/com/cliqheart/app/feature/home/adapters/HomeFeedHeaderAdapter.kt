@@ -1,9 +1,9 @@
 package com.cliqheart.app.feature.home.adapters
 
-import android.view.LayoutInflater
-import android.view.ViewGroup
-import android.view.View
 import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.databinding.ItemHomeFeedHeaderBinding
@@ -58,21 +58,32 @@ class HomeFeedHeaderAdapter(
             parent,
             false,
         )
+        val adapter = storiesAdapter ?: StoriesAdapter(onStoryClick).also { storiesAdapter = it }
+        binding.storiesRecyclerView.layoutManager = LinearLayoutManager(
+            binding.root.context,
+            LinearLayoutManager.HORIZONTAL,
+            false,
+        )
+        binding.storiesRecyclerView.adapter = adapter
+        adapter.submitStories(stories, storiesLoading)
         return HeaderViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: HeaderViewHolder, position: Int) {
         with(holder.binding) {
-            storiesRecyclerView.layoutManager = LinearLayoutManager(
-                root.context,
-                LinearLayoutManager.HORIZONTAL,
-                false,
-            )
-            storiesAdapter ?: StoriesAdapter(onStoryClick).also {
-                storiesAdapter = it
-                storiesRecyclerView.adapter = it
-                it.submitStories(stories, storiesLoading)
+            val adapter = storiesAdapter ?: StoriesAdapter(onStoryClick).also { storiesAdapter = it }
+            if (storiesRecyclerView.layoutManager == null) {
+                storiesRecyclerView.layoutManager = LinearLayoutManager(
+                    root.context,
+                    LinearLayoutManager.HORIZONTAL,
+                    false,
+                )
             }
+            if (storiesRecyclerView.adapter != adapter) {
+                storiesRecyclerView.adapter = adapter
+            }
+            adapter.submitStories(stories, storiesLoading)
+
             storiesRecyclerView.visibility = View.VISIBLE
             val hasOtherStories = stories.any { !it.isYourStory }
             val emptyMessage = storiesStateMessage ?: if (!hasOtherStories && !storiesLoading) {

@@ -30,6 +30,7 @@ import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentHomeFeedBinding
 import com.cliqheart.app.feature.home.MainShellViewModel
 import com.cliqheart.app.feature.home.StoryViewerDialogFragment
+import com.cliqheart.app.feature.home.getEffectiveAvatarUrl
 import com.cliqheart.app.feature.home.toStoryModels
 import com.cliqheart.app.feature.home.adapters.FeedAdapter
 import com.cliqheart.app.feature.home.adapters.HomeFeedHeaderAdapter
@@ -466,7 +467,7 @@ class HomeFeedFragment : Fragment() {
                         storyItems = state.stories.toStoryModels(
                             currentUserId = user?.id?.takeIf(String::isNotBlank) ?: user?._id,
                             currentUsername = user?.username,
-                            currentAvatarUrl = user?.avatarUrl,
+                            currentAvatarUrl = user.getEffectiveAvatarUrl(),
                             yourStoryLabel = getString(R.string.your_story),
                         )
                         if (state.lastSuccessAt > 0) {
@@ -495,7 +496,7 @@ class HomeFeedFragment : Fragment() {
         return StoryModel(
             ownerId = ownerId,
             username = getString(R.string.your_story),
-            avatarUrl = user?.avatarUrl.orEmpty(),
+            avatarUrl = user.getEffectiveAvatarUrl(),
             storyIds = emptyList(),
             isYourStory = true,
         )

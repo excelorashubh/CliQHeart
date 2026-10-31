@@ -77,7 +77,8 @@ class StoriesAdapter(
                     root.context.getDrawable(R.drawable.bg_story_ring_viewed)
                 else -> null
             }
-            RemoteImageLoader.load(storyAvatar, story.avatarUrl, R.drawable.ic_profile)
+            val fallbackUrl = "https://ui-avatars.com/api/?name=${android.net.Uri.encode(story.username.ifBlank { "User" })}&background=FF2A6D&color=fff&size=256&format=png"
+            RemoteImageLoader.load(storyAvatar, story.avatarUrl, R.drawable.ic_profile, fallbackUrl)
 
             root.setOnClickListener {
                 onStoryClick(story)

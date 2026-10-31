@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Bell, Bookmark, Camera, CheckCircle2, Clapperboard, Compass, Eye, EyeOff, Grid3X3, Heart, PlusSquare,
+  ArrowLeft, ArrowRight, ArrowUpRight, Bell, Bookmark, Camera, CheckCircle2, Clapperboard, Compass, Download, Eye, EyeOff, Grid3X3, Heart, PlusSquare,
   LockKeyhole, MessageCircle, Search, ShieldCheck, Sparkles, Trash2, Upload, UserRound,
   Share2, XCircle,
 } from 'lucide-react';
+import { FaAndroid } from 'react-icons/fa';
 import { useAuth } from './context/AuthContext.jsx';
 import { Avatar, Brand } from './components/Brand.jsx';
 import { EmptyState, ErrorState, RetryButton, Skeleton } from './components/Feedback.jsx';
@@ -20,6 +21,18 @@ import { MessageWorkspace } from './components/Messages.jsx';
 import { getReelPath } from './services/reelUrl.js';
 
 const reservedRegisterUsernames = new Set(['admin', 'root', 'support', 'staff', 'system', 'cliqheart']);
+function getAndroidAppDownloadUrl() {
+  const configuredUrl = import.meta.env.VITE_ANDROID_APP_DOWNLOAD_URL?.trim();
+  if (!configuredUrl) return null;
+  try {
+    const url = new URL(configuredUrl);
+    if (url.protocol !== 'https:' || url.username || url.password) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function isValidRegisterUsername(username) {
   return username.length >= 3 && username.length <= 30 &&
     /^[a-z0-9._]+$/.test(username) && !username.startsWith('.') &&
@@ -59,6 +72,7 @@ function useRateLimitCooldown() {
 }
 
 export function LandingPage() {
+  const androidAppDownloadUrl = getAndroidAppDownloadUrl();
   return <main className="landing">
     <nav className="landing-nav"><Link to="/"><Brand /></Link><div><Link className="landing-login" to="/login">Log in</Link><Link className="button button--primary" to="/register">Join CliQHeart <ArrowRight size={16} /></Link></div></nav>
     <section className="landing-hero">
@@ -66,7 +80,39 @@ export function LandingPage() {
         <p className="eyebrow"><span className="eyebrow-dot" /> MADE FOR YOUR PEOPLE</p>
         <h1>Closer feels<br />like <em>CliQHeart.</em></h1>
         <p className="hero-description">A thoughtful place to find your people, catch up, and keep the conversations going.</p>
-        <div className="hero-actions"><Link className="button button--primary button--large" to="/signup">Get started <ArrowRight size={17} /></Link><Link className="text-link" to="/login">I already have an account <ArrowUpRight size={16} /></Link></div>
+        <div className="hero-actions">
+          <Link className="button button--primary button--large" to="/signup">Get started <ArrowRight size={17} /></Link>
+          <Link className="text-link" to="/login">I already have an account <ArrowUpRight size={16} /></Link>
+          {androidAppDownloadUrl ? (
+            <a
+              className="button button--outline button--large hero-download-button"
+              href={androidAppDownloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Download CliQHeart Android app"
+            >
+              <FaAndroid size={19} aria-hidden="true" />
+              Download Android App
+              <Download size={16} aria-hidden="true" />
+            </a>
+          ) : (
+            <button
+              className="button button--outline button--large hero-download-button"
+              type="button"
+              disabled
+              aria-describedby="android-download-status"
+            >
+              <FaAndroid size={19} aria-hidden="true" />
+              Download Android App
+              <Download size={16} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        {!androidAppDownloadUrl && (
+          <p id="android-download-status" className="hero-download-status" role="status">
+            Android download will be available when a signed production app is published.
+          </p>
+        )}
         <div className="hero-note"><ShieldCheck size={17} /><span>One account, shared with the CliQHeart Android app.</span></div>
       </div>
       <div className="hero-visual" aria-hidden="true">
