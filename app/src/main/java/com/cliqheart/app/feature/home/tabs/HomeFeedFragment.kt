@@ -89,8 +89,10 @@ class HomeFeedFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        view.limitContentWidth(680)
         if (isReelsMode) {
+            binding.root.setBackgroundColor(android.graphics.Color.BLACK)
+            binding.swipeRefreshLayout.isEnabled = false
+            binding.feedRecyclerView.setBackgroundColor(android.graphics.Color.BLACK)
             binding.homeHeader.visibility = View.GONE
             binding.feedRecyclerView.setPadding(0, 0, 0, 0)
             binding.reelsState.visibility = View.VISIBLE
@@ -99,6 +101,7 @@ class HomeFeedFragment : Fragment() {
                 if (!loadingPosts) loadPosts(refresh = true)
             }
         } else {
+            view.limitContentWidth(680)
             binding.reelsState.visibility = View.GONE
         }
         setupFeed()

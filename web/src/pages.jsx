@@ -379,7 +379,7 @@ export function HomePage() {
     <div className="home-feed-layout">
       <main className="home-content-column">
         <header className="home-feed-heading">
-          <div><p className="eyebrow">YOUR COMMUNITY</p><h1>Home</h1></div>
+          <div><p className="eyebrow">YOUR COMMUNITY</p><h1>CliQHeart's</h1></div>
           <div className="home-feed-actions">
             <Link className="home-discover-link" to="/explore/people/"><Compass size={16} /> Discover people</Link>
             <Link className="button button--primary home-create-button" to="/create"><PlusSquare size={16} /> Create</Link>

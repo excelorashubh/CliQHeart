@@ -162,6 +162,12 @@
     <string name="loading_reels">Loading Reels…</string>
     <string name="reels_empty">No Reels are available yet.</string>
     <string name="reels_load_failed">Could not load Reels. Tap to retry.</string>
+    <string name="play_video">Play video</string>
+    <string name="pause_video">Pause video</string>
+    <string name="save_reel">Save Reel</string>
+    <string name="remove_saved_reel">Remove saved Reel</string>
+    <string name="saved">Saved</string>
+    <string name="view_creator_profile">View creator profile</string>
     <string name="comments_unavailable">Comments are not available in this Android version yet.</string>
     <string name="log_out">Log out</string>
     <string name="logging_out">Logging out...</string>
