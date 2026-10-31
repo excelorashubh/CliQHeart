@@ -1,19 +1,74 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/heart_background"
     android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/chat_title"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="16dp"
-        android:text="@string/conversation"
-        android:textColor="@color/heart_text"
-        android:textSize="20sp"
-        android:textStyle="bold" />
+        android:layout_height="60dp"
+        android:background="@color/heart_surface"
+        android:elevation="2dp"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="12dp">
+
+        <ImageButton
+            android:id="@+id/chat_back_button"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back"
+            android:src="@drawable/ic_back"
+            app:tint="@color/heart_text" />
+
+        <ImageView
+            android:id="@+id/chat_avatar"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/profile_picture"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_profile" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/chat_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/conversation"
+                android:textColor="@color/heart_text"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/chat_presence"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/heart_muted"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/chat_more_button"
+            android:layout_width="44dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/more_options"
+            android:src="@drawable/ic_more_vert"
+            app:tint="@color/heart_text" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/chat_state"
@@ -30,32 +85,59 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:padding="12dp" />
+        android:paddingStart="12dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="8dp" />
 
     <LinearLayout
+        android:id="@+id/message_composer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="@color/heart_surface"
+        android:elevation="4dp"
         android:gravity="center_vertical"
-        android:padding="8dp">
+        android:paddingStart="8dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="6dp">
+
+        <ImageButton
+            android:id="@+id/emoji_button"
+            android:layout_width="44dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/insert_emoji"
+            android:src="@drawable/ic_emoji"
+            app:tint="@color/heart_muted" />
 
         <EditText
             android:id="@+id/message_input"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:background="@drawable/bg_message_search"
             android:hint="@string/write_message"
             android:imeOptions="actionSend"
             android:inputType="textCapSentences|textMultiLine"
             android:maxLength="4000"
-            android:minHeight="48dp"
-            android:padding="12dp" />
+            android:maxLines="4"
+            android:minHeight="44dp"
+            android:paddingStart="14dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="10dp"
+            android:textColor="@color/heart_text"
+            android:textColorHint="@color/heart_muted"
+            android:textSize="15sp" />
 
-        <com.google.android.material.button.MaterialButton
+        <ImageButton
             android:id="@+id/send_message_button"
-            style="@style/Widget.Material3.Button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minHeight="48dp"
-            android:text="@string/send" />
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/send"
+            android:src="@drawable/ic_send"
+            app:tint="@color/heart_primary" />
     </LinearLayout>
 </LinearLayout>

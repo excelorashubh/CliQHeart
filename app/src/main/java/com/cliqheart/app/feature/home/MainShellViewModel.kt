@@ -14,7 +14,9 @@ import com.google.gson.JsonParseException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -38,6 +40,8 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
     val profileError: StateFlow<String?> = _profileError.asStateFlow()
     private val _messagesUnreadCount = MutableStateFlow<Int?>(null)
     val messagesUnreadCount: StateFlow<Int?> = _messagesUnreadCount.asStateFlow()
+    private val _messageInboxEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    val messageInboxEvents: SharedFlow<Unit> = _messageInboxEvents
 
     private val _stories = MutableStateFlow(HomeStoriesState())
     val stories: StateFlow<HomeStoriesState> = _stories.asStateFlow()
@@ -92,6 +96,10 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateMessagesUnreadCount(count: Int) {
         _messagesUnreadCount.value = count.coerceAtLeast(0)
+    }
+
+    fun notifyMessageInboxChanged() {
+        _messageInboxEvents.tryEmit(Unit)
     }
 
     fun refreshStoriesIfStale() {

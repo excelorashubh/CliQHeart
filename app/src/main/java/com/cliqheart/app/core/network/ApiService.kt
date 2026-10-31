@@ -62,17 +62,35 @@ data class ConversationResponse(
     val participantId: String? = null,
     val lastMessage: LastMessageResponse? = null,
     val lastMessageAt: String? = null,
+    val unreadCount: Int = 0,
 )
-data class LastMessageResponse(val text: String? = null, val createdAt: String? = null)
-data class ConversationsResponse(val conversations: List<ConversationResponse> = emptyList())
-data class MessageCreateRequest(val text: String)
+data class LastMessageResponse(
+    val text: String? = null,
+    val senderId: String? = null,
+    val createdAt: String? = null,
+)
+data class ConversationsResponse(
+    val conversations: List<ConversationResponse> = emptyList(),
+    val hasMore: Boolean = false,
+    val nextCursor: String? = null,
+)
+data class MessageCreateRequest(val text: String, val clientMessageId: String? = null)
 data class MessageResponse(
     val id: String? = null,
     val senderId: String? = null,
     val text: String? = null,
     val createdAt: String? = null,
+    val clientMessageId: String? = null,
+    val deliveredAt: String? = null,
+    val readAt: String? = null,
+    val sending: Boolean = false,
+    val failed: Boolean = false,
 )
-data class MessagesResponse(val messages: List<MessageResponse> = emptyList())
+data class MessagesResponse(
+    val messages: List<MessageResponse> = emptyList(),
+    val hasMore: Boolean = false,
+    val nextCursor: String? = null,
+)
 data class ConversationEnvelope(val conversation: ConversationResponse? = null)
 data class MessageEnvelope(val message: MessageResponse? = null)
 
@@ -305,13 +323,20 @@ interface ApiService {
     ): Response<UsersResponse>
 
     @GET("conversations")
-    suspend fun getConversations(): Response<ConversationsResponse>
+    suspend fun getConversations(
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<ConversationsResponse>
 
     @POST("conversations")
     suspend fun createConversation(@Body request: ConversationCreateRequest): Response<ConversationEnvelope>
 
     @GET("conversations/{conversationId}/messages")
-    suspend fun getMessages(@Path("conversationId") conversationId: String): Response<MessagesResponse>
+    suspend fun getMessages(
+        @Path("conversationId") conversationId: String,
+        @Query("limit") limit: Int = 30,
+        @Query("before") before: String? = null,
+    ): Response<MessagesResponse>
 
     @PATCH("conversations/{conversationId}/read")
     suspend fun markConversationRead(

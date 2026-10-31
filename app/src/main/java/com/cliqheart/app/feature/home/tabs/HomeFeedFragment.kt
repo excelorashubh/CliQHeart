@@ -571,6 +571,16 @@ class HomeFeedFragment : Fragment() {
                     }
                 }
             }
+            listOf("message:new", "conversation:updated", "conversation:created")
+                .forEach { event ->
+                    socket.on(event) {
+                        runOnMainThread {
+                            if (realtimeSocket === socket) {
+                                homeDataViewModel.notifyMessageInboxChanged()
+                            }
+                        }
+                    }
+                }
             socket.on("content:engagement") { arguments ->
                 val payload = arguments.firstOrNull() as? JSONObject ?: return@on
                 runOnMainThread {

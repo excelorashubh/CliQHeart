@@ -1,29 +1,82 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="76dp"
     android:gravity="center_vertical"
-    android:minHeight="72dp"
-    android:orientation="vertical"
+    android:background="?attr/selectableItemBackground"
+    android:orientation="horizontal"
     android:paddingStart="16dp"
-    android:paddingTop="10dp"
-    android:paddingEnd="16dp"
-    android:paddingBottom="10dp">
+    android:paddingEnd="16dp">
 
-    <TextView
-        android:id="@+id/conversation_name"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="@color/heart_text"
-        android:textSize="15sp"
-        android:textStyle="bold" />
+    <ImageView
+        android:id="@+id/conversation_avatar"
+        android:layout_width="54dp"
+        android:layout_height="54dp"
+        android:contentDescription="@string/profile_picture"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_profile" />
 
-    <TextView
-        android:id="@+id/conversation_preview"
-        android:layout_width="match_parent"
+    <LinearLayout
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:maxLines="2"
-        android:textColor="@color/heart_muted"
-        android:textSize="13sp" />
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/conversation_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/heart_text"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/conversation_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/heart_muted"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/conversation_preview"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/heart_muted"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/conversation_unread"
+                android:layout_width="wrap_content"
+                android:layout_height="20dp"
+                android:background="@drawable/bg_message_unread"
+                android:gravity="center"
+                android:minWidth="20dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:textColor="@color/white"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
 </LinearLayout>

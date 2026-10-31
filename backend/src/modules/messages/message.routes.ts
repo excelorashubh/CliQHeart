@@ -44,11 +44,36 @@ export function createMessageRouter(config: AppConfig): Router {
   router.get('/conversations', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const userId = authenticatedUserId(request);
-      const conversations = await ConversationModel.find({ participants: userId })
-        .sort({ lastMessageAt: -1 })
-        .limit(50)
+      const limit = pageSizeSchema.parse(request.query.limit ?? 30);
+      const after = typeof request.query.after === 'string' ? request.query.after : undefined;
+      if (request.query.after !== undefined && (!after || !Types.ObjectId.isValid(after))) {
+        response.status(400).json({ error: 'Invalid conversation cursor.' });
+        return;
+      }
+      const cursor = after
+        ? await ConversationModel.findOne({ _id: after, participants: userId })
+          .select('lastMessageAt')
+          .lean()
+        : null;
+      if (after && !cursor) {
+        response.status(400).json({ error: 'Invalid conversation cursor.' });
+        return;
+      }
+      const conversations = await ConversationModel.find({
+        participants: userId,
+        ...(cursor ? {
+          $or: [
+            { lastMessageAt: { $lt: cursor.lastMessageAt } },
+            { lastMessageAt: cursor.lastMessageAt, _id: { $lt: cursor._id } },
+          ],
+        } : {}),
+      })
+        .sort({ lastMessageAt: -1, _id: -1 })
+        .limit(limit + 1)
         .lean();
-      const otherIds = conversations
+      const hasMore = conversations.length > limit;
+      const page = hasMore ? conversations.slice(0, limit) : conversations;
+      const otherIds = page
         .map((conversation) => conversation.participants.find((id) => String(id) !== userId))
         .filter((id): id is Types.ObjectId => id !== undefined);
       const users = await UserModel.find({ _id: { $in: otherIds }, accountStatus: 'active' })
@@ -56,13 +81,13 @@ export function createMessageRouter(config: AppConfig): Router {
         .lean();
       const userById = new Map(users.map((user) => [String(user._id), user]));
       const lastMessages = await MessageModel.aggregate([
-        { $match: { conversationId: { $in: conversations.map((item) => item._id) } } },
+        { $match: { conversationId: { $in: page.map((item) => item._id) } } },
         { $sort: { createdAt: -1 } },
         { $group: { _id: '$conversationId', text: { $first: '$text' }, createdAt: { $first: '$createdAt' } } },
       ]);
       const messageByConversation = new Map(lastMessages.map((message) => [String(message._id), message]));
       response.json({
-        conversations: conversations.map((conversation) => {
+        conversations: page.map((conversation) => {
           const otherId = conversation.participants.find((id) => String(id) !== userId);
           return {
             id: String(conversation._id),
@@ -74,8 +99,14 @@ export function createMessageRouter(config: AppConfig): Router {
             unreadCount: readUnreadCount(conversation.unreadCounts, userId),
           };
         }),
+        hasMore,
+        nextCursor: hasMore ? page.at(-1)?._id?.toString() ?? null : null,
       });
     } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid conversation page size.' });
+        return;
+      }
       next(error);
     }
   });
