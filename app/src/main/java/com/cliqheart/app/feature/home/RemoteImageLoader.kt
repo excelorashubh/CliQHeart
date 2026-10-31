@@ -57,7 +57,7 @@ object RemoteImageLoader {
         fallbackUrl: String? = null,
         onImageLoaded: ((Bitmap?) -> Unit)? = null,
     ) {
-        imageView.setImageResource(placeholder)
+        if (placeholder != 0) imageView.setImageResource(placeholder)
         imageView.tag = imageUrl
         val uri = imageUrl?.let(Uri::parse)
         if (uri == null || (uri.scheme != "http" && uri.scheme != "https") || uri.host.isNullOrBlank()) {

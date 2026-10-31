@@ -36,6 +36,8 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
     val currentUser: StateFlow<UserResponse?> = _currentUser.asStateFlow()
     private val _profileError = MutableStateFlow<String?>(null)
     val profileError: StateFlow<String?> = _profileError.asStateFlow()
+    private val _messagesUnreadCount = MutableStateFlow<Int?>(null)
+    val messagesUnreadCount: StateFlow<Int?> = _messagesUnreadCount.asStateFlow()
 
     private val _stories = MutableStateFlow(HomeStoriesState())
     val stories: StateFlow<HomeStoriesState> = _stories.asStateFlow()
@@ -56,6 +58,7 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
             storiesJob?.cancel()
             refreshAfterCurrentRequest = false
             currentUserKey = nextUserKey
+            _messagesUnreadCount.value = null
             initialStoriesRequestedForKey = null
             _currentUser.value = cachedUser
             _stories.value = readCachedStories(nextUserKey)
@@ -79,11 +82,16 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
             ?: user.username
         if (userId != currentUserKey) {
             currentUserKey = userId
+            _messagesUnreadCount.value = null
             _stories.value = readCachedStories(userId)
         }
         tokenStore.saveCurrentUser(user)
         _currentUser.value = user
         _profileError.value = null
+    }
+
+    fun updateMessagesUnreadCount(count: Int) {
+        _messagesUnreadCount.value = count.coerceAtLeast(0)
     }
 
     fun refreshStoriesIfStale() {

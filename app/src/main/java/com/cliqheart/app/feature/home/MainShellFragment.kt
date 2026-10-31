@@ -1,18 +1,10 @@
 package com.cliqheart.app.feature.home
 
-import android.graphics.Bitmap
-import android.graphics.BitmapShader
-import android.graphics.Canvas
-import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.Shader
 import android.os.Bundle
+import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.StateListDrawable
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -24,6 +16,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.cliqheart.app.R
 import com.cliqheart.app.core.network.UserResponse
 import com.cliqheart.app.core.security.ProfileAvatarCache
+import com.cliqheart.app.databinding.ItemBottomNavigationBinding
 import com.cliqheart.app.databinding.FragmentMainShellBinding
 import com.cliqheart.app.feature.home.RemoteImageLoader
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
@@ -34,10 +27,18 @@ import com.cliqheart.app.feature.home.tabs.MessagesFragment
 import com.cliqheart.app.feature.home.tabs.ProfileFragment
 import kotlinx.coroutines.launch
 
+private data class NavigationDestination(
+    val id: Int,
+    val label: Int,
+    val icon: Int,
+)
+
 class MainShellFragment : Fragment() {
     private var _binding: FragmentMainShellBinding? = null
     private val binding get() = requireNotNull(_binding)
     private val homeDataViewModel: MainShellViewModel by activityViewModels()
+    private val navigationItems = linkedMapOf<Int, ItemBottomNavigationBinding>()
+    private var selectedTabId = R.id.homeTab
     private var profileAvatarUrl: String? = null
     private var profileAvatarLoadingUrl: String? = null
     private var profileAvatarLoadedUrl: String? = null
@@ -61,34 +62,30 @@ class MainShellFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        configureNavigationIcons()
+        configureNavigation()
+        selectedTabId = savedInstanceState
+            ?.getInt(SELECTED_TAB_KEY, R.id.homeTab)
+            ?.takeIf(::isNavigationTab)
+            ?: R.id.homeTab
+        updateNavigationSelection(selectedTabId, animate = false)
         val user = homeDataViewModel.currentUser.value
         val userId = user?.id?.takeIf(String::isNotBlank) ?: user?._id ?: user?.username ?: "default"
         val cachedBitmap = ProfileAvatarCache.loadAvatarBitmap(requireContext(), userId)
         if (cachedBitmap != null) {
-            setProfileIcon(createProfileAvatarDrawable(cachedBitmap))
+            showProfileAvatar(cachedBitmap)
         }
 
         childFragmentManager.addOnBackStackChangedListener(backStackListener)
         ViewCompat.setOnApplyWindowInsetsListener(binding.bottomNavigation) { bottomNav, insets ->
             val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-            bottomNav.setPadding(
-                bottomNav.paddingLeft,
-                bottomNav.paddingTop,
-                bottomNav.paddingRight,
-                navBarInsets.bottom,
-            )
+            bottomNav.setPadding(0, 0, 0, navBarInsets.bottom)
             insets
         }
 
-        val selectedTab = savedInstanceState?.getInt(SELECTED_TAB_KEY, R.id.homeTab) ?: R.id.homeTab
-        binding.bottomNavigation.selectedItemId = selectedTab
-        binding.bottomNavigation.setOnItemSelectedListener { item ->
-            showTab(item.itemId, renderSynchronously = true)
-        }
         observeCurrentUser()
+        observeUnreadCounts()
         homeDataViewModel.initialize()
-        showTab(selectedTab)
+        showTab(selectedTabId)
     }
 
     override fun onResume() {
@@ -101,7 +98,7 @@ class MainShellFragment : Fragment() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt(
             SELECTED_TAB_KEY,
-            _binding?.bottomNavigation?.selectedItemId ?: R.id.homeTab,
+            selectedTabId,
         )
         super.onSaveInstanceState(outState)
     }
@@ -116,6 +113,7 @@ class MainShellFragment : Fragment() {
             else -> return false
         }
         val manager = childFragmentManager
+        if (manager.isStateSaved) return false
         if (renderSynchronously) {
             manager.executePendingTransactions()
         }
@@ -168,25 +166,58 @@ class MainShellFragment : Fragment() {
         return true
     }
 
-    fun updateMessagesUnreadCount(count: Int) {
-        val navigation = _binding?.bottomNavigation ?: return
-        val item = navigation.menu.findItem(R.id.messagesTab)
-        val badge = navigation.getOrCreateBadge(R.id.messagesTab)
-        val unreadCount = count.coerceAtLeast(0)
-        badge.backgroundColor = ContextCompat.getColor(requireContext(), R.color.badge_background)
-        badge.badgeTextColor = ContextCompat.getColor(requireContext(), R.color.white)
-        badge.maxCharacterCount = 3
-        badge.number = unreadCount
-        badge.isVisible = unreadCount > 0
-        item.contentDescription = if (unreadCount > 0) {
-            getString(
-                R.string.unread_action_label,
-                getString(R.string.messages),
-                unreadCount,
+    private fun selectTab(tabId: Int) {
+        if (!isNavigationTab(tabId) || !showTab(tabId, renderSynchronously = true)) return
+        selectedTabId = tabId
+        updateNavigationSelection(tabId, animate = true)
+    }
+
+    private fun isNavigationTab(tabId: Int): Boolean = tabId in NAVIGATION_TAB_IDS
+
+    private fun updateNavigationSelection(tabId: Int, animate: Boolean) {
+        navigationItems.forEach { (itemId, item) ->
+            val isSelected = itemId == tabId
+            item.root.isSelected = isSelected
+            item.navigationIcon.isSelected = isSelected
+            item.navigationLabel.isSelected = isSelected
+            item.navigationLabel.setTextColor(
+                ContextCompat.getColorStateList(requireContext(), R.color.nav_item_text_tint),
             )
-        } else {
-            getString(R.string.messages)
+            item.navigationLabel.setTypeface(
+                null,
+                if (isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL,
+            )
+            item.navigationAvatarFrame.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ContextCompat.getColor(requireContext(), R.color.nav_background))
+                setStroke(
+                    (NAV_AVATAR_BORDER_DP * resources.displayMetrics.density).toInt().coerceAtLeast(1),
+                    ContextCompat.getColor(
+                        requireContext(),
+                        if (isSelected) R.color.nav_icon_selected else R.color.heart_outline,
+                    ),
+                )
+            }
+            if (animate && isSelected) {
+                item.navigationIconContainer.animate().cancel()
+                item.navigationIconContainer.scaleX = NAV_SELECTION_SCALE_FROM
+                item.navigationIconContainer.scaleY = NAV_SELECTION_SCALE_FROM
+                item.navigationIconContainer.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(NAV_SELECTION_ANIMATION_MS)
+                    .start()
+            } else {
+                item.navigationIconContainer.animate().cancel()
+                item.navigationIconContainer.scaleX = 1f
+                item.navigationIconContainer.scaleY = 1f
+            }
         }
+    }
+
+    fun updateMessagesUnreadCount(count: Int) {
+        homeDataViewModel.updateMessagesUnreadCount(count)
+        renderMessagesUnreadCount(count)
     }
 
     fun updateProfileAvatar(imageUrl: String?) {
@@ -204,24 +235,20 @@ class MainShellFragment : Fragment() {
             profileAvatarAttempts >= MAX_AVATAR_ATTEMPTS ||
             System.currentTimeMillis() - profileAvatarLastAttemptAt < AVATAR_RETRY_INTERVAL_MS
         ) return
-        val currentUser = homeDataViewModel.currentUser.value
-        updateProfileAvatarIcon(failedUrl, currentUser.getFallbackAvatarUrl())
+        updateProfileAvatarIcon(failedUrl)
     }
 
     private fun observeCurrentUser() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 homeDataViewModel.currentUser.collect { user ->
-                    updateProfileAvatarIcon(
-                        user.getEffectiveAvatarUrl(),
-                        user.getFallbackAvatarUrl(),
-                    )
+                    updateProfileAvatarIcon(user.getEffectiveAvatarUrl())
                 }
             }
         }
     }
 
-    private fun updateProfileAvatarIcon(imageUrl: String?, fallbackUrl: String? = null) {
+    private fun updateProfileAvatarIcon(imageUrl: String?) {
         val normalizedUrl = imageUrl?.trim()?.takeIf(String::isNotEmpty)
         if (_binding == null) return
         if (normalizedUrl == profileAvatarUrl &&
@@ -237,25 +264,28 @@ class MainShellFragment : Fragment() {
         profileAvatarLoadingUrl = null
         profileAvatarLoadedUrl = null
         if (normalizedUrl == null) {
-            setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
+            showDefaultProfileIcon()
             return
         }
 
         val currentUser = homeDataViewModel.currentUser.value
         val userId = currentUser?.id?.takeIf(String::isNotBlank) ?: currentUser?._id ?: currentUser?.username ?: "default"
         val cachedBitmap = ProfileAvatarCache.loadAvatarBitmap(requireContext(), userId)
-        if (cachedBitmap != null && profileAvatarLoadedUrl == null) {
-            setProfileIcon(createProfileAvatarDrawable(cachedBitmap))
+        if (cachedBitmap != null) {
+            showProfileAvatar(cachedBitmap)
         } else {
-            setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
+            showProfileAvatarPlaceholder()
         }
 
         profileAvatarAttempts += 1
         profileAvatarLastAttemptAt = System.currentTimeMillis()
         profileAvatarLoadingUrl = normalizedUrl
-        val imageView = android.widget.ImageView(requireContext())
-        RemoteImageLoader.load(imageView, normalizedUrl, R.drawable.ic_profile, fallbackUrl) { bitmap ->
-            if (_binding == null || profileAvatarUrl != normalizedUrl) return@load
+        val imageView = navigationItems[R.id.profileTab]?.navigationAvatar ?: return
+        RemoteImageLoader.load(imageView, normalizedUrl, 0) { bitmap ->
+            if (_binding == null ||
+                navigationItems[R.id.profileTab]?.navigationAvatar !== imageView ||
+                profileAvatarUrl != normalizedUrl
+            ) return@load
             profileAvatarLoadingUrl = null
             if (bitmap == null) {
                 profileAvatarFailedUrl = normalizedUrl
@@ -263,12 +293,12 @@ class MainShellFragment : Fragment() {
             }
             profileAvatarLoadedUrl = normalizedUrl
             ProfileAvatarCache.saveAvatarBitmap(requireContext(), userId, bitmap)
-            setProfileIcon(createProfileAvatarDrawable(bitmap))
+            showProfileAvatar(bitmap)
         }
     }
 
     fun openDiscover() {
-        if (_binding != null) binding.bottomNavigation.selectedItemId = R.id.searchTab
+        selectTab(R.id.searchTab)
     }
 
     fun openActivity() {
@@ -278,7 +308,7 @@ class MainShellFragment : Fragment() {
     }
 
     fun openMessages() {
-        if (_binding != null) binding.bottomNavigation.selectedItemId = R.id.messagesTab
+        selectTab(R.id.messagesTab)
     }
 
     fun openCreate() {
@@ -324,117 +354,112 @@ class MainShellFragment : Fragment() {
         profileAvatarLoadedUrl = null
         profileAvatarAttempts = 0
         profileAvatarLastAttemptAt = 0L
+        navigationItems.clear()
         _binding = null
         super.onDestroyView()
     }
 
-    private fun configureNavigationIcons() {
-        val navigation = binding.bottomNavigation
-        navigation.itemIconTintList = null
-        val tint = ContextCompat.getColorStateList(requireContext(), R.color.nav_item_icon_tint)
-        navigation.menu.let { menu ->
-            for (index in 0 until menu.size()) {
-                val item = menu.getItem(index)
-                item.isVisible = true
-                item.isEnabled = true
-                item.iconTintList = if (item.itemId == R.id.reelsTab) null else tint
-            }
+    private fun configureNavigation() {
+        val destinations = listOf(
+            NavigationDestination(R.id.homeTab, R.string.home, R.drawable.ic_home),
+            NavigationDestination(R.id.reelsTab, R.string.reels, R.drawable.ic_nav_reels),
+            NavigationDestination(R.id.messagesTab, R.string.messages, R.drawable.ic_messages),
+            NavigationDestination(R.id.searchTab, R.string.search, R.drawable.ic_discover),
+            NavigationDestination(R.id.profileTab, R.string.profile, R.drawable.ic_profile),
+        )
+        val container = binding.navigationItems
+        container.removeAllViews()
+        navigationItems.clear()
+        destinations.forEach { destination ->
+            val item = ItemBottomNavigationBinding.inflate(
+                layoutInflater,
+                container,
+                false,
+            )
+            item.root.id = destination.id
+            item.root.contentDescription = getString(destination.label)
+            item.navigationLabel.text = getString(destination.label)
+            item.navigationLabel.setTextColor(
+                ContextCompat.getColorStateList(requireContext(), R.color.nav_item_text_tint),
+            )
+            item.navigationIcon.setImageResource(destination.icon)
+            item.navigationIcon.imageTintList =
+                ContextCompat.getColorStateList(requireContext(), R.color.nav_item_icon_tint)
+            item.navigationIcon.visibility = View.VISIBLE
+            item.navigationAvatarFrame.visibility = View.GONE
+            navigationItems[destination.id] = item
+            container.addView(item.root)
+            item.root.setOnClickListener { selectTab(destination.id) }
         }
-        setProfileIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_profile))
     }
 
-    private fun setProfileIcon(drawable: Drawable?) {
-        val item = _binding?.bottomNavigation?.menu?.findItem(R.id.profileTab) ?: return
-        val size = (PROFILE_ICON_SIZE_DP * resources.displayMetrics.density).toInt()
-        val profileIcon = drawable?.mutate()?.apply {
-            setBounds(0, 0, size, size)
+    private fun showDefaultProfileIcon() {
+        val item = navigationItems[R.id.profileTab] ?: return
+        item.navigationAvatarFrame.visibility = View.GONE
+        item.navigationIcon.visibility = View.VISIBLE
+    }
+
+    private fun showProfileAvatarPlaceholder() {
+        val item = navigationItems[R.id.profileTab] ?: return
+        item.navigationIcon.visibility = View.GONE
+        item.navigationAvatarFrame.visibility = View.VISIBLE
+        item.navigationAvatar.setImageDrawable(null)
+    }
+
+    private fun showProfileAvatar(bitmap: android.graphics.Bitmap) {
+        val item = navigationItems[R.id.profileTab] ?: return
+        item.navigationIcon.visibility = View.GONE
+        item.navigationAvatarFrame.visibility = View.VISIBLE
+        item.navigationAvatar.setImageBitmap(bitmap)
+    }
+
+    private fun observeUnreadCounts() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                homeDataViewModel.messagesUnreadCount.collect(::renderMessagesUnreadCount)
+            }
         }
-        item.isVisible = true
-        item.isEnabled = true
-        item.contentDescription = getString(R.string.profile)
-        item.iconTintList = if (profileIcon is StateListDrawable) {
-            null
+    }
+
+    private fun renderMessagesUnreadCount(count: Int?) {
+        val item = navigationItems[R.id.messagesTab] ?: return
+        val unreadCount = count?.coerceAtLeast(0) ?: 0
+        item.navigationBadge.apply {
+            text = when {
+                unreadCount > MAX_BADGE_COUNT -> "$MAX_BADGE_COUNT+"
+                unreadCount > 0 -> unreadCount.toString()
+                else -> ""
+            }
+            visibility = if (unreadCount > 0) View.VISIBLE else View.GONE
+        }
+        item.root.contentDescription = if (unreadCount > 0) {
+            getString(
+                R.string.unread_action_label,
+                getString(R.string.messages),
+                unreadCount,
+            )
         } else {
-            ContextCompat.getColorStateList(requireContext(), R.color.nav_item_icon_tint)
+            getString(R.string.messages)
         }
-        item.icon = profileIcon
-    }
-
-    private fun createProfileAvatarDrawable(source: Bitmap): StateListDrawable {
-        val density = resources.displayMetrics.density
-        val size = (PROFILE_ICON_SIZE_DP * density).toInt().coerceAtLeast(1)
-        val strokeWidth = PROFILE_BORDER_DP * density
-        val selected = drawProfileAvatar(source, size, strokeWidth, R.color.heart_primary)
-        val unselected = drawProfileAvatar(source, size, strokeWidth, R.color.heart_outline)
-        selected.density = resources.displayMetrics.densityDpi
-        unselected.density = resources.displayMetrics.densityDpi
-
-        val selectedDrawable = BitmapDrawable(resources, selected).apply {
-            setBounds(0, 0, size, size)
-        }
-        val unselectedDrawable = BitmapDrawable(resources, unselected).apply {
-            setBounds(0, 0, size, size)
-        }
-
-        return StateListDrawable().apply {
-            addState(
-                intArrayOf(android.R.attr.state_checked),
-                selectedDrawable,
-            )
-            addState(
-                intArrayOf(),
-                unselectedDrawable,
-            )
-            setBounds(0, 0, size, size)
-            setEnterFadeDuration(120)
-            setExitFadeDuration(120)
-        }
-    }
-
-    private fun drawProfileAvatar(
-        source: Bitmap,
-        size: Int,
-        strokeWidth: Float,
-        @androidx.annotation.ColorRes borderColorRes: Int,
-    ): Bitmap {
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val radius = size / 2f
-        val imageRadius = radius - strokeWidth
-        val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = BitmapShader(source, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).also { shader ->
-                val scale = maxOf(
-                    imageRadius * 2f / source.width,
-                    imageRadius * 2f / source.height,
-                )
-                val matrix = Matrix().apply {
-                    setScale(scale, scale)
-                    postTranslate(
-                        radius - source.width * scale / 2f,
-                        radius - source.height * scale / 2f,
-                    )
-                }
-                shader.setLocalMatrix(matrix)
-            }
-        }
-        canvas.drawCircle(radius, radius, imageRadius, imagePaint)
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = ContextCompat.getColor(requireContext(), borderColorRes)
-            style = Paint.Style.STROKE
-            this.strokeWidth = strokeWidth
-        }
-        canvas.drawCircle(radius, radius, radius - strokeWidth / 2f, borderPaint)
-        return bitmap
     }
 
     private companion object {
+        val NAVIGATION_TAB_IDS = setOf(
+            R.id.homeTab,
+            R.id.reelsTab,
+            R.id.messagesTab,
+            R.id.searchTab,
+            R.id.profileTab,
+        )
         const val HOME_FRAGMENT_TAG = "home"
         const val REELS_FRAGMENT_TAG = "reels"
         const val ACTIVITY_FRAGMENT_TAG = "activity_overlay"
         const val CREATE_FRAGMENT_TAG = "create_overlay"
         const val SELECTED_TAB_KEY = "selected_tab_id"
-        const val PROFILE_ICON_SIZE_DP = 24
-        const val PROFILE_BORDER_DP = 1.5f
+        const val NAV_AVATAR_BORDER_DP = 1.5f
+        const val NAV_SELECTION_SCALE_FROM = 0.9f
+        const val NAV_SELECTION_ANIMATION_MS = 140L
+        const val MAX_BADGE_COUNT = 99
         const val MAX_AVATAR_ATTEMPTS = 3
         const val AVATAR_RETRY_INTERVAL_MS = 30_000L
     }

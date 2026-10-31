@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="homeTab" type="id" />
+    <item name="reelsTab" type="id" />
+    <item name="messagesTab" type="id" />
+    <item name="searchTab" type="id" />
+    <item name="profileTab" type="id" />
+</resources>

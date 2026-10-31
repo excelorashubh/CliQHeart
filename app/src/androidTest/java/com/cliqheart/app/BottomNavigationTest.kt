@@ -13,8 +13,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import android.view.View
-import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.cliqheart.app.feature.home.MainShellFragment
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
@@ -23,7 +23,6 @@ import com.cliqheart.app.feature.home.tabs.DiscoverFragment
 import com.cliqheart.app.feature.home.tabs.HomeFeedFragment
 import com.cliqheart.app.feature.home.tabs.MessagesFragment
 import com.cliqheart.app.feature.home.tabs.ProfileFragment
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertFalse
@@ -59,10 +58,8 @@ class BottomNavigationTest {
         openMainShell()
 
         activityRule.scenario.onActivity { activity ->
-            val navigation = findMainShell(activity).requireView()
-                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
-            navigation.selectedItemId = R.id.homeTab
-            navigation.selectedItemId = R.id.profileTab
+            selectTab(findMainShell(activity), R.id.homeTab)
+            selectTab(findMainShell(activity), R.id.profileTab)
         }
 
         assertProfileRendered()
@@ -73,11 +70,10 @@ class BottomNavigationTest {
         openMainShell()
 
         activityRule.scenario.onActivity { activity ->
-            val navigation = findMainShell(activity).requireView()
-                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
-            navigation.selectedItemId = R.id.profileTab
-            navigation.selectedItemId = R.id.homeTab
-            navigation.selectedItemId = R.id.profileTab
+            val shell = findMainShell(activity)
+            selectTab(shell, R.id.profileTab)
+            selectTab(shell, R.id.homeTab)
+            selectTab(shell, R.id.profileTab)
         }
 
         assertProfileRendered()
@@ -88,13 +84,15 @@ class BottomNavigationTest {
         openMainShell()
 
         activityRule.scenario.onActivity { activity ->
-            val navigation = findMainShell(activity).requireView()
-                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
-            navigation.selectedItemId = R.id.profileTab
-            navigation.selectedItemId = R.id.messagesTab
-            navigation.selectedItemId = R.id.searchTab
-            navigation.selectedItemId = R.id.homeTab
-            navigation.selectedItemId = R.id.profileTab
+            val shell = findMainShell(activity)
+            listOf(
+                R.id.profileTab,
+                R.id.messagesTab,
+                R.id.searchTab,
+                R.id.reelsTab,
+                R.id.homeTab,
+                R.id.profileTab,
+            ).forEach { selectTab(shell, it) }
         }
 
         assertProfileRendered()
@@ -105,9 +103,7 @@ class BottomNavigationTest {
         openMainShell()
         activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         activityRule.scenario.onActivity { activity ->
-            findMainShell(activity).requireView()
-                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
-                .selectedItemId = R.id.profileTab
+            selectTab(findMainShell(activity), R.id.profileTab)
         }
         assertProfileRendered()
 
@@ -132,19 +128,24 @@ class BottomNavigationTest {
                 .filterIsInstance<MainShellFragment>()
                 .single()
             shell.childFragmentManager.executePendingTransactions()
-            val navigation = shell.requireView().findViewById<BottomNavigationView>(
+            val navigation = shell.requireView().findViewById<LinearLayout>(
                 R.id.bottom_navigation,
             )
+            val items = navigation.findViewById<LinearLayout>(R.id.navigation_items)
 
             assertTrue(navigation.isShown)
             assertTrue(
                 navigation.height >=
                     (64 * navigation.resources.displayMetrics.density).toInt(),
             )
-            assertEquals(5, navigation.menu.size())
-            val profileItem = navigation.menu.findItem(R.id.profileTab)
+            assertEquals(5, items.childCount)
+            assertEquals(
+                (64 * items.resources.displayMetrics.density).toInt(),
+                items.height,
+            )
+            val profileItem = items.findViewById<View>(R.id.profileTab)
             assertNotNull(profileItem)
-            assertTrue(profileItem.isVisible)
+            assertTrue(profileItem.isShown)
             assertTrue(profileItem.isEnabled)
             assertEquals(
                 0,
@@ -155,9 +156,12 @@ class BottomNavigationTest {
                 ),
             )
             shell.updateMessagesUnreadCount(7)
-            assertEquals(7, navigation.getBadge(R.id.messagesTab)?.number)
+            val messagesItem = items.findViewById<View>(R.id.messagesTab)
+            val messagesBadge = messagesItem.findViewById<TextView>(R.id.navigation_badge)
+            assertEquals("7", messagesBadge.text)
+            assertEquals(View.VISIBLE, messagesBadge.visibility)
             shell.updateMessagesUnreadCount(0)
-            assertFalse(navigation.getBadge(R.id.messagesTab)?.isVisible ?: false)
+            assertFalse(messagesBadge.isShown)
 
             val destinations = listOf(
                 Triple(R.id.homeTab, R.string.home, HomeFeedFragment::class.java),
@@ -168,31 +172,57 @@ class BottomNavigationTest {
             )
 
             for ((itemId, titleRes, fragmentClass) in destinations) {
-                val item = navigation.menu.findItem(itemId)
+                val item = items.findViewById<View>(itemId)
                 assertNotNull(item)
-                assertEquals(activity.getString(titleRes), item.title)
-                assertNotNull(item.icon)
+                assertEquals(activity.getString(titleRes), item.contentDescription)
+                assertTrue(item.isClickable)
+                assertTrue(item.isFocusable)
+                assertTrue(
+                    item.width >= (48 * item.resources.displayMetrics.density).toInt(),
+                )
 
-                navigation.selectedItemId = itemId
+                selectTab(shell, itemId)
                 shell.childFragmentManager.executePendingTransactions()
                 val currentFragment: Fragment? = shell.childFragmentManager.fragments
                     .firstOrNull { it.isVisible && it.id == R.id.tab_container }
                 assertEquals(fragmentClass, currentFragment!!::class.java)
-                assertEquals(itemId, navigation.selectedItemId)
+                assertTrue(item.isSelected)
+                assertEquals(
+                    activity.getString(titleRes),
+                    item.findViewById<TextView>(R.id.navigation_label).text,
+                )
+                val icon = item.findViewById<ImageView>(R.id.navigation_icon)
+                assertEquals(
+                    (24 * icon.resources.displayMetrics.density).toInt(),
+                    icon.layoutParams.width,
+                )
+                assertNotNull(icon.drawable)
             }
 
             for (selectedItemId in listOf(R.id.homeTab, R.id.profileTab)) {
-                navigation.selectedItemId = selectedItemId
+                selectTab(shell, selectedItemId)
                 shell.childFragmentManager.executePendingTransactions()
-                val profileItemView = navigation.findViewById<View>(R.id.profileTab)
+                val profileItemView = items.findViewById<View>(R.id.profileTab)
                 assertNotNull(profileItemView)
                 assertTrue(profileItemView.isClickable)
-                val profileIcon = findImageView(profileItemView)
-                assertNotNull(profileIcon)
-                assertEquals(View.VISIBLE, profileIcon!!.visibility)
+                val avatar = profileItemView.findViewById<ImageView>(R.id.navigation_avatar)
+                assertEquals(ImageView.ScaleType.CENTER_CROP, avatar.scaleType)
+                val avatarFrame = profileItemView.findViewById<View>(R.id.navigation_avatar_frame)
+                assertEquals(
+                    (29 * avatar.resources.displayMetrics.density).toInt(),
+                    avatarFrame.layoutParams.width,
+                )
+                val profileIcon = profileItemView.findViewById<ImageView>(R.id.navigation_icon)
                 assertNotNull(profileIcon.drawable)
-                assertTrue(profileIcon.width > 0)
-                assertTrue(profileIcon.height > 0)
+                if (avatarFrame.visibility == View.VISIBLE) {
+                    assertEquals(View.GONE, profileIcon.visibility)
+                    assertTrue(avatar.width > 0)
+                    assertTrue(avatar.height > 0)
+                } else {
+                    assertEquals(View.VISIBLE, profileIcon.visibility)
+                    assertTrue(profileIcon.width > 0)
+                    assertTrue(profileIcon.height > 0)
+                }
             }
 
         }
@@ -266,22 +296,14 @@ class BottomNavigationTest {
                 View.VISIBLE,
                 root.findViewById<View>(R.id.btn_share_profile).visibility,
             )
-            assertEquals(
-                R.id.profileTab,
-                shell.requireView()
-                    .findViewById<BottomNavigationView>(R.id.bottom_navigation)
-                    .selectedItemId,
-            )
+            assertTrue(shell.requireView().findViewById<View>(R.id.profileTab).isSelected)
         }
     }
 
-    private fun findImageView(view: View): ImageView? {
-        if (view is ImageView) return view
-        if (view !is ViewGroup) return null
-        for (index in 0 until view.childCount) {
-            findImageView(view.getChildAt(index))?.let { return it }
-        }
-        return null
+    private fun selectTab(shell: MainShellFragment, tabId: Int) {
+        val item = shell.requireView().findViewById<View>(tabId)
+        assertNotNull(item)
+        check(item.performClick()) { "Navigation tab $tabId did not handle its click." }
     }
 
     @Test
@@ -300,10 +322,7 @@ class BottomNavigationTest {
                 .filterIsInstance<MainShellFragment>()
                 .single()
             shell.childFragmentManager.executePendingTransactions()
-            val navigation = shell.requireView().findViewById<BottomNavigationView>(
-                R.id.bottom_navigation,
-            )
-            navigation.selectedItemId = R.id.homeTab
+            selectTab(shell, R.id.homeTab)
         }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
@@ -347,10 +366,8 @@ class BottomNavigationTest {
             val shell = navHost.childFragmentManager.fragments
                 .filterIsInstance<MainShellFragment>()
                 .single()
-            val navigation = shell.requireView().findViewById<BottomNavigationView>(
-                R.id.bottom_navigation,
-            )
-            assertEquals(R.id.homeTab, navigation.selectedItemId)
+            val selectedItem = shell.requireView().findViewById<View>(R.id.homeTab)
+            assertTrue(selectedItem.isSelected)
             val currentFragment: Fragment? = shell.childFragmentManager.fragments
                 .firstOrNull { it.isVisible && it.id == R.id.tab_container }
             assertEquals(HomeFeedFragment::class.java, currentFragment!!::class.java)
