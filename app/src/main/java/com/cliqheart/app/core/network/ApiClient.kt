@@ -81,23 +81,22 @@ object ApiClient {
                 val requestWithId = requestWithToken.newBuilder()
                     .header("X-Request-ID", requestId)
                     .build()
-                val path = requestWithId.url.encodedPath
                 val startedAt = System.nanoTime()
                 Log.i(
                     NETWORK_LOG_TAG,
-                    """{"event":"request_started","requestId":"$requestId","method":"${requestWithId.method}","path":"$path"}""",
+                    """{"event":"request_started","requestId":"$requestId","method":"${requestWithId.method}"}""",
                 )
                 try {
                     chain.proceed(requestWithId).also { response ->
                         Log.i(
                             NETWORK_LOG_TAG,
-                            """{"event":"request_completed","requestId":"$requestId","method":"${requestWithId.method}","path":"$path","status":${response.code},"durationMs":${(System.nanoTime() - startedAt) / 1_000_000}}""",
+                            """{"event":"request_completed","requestId":"$requestId","method":"${requestWithId.method}","status":${response.code},"durationMs":${(System.nanoTime() - startedAt) / 1_000_000}}""",
                         )
                     }
                 } catch (exception: IOException) {
                     Log.w(
                         NETWORK_LOG_TAG,
-                        """{"event":"request_failed","requestId":"$requestId","method":"${requestWithId.method}","path":"$path","category":"${exception.javaClass.simpleName}","durationMs":${(System.nanoTime() - startedAt) / 1_000_000}}""",
+                        """{"event":"request_failed","requestId":"$requestId","method":"${requestWithId.method}","category":"${exception.javaClass.simpleName}","durationMs":${(System.nanoTime() - startedAt) / 1_000_000}}""",
                     )
                     throw exception
                 }

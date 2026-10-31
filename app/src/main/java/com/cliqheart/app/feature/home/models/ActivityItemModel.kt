@@ -8,4 +8,6 @@ data class ActivityItemModel(
     val timeAgo: String,
     val postImageUrl: String? = null,
     val isFollowAction: Boolean = false,
+    val actorId: String? = null,
+    val isRead: Boolean = false,
 )

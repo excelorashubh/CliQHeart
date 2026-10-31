@@ -84,7 +84,7 @@ class MainShellFragment : Fragment() {
         val selectedTab = savedInstanceState?.getInt(SELECTED_TAB_KEY, R.id.homeTab) ?: R.id.homeTab
         binding.bottomNavigation.selectedItemId = selectedTab
         binding.bottomNavigation.setOnItemSelectedListener { item ->
-            showTab(item.itemId)
+            showTab(item.itemId, renderSynchronously = true)
         }
         observeCurrentUser()
         homeDataViewModel.initialize()
@@ -106,7 +106,7 @@ class MainShellFragment : Fragment() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun showTab(tabId: Int): Boolean {
+    private fun showTab(tabId: Int, renderSynchronously: Boolean = false): Boolean {
         val (tag, newFragment) = when (tabId) {
             R.id.homeTab -> HOME_FRAGMENT_TAG to { HomeFeedFragment() }
             R.id.reelsTab -> REELS_FRAGMENT_TAG to { HomeFeedFragment.newReelsInstance() }
@@ -116,12 +116,16 @@ class MainShellFragment : Fragment() {
             else -> return false
         }
         val manager = childFragmentManager
+        if (renderSynchronously) {
+            manager.executePendingTransactions()
+        }
         val fragment = manager.findFragmentByTag(tag) ?: newFragment()
-        if (fragment.isVisible) {
+        if (fragment.isVisible && fragment.view?.isShown == true) {
             (fragment as? HomeFeedFragment)?.onTabSelected()
             return true
         }
-        manager.beginTransaction().apply {
+        val transaction = manager.beginTransaction().apply {
+            setReorderingAllowed(true)
             if (tag != HOME_FRAGMENT_TAG) {
                 val home = manager.findFragmentByTag(HOME_FRAGMENT_TAG)
                     ?: HomeFeedFragment()
@@ -146,7 +150,15 @@ class MainShellFragment : Fragment() {
                 add(R.id.tab_container, fragment, tag)
             }
             setMaxLifecycle(fragment, Lifecycle.State.RESUMED)
-        }.commit()
+        }
+        if (renderSynchronously) {
+            transaction.commitNow()
+            check(fragment.view != null) {
+                "Tab fragment $tag was added without creating its view."
+            }
+        } else {
+            transaction.commit()
+        }
         val home = manager.findFragmentByTag(HOME_FRAGMENT_TAG) as? HomeFeedFragment
         if (fragment is HomeFeedFragment && fragment.view != null) {
             fragment.onTabSelected()

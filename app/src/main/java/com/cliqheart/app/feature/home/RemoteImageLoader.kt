@@ -81,12 +81,12 @@ object RemoteImageLoader {
             try {
                 loadedBitmap = download(validImageUrl)
             } catch (error: IOException) {
-                Log.w(TAG, "Could not load remote image: $validImageUrl", error)
+                Log.w(TAG, "Could not load remote image (${error.javaClass.simpleName}).")
                 if (!fallbackUrl.isNullOrBlank() && fallbackUrl != validImageUrl) {
                     try {
                         loadedBitmap = download(fallbackUrl)
                     } catch (fallbackError: IOException) {
-                        Log.w(TAG, "Could not load fallback image: $fallbackUrl", fallbackError)
+                        Log.w(TAG, "Could not load fallback image (${fallbackError.javaClass.simpleName}).")
                     }
                 }
             }

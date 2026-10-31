@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.NavOptions
+import androidx.recyclerview.widget.GridLayoutManager
 import com.cliqheart.app.R
 import com.cliqheart.app.core.network.ApiClient
 import com.cliqheart.app.core.network.LogoutRequest
@@ -21,18 +22,24 @@ import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentProfileBinding
 import com.cliqheart.app.feature.home.MainShellViewModel
 import com.cliqheart.app.feature.home.RemoteImageLoader
+import com.cliqheart.app.feature.home.adapters.GridPostsAdapter
 import com.cliqheart.app.feature.home.getEffectiveAvatarUrl
 import com.cliqheart.app.feature.home.getFallbackAvatarUrl
+import com.cliqheart.app.feature.home.apiErrorMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.io.IOException
 
 class ProfileFragment : Fragment() {
     private var _binding: FragmentProfileBinding? = null
     private val binding get() = requireNotNull(_binding)
     private val homeDataViewModel: MainShellViewModel by activityViewModels()
     private var profileJob: Job? = null
+    private var profilePostsJob: Job? = null
+    private var profilePostsOwnerId: String? = null
+    private lateinit var profilePostsAdapter: GridPostsAdapter
     private var currentProfile: UserResponse? = null
     private var profileLoaded = false
     private val viewedUserId: String? get() = arguments?.getString(ARG_PROFILE_USER_ID)
@@ -49,6 +56,19 @@ class ProfileFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.limitContentWidth(720)
+        profilePostsAdapter = GridPostsAdapter { post ->
+            post.id?.let {
+                CommentsBottomSheetFragment.newInstance(it, "post")
+                    .show(parentFragmentManager, PROFILE_COMMENTS_TAG)
+            }
+        }
+        binding.profileGridRecycler.layoutManager = GridLayoutManager(requireContext(), 3)
+        binding.profileGridRecycler.adapter = profilePostsAdapter
+        binding.profilePostsState.setOnClickListener {
+            profilePostsOwnerId = null
+            (currentProfile?.id ?: currentProfile?._id ?: viewedUserId)
+                ?.let(::loadProfilePosts)
+        }
 
         if (isOwnProfile) {
             homeDataViewModel.currentUser.value?.let {
@@ -75,10 +95,6 @@ class ProfileFragment : Fragment() {
                         }
                     }
                 }
-            }
-        } else {
-            SecureTokenStore(requireContext()).readSession()?.currentUser?.let {
-                showProfile(it)
             }
         }
         binding.statPostsCount.text = "—"
@@ -162,6 +178,7 @@ class ProfileFragment : Fragment() {
         binding.profileUsernameTitle.text = user.username?.let { "@$it" }.orEmpty()
         binding.profileDisplayName.text = user.displayName.orEmpty()
         binding.profileBio.text = user.bio.orEmpty()
+        binding.statPostsCount.text = user.postsCount?.toString() ?: "—"
         RemoteImageLoader.load(
             binding.profileAvatar,
             user.getEffectiveAvatarUrl(),
@@ -177,7 +194,42 @@ class ProfileFragment : Fragment() {
         } else {
             getString(R.string.follow)
         }
+        (user.id ?: user._id ?: viewedUserId)?.let(::loadProfilePosts)
 
+    }
+
+    private fun loadProfilePosts(userId: String) {
+        if (profilePostsOwnerId == userId || profilePostsJob?.isActive == true) return
+        profilePostsOwnerId = userId
+        binding.profilePostsState.text = getString(R.string.loading_profile_posts)
+        binding.profilePostsState.visibility = View.VISIBLE
+        profilePostsJob = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val response = ApiClient.service.getUserPosts(userId)
+                if (!response.isSuccessful) {
+                    profilePostsOwnerId = null
+                    binding.profilePostsState.text =
+                        apiErrorMessage(response, getString(R.string.profile_posts_load_failed))
+                    return@launch
+                }
+                val posts = response.body()?.posts
+                    ?: throw IOException(getString(R.string.profile_posts_load_failed))
+                profilePostsAdapter.submitPosts(posts)
+                binding.profilePostsState.text = getString(R.string.no_posts_yet)
+                binding.profilePostsState.visibility =
+                    if (posts.isEmpty()) View.VISIBLE else View.GONE
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: IOException) {
+                profilePostsOwnerId = null
+                binding.profilePostsState.text = getString(R.string.profile_posts_load_failed)
+                binding.profilePostsState.visibility = View.VISIBLE
+            } catch (_: RuntimeException) {
+                profilePostsOwnerId = null
+                binding.profilePostsState.text = getString(R.string.profile_posts_load_failed)
+                binding.profilePostsState.visibility = View.VISIBLE
+            }
+        }
     }
 
     private fun loadAvatar(imageUrl: String?) {
@@ -301,6 +353,8 @@ class ProfileFragment : Fragment() {
 
     override fun onDestroyView() {
         profileJob?.cancel()
+        profilePostsJob?.cancel()
+        profilePostsOwnerId = null
         _binding = null
         super.onDestroyView()
     }
@@ -311,5 +365,6 @@ class ProfileFragment : Fragment() {
         const val ARG_CONVERSATION_ID = "conversationId"
         const val FOLLOWERS = "followers"
         const val FOLLOWING = "following"
+        const val PROFILE_COMMENTS_TAG = "profile_post_comments"
     }
 }

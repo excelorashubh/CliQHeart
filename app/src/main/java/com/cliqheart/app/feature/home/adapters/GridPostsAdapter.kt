@@ -4,13 +4,15 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.RecyclerView
+import com.cliqheart.app.R
+import com.cliqheart.app.core.network.PostResponse
 import com.cliqheart.app.databinding.ItemGridPostBinding
-import com.cliqheart.app.feature.home.models.PostModel
+import com.cliqheart.app.feature.home.RemoteImageLoader
 
 class GridPostsAdapter(
-    private val posts: List<PostModel>,
-    private val onPostClick: (PostModel) -> Unit,
+    private val onPostClick: (PostResponse) -> Unit,
 ) : RecyclerView.Adapter<GridPostsAdapter.GridPostViewHolder>() {
+    private val posts = mutableListOf<PostResponse>()
 
     class GridPostViewHolder(val binding: ItemGridPostBinding) :
         RecyclerView.ViewHolder(binding.root)
@@ -34,6 +36,10 @@ class GridPostsAdapter(
                     }
                 }
             }
+            val media = post.media
+            val imageUrl = media?.thumbnailUrl?.takeIf(String::isNotBlank)
+                ?: media?.secureUrl?.takeIf(String::isNotBlank)
+            RemoteImageLoader.load(gridPostImage, imageUrl, R.drawable.ic_cliqheart_logo)
             root.setOnClickListener {
                 onPostClick(post)
             }
@@ -41,4 +47,10 @@ class GridPostsAdapter(
     }
 
     override fun getItemCount(): Int = posts.size
+
+    fun submitPosts(nextPosts: List<PostResponse>) {
+        posts.clear()
+        posts.addAll(nextPosts)
+        notifyDataSetChanged()
+    }
 }

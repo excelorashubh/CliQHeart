@@ -1,17 +1,21 @@
 package com.cliqheart.app
 
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.fragment.NavHostFragment
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.withId
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.TextView
 import com.cliqheart.app.feature.home.MainShellFragment
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
 import com.cliqheart.app.feature.home.tabs.CreatePostFragment
@@ -32,6 +36,85 @@ import org.junit.runner.RunWith
 class BottomNavigationTest {
     @get:Rule
     val activityRule = ActivityScenarioRule(MainActivity::class.java)
+
+    @Test
+    fun profileRendersOnFirstNavigationWithoutSwitchingTabs() {
+        openMainShell()
+
+        activityRule.scenario.onActivity { activity ->
+            val shell = findMainShell(activity)
+            assertTrue(
+                shell.childFragmentManager.fragments.none { it is ProfileFragment },
+            )
+        }
+        onView(withId(R.id.profileTab)).perform(click())
+        onView(withId(R.id.profile_username_title)).check(matches(isDisplayed()))
+        onView(withId(R.id.profile_avatar)).check(matches(isDisplayed()))
+
+        assertProfileRendered()
+    }
+
+    @Test
+    fun homeToProfileRendersProfile() {
+        openMainShell()
+
+        activityRule.scenario.onActivity { activity ->
+            val navigation = findMainShell(activity).requireView()
+                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
+            navigation.selectedItemId = R.id.homeTab
+            navigation.selectedItemId = R.id.profileTab
+        }
+
+        assertProfileRendered()
+    }
+
+    @Test
+    fun profileHomeProfileRendersOneProfileFragment() {
+        openMainShell()
+
+        activityRule.scenario.onActivity { activity ->
+            val navigation = findMainShell(activity).requireView()
+                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
+            navigation.selectedItemId = R.id.profileTab
+            navigation.selectedItemId = R.id.homeTab
+            navigation.selectedItemId = R.id.profileTab
+        }
+
+        assertProfileRendered()
+    }
+
+    @Test
+    fun rapidTabSwitchingDoesNotCreateDuplicateFragments() {
+        openMainShell()
+
+        activityRule.scenario.onActivity { activity ->
+            val navigation = findMainShell(activity).requireView()
+                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
+            navigation.selectedItemId = R.id.profileTab
+            navigation.selectedItemId = R.id.messagesTab
+            navigation.selectedItemId = R.id.searchTab
+            navigation.selectedItemId = R.id.homeTab
+            navigation.selectedItemId = R.id.profileTab
+        }
+
+        assertProfileRendered()
+    }
+
+    @Test
+    fun selectedProfileIsRestoredAfterActivityRecreation() {
+        openMainShell()
+        activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        activityRule.scenario.onActivity { activity ->
+            findMainShell(activity).requireView()
+                .findViewById<BottomNavigationView>(R.id.bottom_navigation)
+                .selectedItemId = R.id.profileTab
+        }
+        assertProfileRendered()
+
+        activityRule.scenario.recreate()
+
+        assertProfileRendered()
+    }
 
     @Test
     fun allNavigationItemsAreVisibleAndOpenTheirTabs() {
@@ -112,6 +195,83 @@ class BottomNavigationTest {
                 assertTrue(profileIcon.height > 0)
             }
 
+        }
+    }
+
+    private fun openMainShell() {
+        activityRule.scenario.onActivity { activity ->
+            val navHost = activity.supportFragmentManager
+                .findFragmentById(R.id.nav_host) as NavHostFragment
+            navHost.navController.navigate(R.id.mainShellFragment)
+        }
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+    }
+
+    private fun findMainShell(activity: MainActivity): MainShellFragment {
+        val navHost = activity.supportFragmentManager
+            .findFragmentById(R.id.nav_host) as NavHostFragment
+        return navHost.childFragmentManager.fragments
+            .filterIsInstance<MainShellFragment>()
+            .single()
+    }
+
+    private fun assertProfileRendered() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        activityRule.scenario.onActivity { activity ->
+            findMainShell(activity).childFragmentManager.executePendingTransactions()
+        }
+        instrumentation.waitForIdleSync()
+
+        activityRule.scenario.onActivity { activity ->
+            val shell = findMainShell(activity)
+            val manager = shell.childFragmentManager
+            val profiles = manager.fragments.filterIsInstance<ProfileFragment>()
+            assertEquals(1, profiles.size)
+            assertEquals(1, manager.fragments.count { it.tag == "profile" })
+            val profile = profiles.single()
+            assertTrue(profile.isVisible)
+            val root = requireNotNull(profile.view)
+            assertEquals(View.VISIBLE, root.visibility)
+            assertTrue(root.isAttachedToWindow)
+            assertTrue(root.isShown)
+            assertTrue(root.width > 0)
+            assertTrue(root.height > 0)
+            val visibleBounds = android.graphics.Rect()
+            assertTrue(root.getGlobalVisibleRect(visibleBounds))
+            assertTrue(visibleBounds.width() > 0)
+            assertTrue(visibleBounds.height() > 0)
+
+            val username = root.findViewById<TextView>(R.id.profile_username_title)
+            assertNotNull(username)
+            assertEquals(View.VISIBLE, username.visibility)
+            val avatar = root.findViewById<ImageView>(R.id.profile_avatar)
+            assertNotNull(avatar)
+            assertEquals(View.VISIBLE, avatar.visibility)
+            assertNotNull(avatar.drawable)
+            for (statId in listOf(
+                R.id.stat_posts_count,
+                R.id.stat_followers_count,
+                R.id.stat_following_count,
+            )) {
+                val statistic = root.findViewById<TextView>(statId)
+                assertNotNull(statistic)
+                assertEquals(View.VISIBLE, statistic.visibility)
+                assertTrue(statistic.text.isNotEmpty())
+            }
+            assertEquals(
+                View.VISIBLE,
+                root.findViewById<View>(R.id.btn_edit_profile).visibility,
+            )
+            assertEquals(
+                View.VISIBLE,
+                root.findViewById<View>(R.id.btn_share_profile).visibility,
+            )
+            assertEquals(
+                R.id.profileTab,
+                shell.requireView()
+                    .findViewById<BottomNavigationView>(R.id.bottom_navigation)
+                    .selectedItemId,
+            )
         }
     }
 

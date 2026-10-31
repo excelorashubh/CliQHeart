@@ -39,6 +39,7 @@ data class UserResponse(
     val avatarUrl: String? = null,
     val followersCount: Int? = null,
     val followingCount: Int? = null,
+    val postsCount: Int? = null,
     val isFollowing: Boolean? = null,
     val accountStatus: String? = null,
     val accountType: String? = null,
@@ -198,6 +199,32 @@ data class EngagementSyncItem(
     val isReposted: Boolean,
 )
 data class EngagementSyncResponse(val content: List<EngagementSyncItem> = emptyList())
+data class NotificationActorResponse(
+    val id: String? = null,
+    val _id: String? = null,
+    val username: String? = null,
+    val displayName: String? = null,
+    val avatarUrl: String? = null,
+)
+data class NotificationResponse(
+    val id: String? = null,
+    val type: String? = null,
+    val read: Boolean = false,
+    val createdAt: String? = null,
+    val actor: NotificationActorResponse? = null,
+    val postId: String? = null,
+    val reelId: String? = null,
+    val commentId: String? = null,
+    val conversationId: String? = null,
+    val storyId: String? = null,
+    val thumbnailUrl: String? = null,
+)
+data class NotificationsResponse(
+    val notifications: List<NotificationResponse> = emptyList(),
+    val nextCursor: String? = null,
+    val unreadCount: Int = 0,
+)
+data class NotificationReadResponse(val read: Boolean = false)
 
 data class AuthResponse(
     val accessToken: String? = null,
@@ -228,11 +255,28 @@ interface ApiService {
     @GET("notifications/unread-count")
     suspend fun getUnreadNotificationCount(): Response<UnreadCountResponse>
 
+    @GET("notifications")
+    suspend fun getNotifications(
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<NotificationsResponse>
+
+    @PATCH("notifications/{notificationId}/read")
+    suspend fun markNotificationRead(
+        @Path("notificationId") notificationId: String,
+    ): Response<NotificationReadResponse>
+
     @GET("messages/unread-count")
     suspend fun getUnreadMessageCount(): Response<UnreadCountResponse>
 
     @GET("users/{userId}")
     suspend fun getProfile(@Path("userId") userId: String): Response<UserEnvelope>
+
+    @GET("users/{userId}/posts")
+    suspend fun getUserPosts(
+        @Path("userId") userId: String,
+        @Query("limit") limit: Int = 30,
+    ): Response<PostsResponse>
 
     @PATCH("users/me")
     suspend fun updateMyProfile(@Body request: ProfileUpdateRequest): Response<UserEnvelope>

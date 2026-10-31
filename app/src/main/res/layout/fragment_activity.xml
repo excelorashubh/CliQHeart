@@ -14,14 +14,26 @@
         android:textSize="22sp"
         android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/activity_empty_state"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center"
-        android:padding="24dp"
-        android:text="@string/activity_unavailable"
-        android:textColor="@color/heart_muted" />
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/activity_recycler"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp" />
+
+        <TextView
+            android:id="@+id/activity_empty_state"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:padding="24dp"
+            android:text="@string/activity_unavailable"
+            android:textColor="@color/heart_muted" />
+    </FrameLayout>
 
 </LinearLayout>
