@@ -1,5 +1,6 @@
 package com.cliqheart.app.core.network
 
+import com.google.gson.JsonObject
 import retrofit2.Response
 import retrofit2.http.GET
 import retrofit2.http.POST
@@ -61,6 +62,7 @@ data class ProfileUpdateRequest(
     val bio: String,
     val avatarMediaId: String? = null,
 )
+data class ProfilePhotoUpdateRequest(val avatarMediaId: String)
 data class ConversationCreateRequest(val participantId: String)
 data class ConversationResponse(
     val id: String? = null,
@@ -351,6 +353,12 @@ interface ApiService {
 
     @PATCH("users/me")
     suspend fun updateMyProfile(@Body request: ProfileUpdateRequest): Response<UserEnvelope>
+
+    @PATCH("users/me")
+    suspend fun updateMyProfilePhoto(@Body request: ProfilePhotoUpdateRequest): Response<UserEnvelope>
+
+    @PATCH("users/me")
+    suspend fun removeMyProfilePhoto(@Body request: JsonObject): Response<UserEnvelope>
 
     @GET("users/search")
     suspend fun searchUsers(

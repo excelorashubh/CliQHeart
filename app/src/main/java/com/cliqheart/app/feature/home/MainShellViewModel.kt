@@ -94,6 +94,13 @@ class MainShellViewModel(application: Application) : AndroidViewModel(applicatio
         _profileError.value = null
     }
 
+    fun updateCurrentUserAfterProfilePhotoChange(user: UserResponse) {
+        profileJob?.cancel()
+        profileJob = null
+        updateCurrentUser(user)
+        loadProfile(force = true)
+    }
+
     fun updateMessagesUnreadCount(count: Int) {
         _messagesUnreadCount.value = count.coerceAtLeast(0)
     }

@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
@@ -18,6 +19,7 @@ import com.cliqheart.app.R
 import com.cliqheart.app.core.network.ApiClient
 import com.cliqheart.app.core.network.LogoutRequest
 import com.cliqheart.app.core.network.UserResponse
+import com.cliqheart.app.core.security.ProfileAvatarCache
 import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentProfileBinding
@@ -29,6 +31,8 @@ import com.cliqheart.app.feature.home.getEffectiveAvatarUrl
 import com.cliqheart.app.feature.home.getFallbackAvatarUrl
 import com.cliqheart.app.feature.home.apiErrorMessage
 import com.cliqheart.app.core.network.PostResponse
+import com.google.gson.JsonNull
+import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
@@ -44,6 +48,7 @@ class ProfileFragment : Fragment() {
     private var currentProfile: UserResponse? = null
     private var profileLoaded = false
     private var isLoggingOut = false
+    private var profilePhotoMutationInProgress = false
     private var profileContentOwnerId: String? = null
     private var selectedSection = ProfileSection.POSTS
     private val sectionItems = mutableMapOf<ProfileSection, MutableList<PostResponse>>()
@@ -83,7 +88,9 @@ class ProfileFragment : Fragment() {
         binding.profileTabSaved.setOnClickListener { selectSection(ProfileSection.SAVED) }
         binding.profileTabTagged.setOnClickListener { selectSection(ProfileSection.TAGGED) }
         binding.btnAddStory.setOnClickListener {
-            StoryCreationDialogFragment().show(parentFragmentManager, PROFILE_STORY_CREATION_TAG)
+            val user = currentProfile ?: homeDataViewModel.currentUser.value
+            ProfilePhotoActionsBottomSheetFragment.newInstance(!user?.avatarUrl.isNullOrBlank())
+                .show(childFragmentManager, PROFILE_PHOTO_ACTIONS_TAG)
         }
         binding.btnProfessionalDashboard.setOnClickListener { openProfessionalDashboard() }
         binding.profileMenuButton.setOnClickListener { openProfileMenu() }
@@ -92,6 +99,12 @@ class ProfileFragment : Fragment() {
             viewLifecycleOwner,
         ) { _, result ->
             handleProfileMenuAction(result.getString(ProfileMoreMenuBottomSheetFragment.KEY_ACTION))
+        }
+        childFragmentManager.setFragmentResultListener(
+            ProfilePhotoActionsBottomSheetFragment.REQUEST_KEY,
+            viewLifecycleOwner,
+        ) { _, result ->
+            handleProfilePhotoAction(result.getString(ProfilePhotoActionsBottomSheetFragment.KEY_ACTION))
         }
         parentFragmentManager.setFragmentResultListener(
             STORY_PUBLISHED_REQUEST_KEY,
@@ -209,12 +222,30 @@ class ProfileFragment : Fragment() {
         binding.profileDisplayName.text = user.displayName.orEmpty()
         binding.profileBio.text = user.bio.orEmpty()
         binding.statPostsCount.text = user.postsCount?.toString() ?: "—"
-        RemoteImageLoader.load(
-            binding.profileAvatar,
-            user.getEffectiveAvatarUrl(),
-            R.drawable.ic_profile,
-            user.getFallbackAvatarUrl(),
-        )
+        val userId = user.id?.takeIf(String::isNotBlank)
+            ?: user._id?.takeIf(String::isNotBlank)
+            ?: user.username.orEmpty()
+        val cachedAvatar = if (isOwnProfile && user.avatarUrl?.isNotBlank() == true) {
+            ProfileAvatarCache.loadAvatarBitmap(requireContext(), userId)
+        } else {
+            null
+        }
+        if (cachedAvatar != null) {
+            binding.profileAvatar.setImageBitmap(cachedAvatar)
+            RemoteImageLoader.load(
+                binding.profileAvatar,
+                user.getEffectiveAvatarUrl(),
+                0,
+                user.getFallbackAvatarUrl(),
+            )
+        } else {
+            RemoteImageLoader.load(
+                binding.profileAvatar,
+                user.getEffectiveAvatarUrl(),
+                R.drawable.ic_profile,
+                user.getFallbackAvatarUrl(),
+            )
+        }
         binding.statFollowersCount.text = user.followersCount?.toString() ?: "—"
         binding.statFollowingCount.text = user.followingCount?.toString() ?: "—"
         binding.btnEditProfile.text = if (isOwnProfile) {
@@ -224,6 +255,7 @@ class ProfileFragment : Fragment() {
         } else {
             getString(R.string.follow)
         }
+
         val accountType = user.accountType.orEmpty().uppercase()
         val hasProfessionalDashboard = isOwnProfile && accountType in setOf("CREATOR", "BUSINESS")
         binding.profileOwnerActions.visibility = if (hasProfessionalDashboard) View.VISIBLE else View.GONE
@@ -232,6 +264,71 @@ class ProfileFragment : Fragment() {
             if (profileContentOwnerId != userId) {
                 resetProfileSections(userId)
                 loadSection(ProfileSection.POSTS)
+            }
+        }
+    }
+
+    private fun handleProfilePhotoAction(action: String?) {
+        when (action) {
+            ProfilePhotoActionsBottomSheetFragment.ACTION_ADD_STORY ->
+                StoryCreationDialogFragment().show(parentFragmentManager, PROFILE_STORY_CREATION_TAG)
+            ProfilePhotoActionsBottomSheetFragment.ACTION_CHANGE_PHOTO ->
+                ProfilePhotoUpdateDialogFragment().show(parentFragmentManager, PROFILE_PHOTO_UPDATE_TAG)
+            ProfilePhotoActionsBottomSheetFragment.ACTION_REMOVE_PHOTO -> confirmRemoveProfilePhoto()
+        }
+    }
+
+    private fun confirmRemoveProfilePhoto() {
+        if (profilePhotoMutationInProgress || currentProfile?.avatarUrl.isNullOrBlank()) return
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_photo_remove_title)
+            .setMessage(R.string.profile_photo_remove_confirmation)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.remove_profile_photo) { _, _ -> removeProfilePhoto() }
+            .show()
+    }
+
+    private fun removeProfilePhoto() {
+        if (profilePhotoMutationInProgress) return
+        val user = currentProfile ?: homeDataViewModel.currentUser.value ?: return
+        val userId = user.id?.takeIf(String::isNotBlank)
+            ?: user._id?.takeIf(String::isNotBlank)
+            ?: user.username?.takeIf(String::isNotBlank)
+            ?: return
+        profilePhotoMutationInProgress = true
+        val progress = ProgressBar(requireContext())
+        val progressDialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_photo_removing)
+            .setView(progress)
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val request = JsonObject().apply {
+                    add("avatarMediaId", JsonNull.INSTANCE)
+                }
+                val response = ApiClient.service.removeMyProfilePhoto(request)
+                if (!response.isSuccessful) {
+                    throw IOException(apiErrorMessage(response, getString(R.string.profile_photo_remove_failed)))
+                }
+                val updatedUser = response.body()?.user
+                    ?: throw IOException(getString(R.string.profile_photo_remove_failed))
+                ProfileAvatarCache.clearAvatar(requireContext(), userId)
+                homeDataViewModel.updateCurrentUserAfterProfilePhotoChange(updatedUser)
+                Toast.makeText(requireContext(), R.string.profile_photo_removed, Toast.LENGTH_SHORT).show()
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Toast.makeText(
+                    requireContext(),
+                    exception.message ?: getString(R.string.profile_photo_remove_failed),
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                profilePhotoMutationInProgress = false
+                progressDialog.dismiss()
             }
         }
     }
@@ -621,6 +718,8 @@ class ProfileFragment : Fragment() {
         const val FOLLOWING = "following"
         const val PROFILE_COMMENTS_TAG = "profile_post_comments"
         const val PROFILE_STORY_CREATION_TAG = "profile_story_creation"
+        const val PROFILE_PHOTO_ACTIONS_TAG = "profile_photo_actions"
+        const val PROFILE_PHOTO_UPDATE_TAG = "profile_photo_update"
         const val PROFILE_MENU_TAG = "profile_more_menu"
     }
 }

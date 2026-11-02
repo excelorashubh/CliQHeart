@@ -30,6 +30,7 @@ import kotlin.coroutines.resumeWithException
 object ApiClient {
     private const val NETWORK_LOG_TAG = "CliQHeartNetwork"
     private val supportedImageTypes = setOf("image/jpeg", "image/png", "image/webp")
+    private val supportedVideoTypes = setOf("video/mp4", "video/quicktime")
 
     @Volatile
     private var tokenStore: SecureTokenStore? = null
@@ -128,10 +129,12 @@ object ApiClient {
             ?: throw IOException("The API returned an incomplete upload signature.")
         val cloudName = upload.cloudName?.takeIf(String::isNotBlank)
             ?: throw IOException("The API returned an incomplete upload signature.")
+        val resourceType = upload.resourceType?.takeIf { it == "image" || it == "video" }
+            ?: throw IOException("The API returned an invalid upload resource type.")
         val uploadUri = Uri.parse(uploadUrl)
-        if (upload.resourceType != "image" || uploadUri.scheme != "https" ||
+        if (uploadUri.scheme != "https" ||
             uploadUri.host != "api.cloudinary.com" ||
-            uploadUri.encodedPath != "/v1_1/$cloudName/image/upload"
+            uploadUri.encodedPath != "/v1_1/$cloudName/$resourceType/upload"
         ) {
             throw IOException("The API returned an invalid Cloudinary upload target.")
         }
@@ -148,33 +151,66 @@ object ApiClient {
         }
 
         val resolver = context.contentResolver
-        val mimeType = resolver.getType(uri)?.takeIf { it in supportedImageTypes }
-            ?: throw IOException("Choose a JPEG, PNG, or WebP image.")
+        val mimeType = resolver.getType(uri)
+            ?: throw IOException("The selected media type could not be determined.")
+        val expectedResourceType = when {
+            mimeType in supportedImageTypes -> "image"
+            mimeType in supportedVideoTypes -> "video"
+            else -> throw IOException("Choose a JPEG, PNG, WebP, MP4, or MOV file.")
+        }
+        if (expectedResourceType != resourceType) {
+            throw IOException("The selected media type does not match the upload request.")
+        }
+        val format = when (mimeType) {
+            "image/jpeg" -> "jpeg"
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            "video/mp4" -> "mp4"
+            "video/quicktime" -> "mov"
+            else -> throw IOException("The selected media format is not supported.")
+        }
+        val allowedFormats = upload.allowedFormats.map(String::lowercase)
+        if (format !in allowedFormats && !(format == "jpeg" && "jpg" in allowedFormats)) {
+            throw IOException("The selected media format is not allowed for this upload.")
+        }
         val fileSize = resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
             ?.use { cursor ->
                 if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
             }
         if (fileSize != null && (fileSize < 1 || fileSize > maxBytes)) {
-            throw IOException("The selected image exceeds the upload size limit.")
+            throw IOException("The selected media exceeds the upload size limit.")
         }
         val filename = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
             ?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             }
             ?.takeIf(String::isNotBlank)
-            ?: "upload.${mimeType.substringAfter('/')}"
-        val imageBody = object : RequestBody() {
+            ?: "upload.$format"
+        val mediaBody = object : RequestBody() {
             override fun contentType(): MediaType = mimeType.toMediaType()
             override fun contentLength(): Long = fileSize ?: -1
             override fun writeTo(sink: BufferedSink) {
                 val input = resolver.openInputStream(uri)
-                    ?: throw IOException("Could not read the selected image.")
-                input.source().use { source -> sink.writeAll(source) }
+                    ?: throw IOException("Could not read the selected media.")
+                input.source().use { source ->
+                    val buffer = okio.Buffer()
+                    var totalBytes = 0L
+                    while (true) {
+                        val read = source.read(buffer, 8192)
+                        if (read == -1L) break
+                        totalBytes += read
+                        if (totalBytes > maxBytes) {
+                            throw IOException("The selected media exceeds the upload size limit.")
+                        }
+                        sink.write(buffer, read)
+                    }
+                    if (totalBytes < 1) throw IOException("The selected media is empty.")
+                }
             }
         }
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
-            .addFormDataPart("file", filename, imageBody)
+            .addFormDataPart("file", filename, mediaBody)
             .addFormDataPart("api_key", apiKey)
             .addFormDataPart("timestamp", timestamp.toString())
             .addFormDataPart("public_id", publicId)
@@ -191,7 +227,7 @@ object ApiClient {
                     runCatching { org.json.JSONObject(body).optJSONObject("error")?.optString("message") }
                         .getOrNull()
                 }
-                throw IOException(message?.takeIf(String::isNotBlank) ?: "Image upload failed (${it.code}).")
+                throw IOException(message?.takeIf(String::isNotBlank) ?: "Media upload failed (${it.code}).")
             }
         }
     }

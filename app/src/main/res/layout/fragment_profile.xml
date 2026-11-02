@@ -85,7 +85,7 @@
                         android:layout_height="30dp"
                         android:layout_gravity="bottom|end"
                         android:background="@drawable/bg_profile_add_story"
-                        android:contentDescription="@string/create_story"
+                        android:contentDescription="@string/manage_profile_photo"
                         android:gravity="center"
                         android:text="+"
                         android:textColor="@color/white"

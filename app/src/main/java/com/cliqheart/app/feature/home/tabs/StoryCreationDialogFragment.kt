@@ -34,7 +34,7 @@ class StoryCreationDialogFragment : DialogFragment() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 dialog.dismiss()
                 photoPicker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
                 )
             }
         }
@@ -48,8 +48,16 @@ class StoryCreationDialogFragment : DialogFragment() {
             var mediaId: String? = null
             var published = false
             try {
+                val mimeType = context.contentResolver.getType(uri)
+                    ?: throw IOException(getString(R.string.story_media_type_unsupported))
+                val resourceType = when {
+                    mimeType.startsWith("image/") &&
+                        mimeType in setOf("image/jpeg", "image/png", "image/webp") -> "image"
+                    mimeType in setOf("video/mp4", "video/quicktime") -> "video"
+                    else -> throw IOException(getString(R.string.story_media_type_unsupported))
+                }
                 val signatureResponse = ApiClient.service.createMediaSignature(
-                    MediaSignatureRequest(purpose = "story", resourceType = "image"),
+                    MediaSignatureRequest(purpose = "story", resourceType = resourceType),
                 )
                 if (!signatureResponse.isSuccessful) {
                     throw IOException(getString(R.string.story_publish_failed))

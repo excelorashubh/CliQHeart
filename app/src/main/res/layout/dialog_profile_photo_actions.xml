@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_profile_menu_sheet"
+    android:orientation="vertical"
+    android:paddingBottom="8dp">
+
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:background="@color/heart_outline" />
+
+    <TextView
+        android:id="@+id/profile_photo_actions_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="24dp"
+        android:text="@string/profile_photo_actions_title"
+        android:textColor="@color/heart_text"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="2dp"
+        android:layout_marginEnd="24dp"
+        android:text="@string/profile_photo_actions_subtitle"
+        android:textColor="@color/heart_muted"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <LinearLayout
+            android:id="@+id/profile_photo_add_story"
+            style="@style/ProfileMenuRow"
+            android:contentDescription="@string/add_story">
+
+            <ImageView
+                style="@style/ProfileMenuIcon"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_profile_photo_story"
+                android:tint="@color/heart_primary" />
+
+            <TextView
+                style="@style/ProfileMenuLabel"
+                android:text="@string/add_story" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/profile_photo_change"
+            style="@style/ProfileMenuRow"
+            android:contentDescription="@string/profile_photo_change_action">
+
+            <ImageView
+                style="@style/ProfileMenuIcon"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_profile_photo_change"
+                android:tint="@color/heart_primary" />
+
+            <TextView
+                style="@style/ProfileMenuLabel"
+                android:text="@string/profile_photo_change_action" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/profile_photo_remove"
+            style="@style/ProfileMenuRow"
+            android:contentDescription="@string/remove_profile_photo">
+
+            <ImageView
+                style="@style/ProfileMenuIcon"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_profile_photo_remove" />
+
+            <TextView
+                style="@style/ProfileMenuLabel"
+                android:text="@string/remove_profile_photo" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
