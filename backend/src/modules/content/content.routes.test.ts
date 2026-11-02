@@ -112,6 +112,47 @@ test('post publishing accepts the JSON mediaId, caption, location, and altText c
   assert.equal(response.body.post.altText, 'Friends at the coast');
 });
 
+test('video-post feed returns only posts attached to ready video media', async (t) => {
+  const { app, token } = createContentApp(t);
+  const videoMediaId = new Types.ObjectId(mediaIds.reel);
+  let postFilter: Record<string, unknown> | undefined;
+  const distinct = t.mock.method(MediaModel, 'distinct', async () => [videoMediaId]);
+  t.mock.method(PostModel, 'find', (filter: Record<string, unknown>) => {
+    postFilter = filter;
+    return {
+      sort() { return this; },
+      limit() { return this; },
+      lean: async () => [],
+    };
+  });
+
+  const response = await request(app)
+    .get('/api/v1/posts?mediaType=video&limit=10')
+    .auth(token, { type: 'bearer' });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { posts: [], nextCursor: null });
+  assert.deepEqual(distinct.mock.calls[0]?.arguments, [
+    '_id',
+    { resourceType: 'video', status: 'ready' },
+  ]);
+  assert.deepEqual(postFilter, { mediaId: { $in: [videoMediaId] } });
+});
+
+test('post feed rejects unsupported media filters', async (t) => {
+  const { app, token } = createContentApp(t);
+  const findPosts = t.mock.method(PostModel, 'find', () => {
+    throw new Error('Unsupported media filters must not query posts.');
+  });
+  const response = await request(app)
+    .get('/api/v1/posts?mediaType=image')
+    .auth(token, { type: 'bearer' });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'Invalid post media type.');
+  assert.equal(findPosts.mock.calls.length, 0);
+});
+
 test('post publishing persists unique case-insensitive hashtags and increments popularity', async (t) => {
   const { app, token } = createContentApp(t);
   let createdFields: Record<string, unknown> = {};

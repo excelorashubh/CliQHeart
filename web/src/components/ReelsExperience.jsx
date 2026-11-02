@@ -12,6 +12,27 @@ import { HashtagText } from './HashtagText.jsx';
 
 const pageSize = 10;
 
+function contentPath(item) {
+  return item.contentType === 'post'
+    ? `/post/${encodeURIComponent(item.id)}`
+    : getReelPath(item.id);
+}
+
+function uniqueVideoContent(items) {
+  const uniqueItems = new Map();
+  for (const item of items) {
+    if (item.media?.resourceType !== 'video' || !item.media?.secureUrl) continue;
+    const key = item.media.id || `${item.contentType}:${item.id}`;
+    const existing = uniqueItems.get(key);
+    if (!existing || item.contentType === 'reel') uniqueItems.set(key, item);
+  }
+  return [...uniqueItems.values()].sort((left, right) => {
+    const dateDifference = new Date(right.createdAt || 0).getTime() -
+      new Date(left.createdAt || 0).getTime();
+    return dateDifference || String(left.id).localeCompare(String(right.id));
+  });
+}
+
 function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onFollow, onShare, registerVideo }) {
   const videoRef = useRef(null);
   const likeButtonRef = useRef(null);
@@ -70,7 +91,9 @@ function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onF
     });
   }
 
-  return <article className="reel-slide" data-reel-id={item.id} aria-label={`Reel by @${item.owner?.username || 'member'}`}>
+  const contentLabel = item.contentType === 'post' ? 'Video post' : 'Reel';
+
+  return <article className="reel-slide" data-reel-id={item.id} data-content-type={item.contentType} aria-label={`${contentLabel} by @${item.owner?.username || 'member'}`}>
     <div className="reel-player">
       {item.media?.secureUrl
         ? <video
@@ -92,22 +115,22 @@ function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onF
             event.preventDefault();
             likeButtonRef.current?.click();
           }}
-          aria-label={`Reel video by @${item.owner?.username || 'member'}`}
+          aria-label={`${contentLabel} by @${item.owner?.username || 'member'}`}
         />
         : <div className="reel-media-error" role="alert">This Reel has no playable video.</div>}
       <div className="reel-video-shade" aria-hidden="true" />
       {buffering && active && <span className="reel-buffering" role="status">Loading video…</span>}
-      {!playing && !playbackError && active && <button className="reel-center-control" type="button" onClick={togglePlayback} aria-label="Play Reel"><Play size={31} fill="currentColor" /></button>}
+      {!playing && !playbackError && active && <button className="reel-center-control" type="button" onClick={togglePlayback} aria-label={`Play ${contentLabel}`}><Play size={31} fill="currentColor" /></button>}
       {playbackError && <div className="reel-playback-error" role="alert">
         <span>Video playback failed.</span>
         <button type="button" onClick={retryPlayback}>Try again</button>
       </div>}
 
       <div className="reel-top-controls">
-        <button className="reel-icon-button" type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? 'Unmute Reel' : 'Mute Reel'}>
+        <button className="reel-icon-button" type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? `Unmute ${contentLabel}` : `Mute ${contentLabel}`}>
           {muted ? <VolumeX size={21} /> : <Volume2 size={21} />}
         </button>
-        <button className="reel-icon-button" type="button" onClick={togglePlayback} aria-label={playing ? 'Pause Reel' : 'Play Reel'}>
+        <button className="reel-icon-button" type="button" onClick={togglePlayback} aria-label={playing ? `Pause ${contentLabel}` : `Play ${contentLabel}`}>
           {playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
         </button>
       </div>
@@ -136,9 +159,9 @@ function ReelSlide({ item, index, active, preloadNext, viewerId, followBusy, onF
         {item.aiDisclosure && <span className="reel-ai-label">AI-generated or altered</span>}
       </div>
     </div>
-    <aside className="reel-actions" aria-label="Reel actions">
-      <EngagementActions item={item} kind="reels" onShare={onShare} vertical likeButtonRef={likeButtonRef} />
-      <Link className="reel-action" to={getReelPath(item.id)} aria-label="More Reel details" title="More Reel details">
+    <aside className="reel-actions" aria-label={`${contentLabel} actions`}>
+      <EngagementActions item={item} kind={item.contentType === 'post' ? 'posts' : 'reels'} onShare={onShare} vertical likeButtonRef={likeButtonRef} />
+      <Link className="reel-action" to={contentPath(item)} aria-label={`More ${contentLabel} details`} title={`More ${contentLabel} details`}>
         <MoreHorizontal size={25} />
       </Link>
     </aside>
@@ -150,7 +173,7 @@ export function ReelsExperience({ viewer }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
-  const [cursor, setCursor] = useState(null);
+  const [cursor, setCursor] = useState({ reels: null, posts: null });
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -161,7 +184,8 @@ export function ReelsExperience({ viewer }) {
   const viewportRef = useRef(null);
   const slideRefs = useRef([]);
   const videoRefs = useRef([]);
-  const nextCursorRef = useRef(null);
+  const nextCursorRef = useRef({ reels: null, posts: null });
+  const hasMoreRef = useRef({ reels: true, posts: true });
   const requestInFlight = useRef(false);
   const followBusyRef = useRef(new Set());
   const requestControllerRef = useRef(null);
@@ -188,12 +212,25 @@ export function ReelsExperience({ viewer }) {
     const controller = new AbortController();
     requestControllerRef.current = controller;
     try {
-      const feedRequest = contentApi.reels(pageSize, {
-        ...(after ? { after } : {}),
-        signal: controller.signal,
-      });
-      const [feedResult, selectedResult] = await Promise.all([
-        feedRequest.then((value) => ({ value }), (reason) => ({ reason })),
+      if (initial) {
+        nextCursorRef.current = { reels: null, posts: null };
+        hasMoreRef.current = { reels: true, posts: true };
+      }
+      const reelRequest = hasMoreRef.current.reels
+        ? contentApi.reels(pageSize, {
+          ...(after?.reels ? { after: after.reels } : {}),
+          signal: controller.signal,
+        })
+        : Promise.resolve({ reels: [], nextCursor: null });
+      const postRequest = hasMoreRef.current.posts
+        ? contentApi.videoPosts(pageSize, {
+          ...(after?.posts ? { after: after.posts } : {}),
+          signal: controller.signal,
+        })
+        : Promise.resolve({ posts: [], nextCursor: null });
+      const [reelResult, postResult, selectedResult] = await Promise.all([
+        reelRequest.then((value) => ({ value }), (reason) => ({ reason })),
+        postRequest.then((value) => ({ value }), (reason) => ({ reason })),
         selectedReelId
           ? contentApi.reel(selectedReelId, { signal: controller.signal })
             .then((value) => ({ value }), (reason) => ({ reason }))
@@ -205,25 +242,41 @@ export function ReelsExperience({ viewer }) {
         nextCursorRef.current = null;
         throw selectedResult.reason;
       }
-      if (feedResult.reason && !selectedResult?.value) throw feedResult.reason;
-      const result = feedResult.value || { reels: [], nextCursor: null };
-      const incoming = Array.isArray(result.reels) ? result.reels : [];
+      if (reelResult.reason && postResult.reason && !selectedResult?.value) {
+        throw reelResult.reason;
+      }
+      const incomingReels = (reelResult.value?.reels || [])
+        .map((item) => ({ ...item, contentType: 'reel' }));
+      const incomingPosts = (postResult.value?.posts || [])
+        .filter((item) => item.media?.resourceType === 'video')
+        .map((item) => ({ ...item, contentType: 'post' }));
       const selectedReel = selectedResult?.value?.reel;
-      const mergedIncoming = selectedReel
-        ? [selectedReel, ...incoming.filter((item) => item.id !== selectedReel.id)]
-        : incoming;
-      setItems((current) => {
-        const existingIds = new Set(current.map((item) => item.id));
-        return initial ? mergedIncoming : [...current, ...mergedIncoming.filter((item) => !existingIds.has(item.id))];
-      });
+      const selectedItem = selectedReel ? { ...selectedReel, contentType: 'reel' } : null;
+      const mergedIncoming = uniqueVideoContent([
+        ...(selectedItem ? [selectedItem] : []),
+        ...incomingReels,
+        ...incomingPosts,
+      ]);
+      const incoming = selectedItem
+        ? [selectedItem, ...mergedIncoming.filter((item) => item.id !== selectedItem.id)]
+        : mergedIncoming;
+      setItems((current) => uniqueVideoContent(initial ? incoming : [...current, ...incoming]));
       if (initial) setActiveIndex(0);
-      nextCursorRef.current = result.nextCursor || null;
-      setCursor(result.nextCursor || null);
-      if (feedResult.reason) setError(feedResult.reason?.message || 'Could not load more Reels.');
+      if (reelResult.value) {
+        nextCursorRef.current.reels = reelResult.value.nextCursor || null;
+        hasMoreRef.current.reels = Boolean(reelResult.value.nextCursor);
+      }
+      if (postResult.value) {
+        nextCursorRef.current.posts = postResult.value.nextCursor || null;
+        hasMoreRef.current.posts = Boolean(postResult.value.nextCursor);
+      }
+      setCursor({ ...nextCursorRef.current });
+      const feedError = reelResult.reason || postResult.reason;
+      if (feedError) setError(feedError.message || 'Could not load more videos.');
     } catch (reason) {
       if (!controller.signal.aborted && reason?.name !== 'AbortError') {
         setNotFound(Boolean(selectedReelId && (reason?.status === 400 || reason?.status === 404)));
-        setError(reason?.message || 'Could not load Reels. Check your connection and try again.');
+        setError(reason?.message || 'Could not load videos. Check your connection and try again.');
       }
     } finally {
       if (requestControllerRef.current === controller) {
@@ -250,13 +303,16 @@ export function ReelsExperience({ viewer }) {
   }, [loadPage]);
 
   useEffect(() => {
-    if (!reelId || loading || items.some((item) => item.id === reelId) ||
+    if (!reelId || loading || items.some((item) => item.id === reelId && item.contentType === 'reel') ||
         initialReelIdRef.current === reelId || routeFetchRef.current === reelId) return undefined;
     const controller = new AbortController();
     routeFetchRef.current = reelId;
     contentApi.reel(reelId, { signal: controller.signal }).then(({ reel }) => {
       if (!reel || controller.signal.aborted) return;
-      setItems((current) => [reel, ...current.filter((item) => item.id !== reel.id)]);
+      setItems((current) => uniqueVideoContent([
+        { ...reel, contentType: 'reel' },
+        ...current.filter((item) => item.id !== reel.id),
+      ]));
       setActiveIndex(0);
       setError('');
     }).catch((reason) => {
@@ -273,7 +329,7 @@ export function ReelsExperience({ viewer }) {
     if (previousRouteIdRef.current === (reelId || null)) return;
     previousRouteIdRef.current = reelId || null;
     if (!reelId) return;
-    const index = items.findIndex((item) => item.id === reelId);
+    const index = items.findIndex((item) => item.id === reelId && item.contentType === 'reel');
     if (index < 0 || index === activeIndex) return;
     pendingRouteIdRef.current = reelId;
     setActiveIndex(index);
@@ -291,7 +347,8 @@ export function ReelsExperience({ viewer }) {
         if (entry.isIntersecting && entry.intersectionRatio >= 0.65) {
           const index = Number(entry.target.getAttribute('data-reel-index'));
           setActiveIndex(index);
-          if (index >= items.length - 3 && nextCursorRef.current) {
+          if (index >= items.length - 3 &&
+              (hasMoreRef.current.reels || hasMoreRef.current.posts)) {
             loadPage(nextCursorRef.current);
           }
         }
@@ -303,7 +360,8 @@ export function ReelsExperience({ viewer }) {
 
   useEffect(() => {
     const activeReel = items[activeIndex];
-    if (!activeReel || (reelId && !items.some((item) => item.id === reelId))) return;
+    if (!activeReel || activeReel.contentType !== 'reel' ||
+        (reelId && !items.some((item) => item.id === reelId && item.contentType === 'reel'))) return;
     if (pendingRouteIdRef.current && reelId === pendingRouteIdRef.current &&
         activeReel.id !== pendingRouteIdRef.current) return;
     if (activeReel.id === pendingRouteIdRef.current) pendingRouteIdRef.current = null;
@@ -320,7 +378,8 @@ export function ReelsExperience({ viewer }) {
 
   useEffect(() => {
     const activeReel = items[activeIndex];
-    if (!reelId || !activeReel || activeReel.id !== reelId) return undefined;
+    if (!reelId || !activeReel || activeReel.contentType !== 'reel' ||
+        activeReel.id !== reelId) return undefined;
     const previousTitle = document.title;
     const canonical = document.querySelector('link[rel="canonical"]');
     const createdCanonical = !canonical;
@@ -395,15 +454,17 @@ export function ReelsExperience({ viewer }) {
 
   async function shareReel(item) {
     const shareData = {
-      title: `Reel by @${item.owner?.username || 'CliQHeart member'}`,
-      text: item.caption || 'Watch this Reel on CliQHeart.',
-      url: getReelUrl(item.id),
+      title: `${item.contentType === 'post' ? 'Video post' : 'Reel'} by @${item.owner?.username || 'CliQHeart member'}`,
+      text: item.caption || 'Watch this video on CliQHeart.',
+      url: item.contentType === 'post'
+        ? new URL(contentPath(item), window.location.origin).toString()
+        : getReelUrl(item.id),
     };
     try {
       if (navigator.share) await navigator.share(shareData);
       else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareData.url);
-        setNotice('Reel link copied.');
+        setNotice('Video link copied.');
       } else {
         setNotice('Sharing is not supported by this browser.');
       }
@@ -412,15 +473,17 @@ export function ReelsExperience({ viewer }) {
     }
   }
 
-  if (loading) return <section className="reels-experience" aria-label="Reels"><div className="reels-loading" role="status">Loading Reels…</div></section>;
+  if (loading) return <section className="reels-experience" aria-label="Reels"><div className="reels-loading" role="status">Loading videos…</div></section>;
   if (error && !items.length) return <section className="reels-experience" aria-label="Reels"><div className="reels-empty-state" role="alert">
-  <h1>{notFound ? 'Reel not found' : 'Reels are unavailable'}</h1><p>{error}</p>
+  <h1>{notFound ? 'Reel not found' : 'Videos are unavailable'}</h1><p>{error}</p>
   {notFound
     ? <Link to="/reels">Back to Reels</Link>
     : <button type="button" onClick={() => loadPage(null, true, reelId)}>Try again</button>}
   </div></section>;
   if (!items.length) return <section className="reels-experience" aria-label="Reels"><div className="reels-empty-state">
-    <h1>No Reels yet</h1><p>Explore CliQHeart or share a video to start the feed.</p>
+    <h1>No videos yet</h1><p>Explore CliQHeart or share a video to start the feed.</p>
+    {(hasMoreRef.current.reels || hasMoreRef.current.posts) &&
+      <button type="button" onClick={() => loadPage(cursor)}>Load more videos</button>}
     <div><Link to="/search">Discover people</Link><Link to="/create">Create a Reel</Link></div>
   </div></section>;
 
@@ -441,7 +504,7 @@ export function ReelsExperience({ viewer }) {
     }}>
       {items.map((item, index) => <div
         className="reel-snap-slide"
-        key={item.id}
+        key={`${item.contentType}:${item.id}`}
         data-reel-index={index}
         ref={(element) => { slideRefs.current[index] = element; }}
       >
@@ -457,9 +520,9 @@ export function ReelsExperience({ viewer }) {
           registerVideo={registerVideo}
         />
       </div>)}
-      {loadingMore && <div className="reels-next-loading" role="status"><span />Loading next Reel…</div>}
+      {loadingMore && <div className="reels-next-loading" role="status"><span />Loading more videos…</div>}
       {error && items.length > 0 && <div className="reels-load-error" role="alert">{error}<button type="button" onClick={() => loadPage(cursor)}>Retry</button></div>}
-      {!cursor && <p className="reels-end-note">You’re all caught up.</p>}
+      {!hasMoreRef.current.reels && !hasMoreRef.current.posts && <p className="reels-end-note">You’re all caught up.</p>}
     </div>
     {notice && <div className="reels-notice" role="status">
       <span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message"><ChevronDown size={16} /></button>

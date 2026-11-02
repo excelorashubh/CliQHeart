@@ -280,6 +280,11 @@ export const contentApi = {
     if (after) params.set('after', after);
     return apiRequest(`posts?${params}`, options);
   },
+  videoPosts: (limit = 30, { after, ...options } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), mediaType: 'video' });
+    if (after) params.set('after', after);
+    return apiRequest(`posts?${params}`, options);
+  },
   userPosts: (id, limit = 30, options = {}) => apiRequest(
     `users/${encodeURIComponent(id)}/posts?${new URLSearchParams({ limit: String(limit) })}`,
     options,

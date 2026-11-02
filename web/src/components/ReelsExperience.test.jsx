@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { ReelsExperience } from './ReelsExperience.jsx';
 import { contentApi, userApi } from '../services/api.js';
@@ -9,6 +9,7 @@ vi.mock('../services/api.js', () => ({
   contentApi: {
     reel: vi.fn(),
     reels: vi.fn(),
+    videoPosts: vi.fn(),
     like: vi.fn(),
     unlike: vi.fn(),
     repost: vi.fn(),
@@ -71,6 +72,7 @@ function renderReels(initialEntry = '/reels') {
 describe('ReelsExperience', () => {
   beforeEach(() => {
     contentApi.reels.mockResolvedValue({ reels: [reel], nextCursor: null });
+    contentApi.videoPosts.mockResolvedValue({ posts: [], nextCursor: null });
     contentApi.reel.mockResolvedValue({ reel });
     contentApi.like.mockResolvedValue({});
     contentApi.repost.mockResolvedValue({});
@@ -136,6 +138,68 @@ describe('ReelsExperience', () => {
     await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalled());
   });
 
+  it('combines video posts with Reels, filters images, deduplicates media, and preserves post interactions', async () => {
+    contentApi.videoPosts.mockResolvedValueOnce({
+      posts: [
+        {
+          id: 'video-post-1',
+          createdAt: '2026-10-02T10:00:00.000Z',
+          caption: 'A regular video post',
+          owner: reel.owner,
+          media: {
+            id: 'video-post-media',
+            resourceType: 'video',
+            secureUrl: 'https://media.example/post.mp4',
+            thumbnailUrl: 'https://media.example/post.jpg',
+          },
+        },
+        {
+          id: 'duplicate-media-post',
+          caption: 'Same media as a Reel',
+          owner: reel.owner,
+          media: { ...reel.media, id: 'shared-video-media' },
+        },
+        {
+          id: 'image-only-post',
+          caption: 'An image should not be here',
+          owner: reel.owner,
+          media: {
+            id: 'image-media',
+            resourceType: 'image',
+            secureUrl: 'https://media.example/image.jpg',
+          },
+        },
+      ],
+      nextCursor: null,
+    });
+    contentApi.reels.mockResolvedValueOnce({
+      reels: [{
+        ...reel,
+        media: { ...reel.media, id: 'shared-video-media' },
+        createdAt: '2026-10-01T10:00:00.000Z',
+      }],
+      nextCursor: null,
+    });
+
+    renderReels();
+
+    const videoPost = await screen.findByText('A regular video post');
+    expect(contentApi.videoPosts).toHaveBeenCalledWith(10, { signal: expect.any(AbortSignal) });
+    expect(videoPost).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-content-type="post"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-content-type="reel"]')).toHaveLength(1);
+    expect(screen.queryByText('An image should not be here')).not.toBeInTheDocument();
+    expect(screen.queryByText('Same media as a Reel')).not.toBeInTheDocument();
+
+    const postSlide = document.querySelector('[data-content-type="post"]');
+    expect(postSlide.querySelector('video')).toHaveAttribute('src', 'https://media.example/post.mp4');
+    expect(within(postSlide).getByRole('button', { name: 'Save post' })).toBeInTheDocument();
+    fireEvent.click(within(postSlide).getByRole('button', { name: 'Like' }));
+    await waitFor(() => expect(contentApi.like).toHaveBeenCalledWith('posts', 'video-post-1'));
+    expect(within(postSlide).getByRole('link', { name: 'More Video post details' }))
+      .toHaveAttribute('href', '/post/video-post-1');
+  });
+
   it('loads a Reel by its stable ID when opened directly and preserves query parameters', async () => {
     renderReels('/reels/reel-1?source=share');
 
@@ -182,7 +246,7 @@ describe('ReelsExperience', () => {
     contentApi.reels.mockResolvedValueOnce({ reels: [], nextCursor: null });
     renderReels();
 
-    expect(await screen.findByRole('heading', { name: 'No Reels yet' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No videos yet' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Discover people' })).toHaveAttribute('href', '/search');
     expect(screen.getByRole('link', { name: 'Create a Reel' })).toHaveAttribute('href', '/create');
   });
@@ -193,7 +257,7 @@ describe('ReelsExperience', () => {
       .mockResolvedValueOnce({ reels: [reel], nextCursor: null });
     renderReels();
 
-    expect(await screen.findByRole('heading', { name: 'Reels are unavailable' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Videos are unavailable' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('@creator')).toBeInTheDocument();
     expect(contentApi.reels).toHaveBeenCalledTimes(2);

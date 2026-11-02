@@ -427,6 +427,11 @@ export function createContentRouter(config: AppConfig): Router {
   router.get('/posts', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const limit = pageSizeSchema.parse(request.query.limit ?? 30);
+      const mediaType = request.query.mediaType;
+      if (mediaType !== undefined && mediaType !== 'video') {
+        response.status(400).json({ error: 'Invalid post media type.' });
+        return;
+      }
       const after = typeof request.query.after === 'string' ? request.query.after : undefined;
       if (request.query.after !== undefined && (!after || !Types.ObjectId.isValid(after))) {
         response.status(400).json({ error: 'Invalid post cursor.' });
@@ -437,14 +442,21 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(400).json({ error: 'Invalid post cursor.' });
         return;
       }
-      const posts = await PostModel.find(cursor
-        ? {
-          $or: [
-            { createdAt: { $lt: cursor.createdAt } },
-            { createdAt: cursor.createdAt, _id: { $lt: cursor._id } },
-          ],
-        }
-        : {})
+      const videoMediaIds = mediaType === 'video'
+        ? await MediaModel.distinct('_id', { resourceType: 'video', status: 'ready' })
+        : null;
+      const filter = {
+        ...(videoMediaIds ? { mediaId: { $in: videoMediaIds } } : {}),
+        ...(cursor
+          ? {
+            $or: [
+              { createdAt: { $lt: cursor.createdAt } },
+              { createdAt: cursor.createdAt, _id: { $lt: cursor._id } },
+            ],
+          }
+          : {}),
+      };
+      const posts = await PostModel.find(filter)
         .sort({ createdAt: -1, _id: -1 })
         .limit(limit + 1)
         .lean();

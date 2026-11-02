@@ -38,10 +38,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .app-shell { min-height: 100vh; }
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; width: 252px; height: 100vh; height: 100dvh; flex-direction: column; overflow: hidden; padding: 29px 19px 18px; border-right: 1px solid #f0ebec; background: #fff; }
 .sidebar-brand { display: inline-flex; align-items: center; margin: 3px 8px 41px; }
-.nav-list { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 7px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #ded8dc transparent; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.nav-list { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 7px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: transparent transparent; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.sidebar { scrollbar-color: transparent transparent; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
 .nav-list::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 4px; }
 .nav-list::-webkit-scrollbar-track, .sidebar::-webkit-scrollbar-track { background: transparent; }
-.nav-list::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb { border-radius: 4px; background: #ded8dc; }
+.nav-list::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb { border-radius: 4px; background: transparent; transition: background-color .18s ease; }
+.nav-list:hover::-webkit-scrollbar-thumb, .nav-list:focus-within::-webkit-scrollbar-thumb,
+.sidebar:hover::-webkit-scrollbar-thumb, .sidebar:focus-within::-webkit-scrollbar-thumb { background: #ded8dc; }
+.nav-list:hover::-webkit-scrollbar-thumb:hover, .sidebar:hover::-webkit-scrollbar-thumb:hover { background: #bfb6bc; }
+.nav-list:hover, .nav-list:focus-within, .sidebar:hover, .sidebar:focus-within { scrollbar-color: #ded8dc transparent; }
 .sidebar-close-button { display: none; }
 .nav-link { position: relative; display: flex; min-height: 48px; align-items: center; gap: 14px; padding: 0 14px; border: 0; border-radius: 12px; color: #565159; background: transparent; font-size: 14px; font-weight: 500; text-align: left; transition: background .18s ease, color .18s ease, transform .18s ease; }
 .nav-link:hover { color: var(--ink); background: #fbf6f7; }
@@ -1049,7 +1054,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .story-viewer-add { padding: 6px 7px; font-size: 9px; }
 }
 @media (min-width: 761px) and (max-height: 640px) {
-  .sidebar { overflow-x: hidden; overflow-y: auto; scrollbar-color: #ded8dc transparent; scrollbar-width: thin; }
+  .sidebar { overflow-x: hidden; overflow-y: auto; }
   .nav-list { min-height: auto; flex: 0 0 auto; overflow: visible; }
   .sidebar-bottom { margin-top: 12px; }
 }

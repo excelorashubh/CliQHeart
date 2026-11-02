@@ -69,6 +69,30 @@ describe('mobile navigation', () => {
     expect(within(mobileNav).queryByRole('link', { name: /^Notifications/ })).not.toBeInTheDocument();
   });
 
+  describe('desktop navigation', () => {
+    it('places Reels directly below Home and highlights Reels detail routes', () => {
+      vi.spyOn(notificationApi, 'unreadCount').mockResolvedValue({ unreadCount: 0 });
+      renderLayout('/reels/reel-1');
+
+      const navigation = screen.getByRole('navigation', { name: 'Main navigation' });
+      const links = within(navigation).getAllByRole('link');
+      expect(links.slice(0, 8).map((link) => link.getAttribute('aria-label'))).toEqual([
+        'Home',
+        'Reels',
+        'Search',
+        'Explore',
+        'Messages',
+        'Notifications',
+        'Create',
+        'Profile',
+      ]);
+      expect(within(navigation).getByRole('link', { name: 'Reels' }))
+        .toHaveAttribute('href', '/reels');
+      expect(within(navigation).getByRole('link', { name: 'Reels' })).toHaveClass('is-active');
+      expect(within(navigation).getAllByRole('link', { name: 'Reels' })).toHaveLength(1);
+    });
+  });
+
   it('puts Create and real unread Notifications in the mobile header and highlights active routes', async () => {
     const unreadCount = vi.spyOn(notificationApi, 'unreadCount').mockResolvedValue({ unreadCount: 7 });
     renderLayout('/messages/conversation-1');

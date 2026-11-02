@@ -13,9 +13,9 @@ import { notificationApi } from '../services/api.js';
 
 const links = [
   { name: 'Home', to: '/', Icon: BiHomeHeart },
+  { name: 'Reels', to: '/reels', Icon: ReelsIcon },
   { name: 'Search', to: '/search', Icon: Search },
   { name: 'Explore', to: '/explore/people/', Icon: Compass },
-  { name: 'Reels', to: '/reels', Icon: ReelsIcon },
   { name: 'Messages', to: '/messages', Icon: RiSendInsFill },
   { name: 'Notifications', to: '/notifications', Icon: Bell },
   { name: 'Create', to: '/create', Icon: PlusSquare },
@@ -36,7 +36,7 @@ export function AppLayout({ children }) {
   const navigate = useNavigate();
   const isProfessional = user?.accountType === 'CREATOR' || user?.accountType === 'BUSINESS';
   const navigationLinks = isProfessional
-    ? [...links.slice(0, 5), { name: 'Dashboard', to: '/professional/dashboard', Icon: BarChart3 }, ...links.slice(5)]
+    ? [...links, { name: 'Dashboard', to: '/professional/dashboard', Icon: BarChart3 }]
     : links;
 
   useEffect(() => {

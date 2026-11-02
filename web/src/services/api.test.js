@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ApiError, apiRequest, authApi, professionalApi, resolveApiUrl, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
+  ApiError, apiRequest, authApi, contentApi, professionalApi, resolveApiUrl, setAccessToken, setSessionRestoredHandler, setUnauthorizedHandler,
 } from './api.js';
 
 describe('apiRequest', () => {
@@ -30,6 +30,20 @@ describe('apiRequest', () => {
     expect(options.headers.get('authorization')).toBe('Bearer memory-only-token');
     expect(options.headers.get('content-type')).toBe('application/json');
     expect(options.body).toBe('{"enabled":true}');
+  });
+
+  it('requests paginated video-only posts from the real posts API', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ posts: [], nextCursor: null }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ));
+
+    await contentApi.videoPosts(10, { after: 'post-cursor', signal: new AbortController().signal });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://api.test.invalid/api/v1/posts?limit=10&mediaType=video&after=post-cursor',
+    );
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
   it('uses the configured API host in development and production', () => {
