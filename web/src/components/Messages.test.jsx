@@ -114,6 +114,7 @@ describe('real-time message workspace', () => {
     });
     const view = renderWorkspace();
     await screen.findByText('Earlier message');
+    expect(screen.getByTestId('send-message-icon').tagName.toLowerCase()).toBe('svg');
     fireEvent.change(screen.getByRole('textbox', { name: 'Write a message' }), {
       target: { value: 'Hello there' },
     });

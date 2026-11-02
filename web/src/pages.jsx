@@ -509,6 +509,7 @@ export function SearchPage() {
     setHashtagError('');
     const timer = window.setTimeout(async () => {
       const hashtagQuery = term.replace(/^#/, '');
+      const peopleQuery = term.replace(/^[@#]+/, '').trim();
       contentApi.searchHashtags(hashtagQuery, { signal: controller.signal })
         .then((result) => {
           if (version === searchVersion.current) setHashtagResults(result.hashtags || []);
@@ -519,7 +520,7 @@ export function SearchPage() {
           }
         });
       try {
-        const result = await userApi.search(hashtagQuery, { signal: controller.signal });
+        const result = await userApi.search(peopleQuery, { signal: controller.signal });
         if (version === searchVersion.current) {
           setUsers(result.users || []);
           setResultsQuery(term);

@@ -15,7 +15,6 @@ import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.Gravity
 import android.view.inputmethod.EditorInfo
-import android.widget.GridLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -84,11 +83,12 @@ class ChatFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val initialBottomPadding = view.paddingBottom
+        val isShellOverlay = parentFragment is com.cliqheart.app.feature.home.MainShellFragment
         ViewCompat.setOnApplyWindowInsetsListener(view) { chatRoot, insets ->
             val navigationBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
             isKeyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime()) || imeInsets.bottom > 0
-            val bottomInset = if (isKeyboardVisible) 0 else navigationBarInsets.bottom
+            val bottomInset = if (isKeyboardVisible || isShellOverlay) 0 else navigationBarInsets.bottom
             chatRoot.setPadding(
                 chatRoot.paddingLeft,
                 chatRoot.paddingTop,
@@ -532,37 +532,82 @@ class ChatFragment : Fragment() {
 
     private fun setupEmojiPicker() {
         val context = requireContext()
-        val emojis = listOf(
-            "\uD83D\uDE00", "\uD83D\uDE02", "\uD83D\uDE0D", "\uD83D\uDE0A",
-            "\uD83D\uDE0E", "\uD83D\uDE18", "\uD83D\uDE22", "\uD83D\uDE2E",
-            "\uD83D\uDE4C", "\uD83D\uDC4D", "\uD83D\uDC4F", "\uD83D\uDE4F",
-            "\u2764\uFE0F", "\uD83D\uDD25", "\uD83D\uDE80", "\uD83C\uDF89",
-            "\uD83D\uDC95", "\uD83D\uDE2D", "\uD83E\uDD14", "\uD83D\uDE09",
-            "\uD83D\uDE1C", "\uD83D\uDE3B", "\uD83D\uDE07", "\uD83D\uDC4B",
-            "\uD83E\uDD1D", "\uD83D\uDC9C", "\uD83C\uDF1F", "\uD83D\uDE0B",
+        val categories = listOf(
+            getString(R.string.emoji_category_smileys) to listOf(
+                "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
+                "😊", "😇", "🙂", "🙃", "😉", "😍", "🥰", "😘",
+                "😋", "😎", "🤔", "😭", "😴", "🤗", "😮", "😡",
+            ),
+            getString(R.string.emoji_category_people) to listOf(
+                "👋", "✋", "👏", "🙌", "🙏", "👍", "👎", "👌",
+                "🤝", "💪", "🫶", "🤷", "🙋", "💃", "🕺", "🧑‍💻",
+            ),
+            getString(R.string.emoji_category_hearts) to listOf(
+                "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
+                "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟",
+            ),
+            getString(R.string.emoji_category_animals) to listOf(
+                "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
+                "🐸", "🐵", "🦄", "🐝", "🦋", "🌸", "🌻", "🌈",
+            ),
+            getString(R.string.emoji_category_food) to listOf(
+                "🍎", "🍓", "🍉", "🍕", "🍔", "🍟", "🌮", "🍜",
+                "🍰", "🍩", "🍪", "☕", "🧋", "🥤", "🍿", "🍫",
+            ),
+            getString(R.string.emoji_category_activities) to listOf(
+                "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🎮", "🎯",
+                "🎨", "🎤", "🎧", "🎸", "🏆", "🎉", "🎂", "🚀",
+            ),
+            getString(R.string.emoji_category_objects) to listOf(
+                "💡", "📱", "💻", "📷", "🔑", "🎁", "💎", "📚",
+                "✅", "❌", "❓", "❗", "✨", "🔥", "⭐", "💯",
+            ),
         )
-        binding.emojiGrid.removeAllViews()
-        emojis.forEach { emoji ->
-            val emojiButton = TextView(context).apply {
-                text = emoji
-                textSize = 23f
-                gravity = Gravity.CENTER
-                contentDescription = getString(R.string.insert_emoji_label, emoji)
-                background = androidx.core.content.ContextCompat.getDrawable(
-                    context,
-                    android.R.drawable.list_selector_background,
-                )
-                setOnClickListener { insertEmoji(emoji) }
+        binding.emojiCategories.removeAllViews()
+        categories.forEach { (categoryTitle, emojis) ->
+            val title = TextView(context).apply {
+                text = categoryTitle
+                textSize = 13f
+                setTextColor(context.getColor(R.color.heart_muted))
+                setPadding(dp(6), dp(6), dp(6), dp(2))
             }
-            binding.emojiGrid.addView(
-                emojiButton,
-                GridLayout.LayoutParams().apply {
-                    width = 0
-                    height = dp(42)
-                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                    setGravity(Gravity.CENTER)
-                },
+            binding.emojiCategories.addView(
+                title,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
             )
+            emojis.chunked(8).forEach { rowEmojis ->
+                val row = android.widget.LinearLayout(context).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                rowEmojis.forEach { emoji ->
+                    val emojiButton = TextView(context).apply {
+                        text = emoji
+                        textSize = 23f
+                        gravity = Gravity.CENTER
+                        contentDescription = getString(R.string.insert_emoji_label, emoji)
+                        background = androidx.core.content.ContextCompat.getDrawable(
+                            context,
+                            android.R.drawable.list_selector_background,
+                        )
+                        setOnClickListener { insertEmoji(emoji) }
+                    }
+                    row.addView(
+                        emojiButton,
+                        android.widget.LinearLayout.LayoutParams(0, dp(42), 1f),
+                    )
+                }
+                binding.emojiCategories.addView(
+                    row,
+                    ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+            }
         }
     }
 

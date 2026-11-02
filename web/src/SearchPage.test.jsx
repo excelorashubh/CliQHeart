@@ -80,6 +80,7 @@ describe('SearchPage', () => {
       }],
       nextCursor: null,
     });
+
     const unfollow = vi.spyOn(userApi, 'unfollow').mockResolvedValue({ following: false });
     renderSearchPage();
     const input = screen.getByRole('searchbox', { name: 'Search users by name or username' });
@@ -94,6 +95,35 @@ describe('SearchPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Following' }));
     await waitFor(() => expect(unfollow).toHaveBeenCalledWith('person-1'));
     expect(await screen.findByRole('button', { name: 'Follow' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['@RAGX_SHUBH', 'RAGX_SHUBH', 'Ragx Shubh', 'ragx_shubh'],
+    ['  Shubham Kumar  ', 'Shubham Kumar', 'Shubham Kumar', 'shubham_kumar'],
+  ])('searches and renders people for %s', async (inputValue, apiQuery, displayName, username) => {
+    const search = vi.spyOn(userApi, 'search').mockResolvedValue({
+      users: [{
+        id: 'person-1',
+        displayName,
+        username,
+        avatarUrl: 'https://cdn.example/avatar.jpg',
+        isFollowing: false,
+      }],
+      nextCursor: null,
+    });
+    renderSearchPage();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search users by name or username' }), {
+      target: { value: inputValue },
+    });
+
+    expect(await screen.findByText(displayName)).toBeInTheDocument();
+    expect(search).toHaveBeenCalledWith(apiQuery, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(screen.getByRole('link', { name: new RegExp(`${displayName} @${username}`) }))
+      .toHaveAttribute('href', '/profile/person-1');
+    expect(document.querySelector('.user-result .avatar img')).toHaveAttribute(
+      'src',
+      'https://cdn.example/avatar.jpg',
+    );
   });
 
   it('shows an empty result for a successful search with no matching users', async () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useMatch, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, Info, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Info, MessageCircle, RefreshCw, Search } from 'lucide-react';
+import { RiSendInsLine } from 'react-icons/ri';
 import { Avatar } from './Brand.jsx';
 import { EmptyState, ErrorState, Skeleton } from './Feedback.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -393,7 +394,7 @@ export function MessageWorkspace() {
           }}>{newMessagesCount} new {newMessagesCount === 1 ? 'message' : 'messages'} ↓</button>}
           {messageError && messages.length > 0 && <p className="inline-error">{messageError}</p>}
           {messageError && pendingSend.current && <button className="message-retry" type="button" onClick={() => void sendMessage()}>Retry sending</button>}
-          <form className="message-composer" onSubmit={send}><textarea aria-label="Write a message" maxLength="4000" rows="1" value={text} onChange={(event) => onComposerChange(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Write a message…" /><button className="send-button" aria-label="Send message" disabled={sending || !text.trim()}><Send size={18} /></button></form>
+          <form className="message-composer" onSubmit={send}><textarea aria-label="Write a message" maxLength="4000" rows="1" value={text} onChange={(event) => onComposerChange(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Write a message…" /><button className="send-button" aria-label="Send message" disabled={sending || !text.trim()}><RiSendInsLine data-testid="send-message-icon" aria-hidden="true" size={18} /></button></form>
         </>}
     </section>
   </div>;
