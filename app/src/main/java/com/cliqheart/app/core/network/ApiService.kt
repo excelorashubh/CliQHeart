@@ -48,6 +48,12 @@ data class UserResponse(
 
 data class UserEnvelope(val user: UserResponse? = null)
 data class UsersResponse(val users: List<UserResponse> = emptyList(), val nextCursor: String? = null)
+data class HashtagResponse(
+    val name: String? = null,
+    val normalizedName: String? = null,
+    val usageCount: Int? = null,
+)
+data class HashtagsResponse(val hashtags: List<HashtagResponse> = emptyList())
 data class FollowResponse(val following: Boolean = false)
 data class ProfileUpdateRequest(
     val username: String,
@@ -140,9 +146,11 @@ data class PostMediaResponse(
     val format: String? = null,
     val width: Int? = null,
     val height: Int? = null,
+    val duration: Double? = null,
 )
 data class PostResponse(
     val id: String? = null,
+    val contentType: String? = null,
     val caption: String? = null,
     val createdAt: String? = null,
     val location: String? = null,
@@ -158,6 +166,12 @@ data class PostResponse(
 )
 data class PostsResponse(val posts: List<PostResponse> = emptyList(), val nextCursor: String? = null)
 data class ReelsResponse(val reels: List<PostResponse> = emptyList(), val nextCursor: String? = null)
+data class DiscoveryResponse(val items: List<PostResponse> = emptyList(), val nextCursor: String? = null)
+data class HashtagFeedResponse(
+    val hashtag: HashtagResponse? = null,
+    val items: List<PostResponse> = emptyList(),
+    val nextCursor: String? = null,
+)
 data class PostEnvelope(val post: PostResponse? = null)
 data class StoryResponse(
     val id: String? = null,
@@ -300,7 +314,21 @@ interface ApiService {
     suspend fun updateMyProfile(@Body request: ProfileUpdateRequest): Response<UserEnvelope>
 
     @GET("users/search")
-    suspend fun searchUsers(@Query("q") query: String): Response<UsersResponse>
+    suspend fun searchUsers(
+        @Query("q") query: String,
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<UsersResponse>
+
+    @GET("hashtags/search")
+    suspend fun searchHashtags(@Query("q") query: String): Response<HashtagsResponse>
+
+    @GET("hashtags/{tag}")
+    suspend fun getHashtagResults(
+        @Path("tag") tag: String,
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<HashtagFeedResponse>
 
     @POST("users/{userId}/follow")
     suspend fun followUser(@Path("userId") userId: String): Response<FollowResponse>
@@ -374,6 +402,20 @@ interface ApiService {
         @Query("limit") limit: Int = 30,
         @Query("after") after: String? = null,
     ): Response<ReelsResponse>
+
+    @GET("explore")
+    suspend fun getExplore(
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<DiscoveryResponse>
+
+    @GET("search/content")
+    suspend fun searchContent(
+        @Query("q") query: String,
+        @Query("type") type: String = "all",
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<DiscoveryResponse>
 
     @GET("stories")
     suspend fun getStories(): Response<StoriesResponse>

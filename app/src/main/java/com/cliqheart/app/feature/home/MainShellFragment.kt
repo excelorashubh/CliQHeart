@@ -301,6 +301,18 @@ class MainShellFragment : Fragment() {
         selectTab(R.id.searchTab)
     }
 
+    fun openPostInFeed(postId: String) {
+        selectTab(R.id.homeTab)
+        val homeFeed = childFragmentManager.findFragmentByTag(HOME_FRAGMENT_TAG) as? HomeFeedFragment
+        if (homeFeed?.isVisible == true) homeFeed.openContent(postId, "post")
+    }
+
+    fun openReelInViewer(reelId: String) {
+        selectTab(R.id.reelsTab)
+        val reelsFeed = childFragmentManager.findFragmentByTag(REELS_FRAGMENT_TAG) as? HomeFeedFragment
+        if (reelsFeed?.isVisible == true) reelsFeed.openContent(reelId, "reel")
+    }
+
     fun openActivity() {
         showOverlay(ACTIVITY_FRAGMENT_TAG) { ActivityFragment() }
         (childFragmentManager.findFragmentByTag(HOME_FRAGMENT_TAG) as? HomeFeedFragment)

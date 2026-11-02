@@ -16,6 +16,8 @@ import android.view.ViewOutlineProvider
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
@@ -62,6 +64,7 @@ class ChatFragment : Fragment() {
     private var hasMoreMessages = false
     private var nextMessageCursor: String? = null
     private var refreshingSocketAuth = false
+    private var isKeyboardVisible = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, state: Bundle?): View {
         _binding = FragmentChatBinding.inflate(inflater, container, false)
@@ -69,6 +72,22 @@ class ChatFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        val initialBottomPadding = view.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(view) { chatRoot, insets ->
+            val navigationBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+            isKeyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime()) || imeInsets.bottom > 0
+            val bottomInset = if (isKeyboardVisible) 0 else navigationBarInsets.bottom
+            chatRoot.setPadding(
+                chatRoot.paddingLeft,
+                chatRoot.paddingTop,
+                chatRoot.paddingRight,
+                initialBottomPadding + bottomInset,
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(view)
+
         conversationId = arguments?.getString(ARG_CONVERSATION_ID)
         participantId = arguments?.getString(ARG_PARTICIPANT_ID)
         participantUsername = arguments?.getString(ARG_PARTICIPANT_USERNAME)
@@ -359,6 +378,7 @@ class ChatFragment : Fragment() {
             return
         } ?: return
         runOnMainThread(socket) {
+            val shouldScrollToLatest = isKeyboardVisible || isNearLatestMessage()
             adapter.addMessage(message)
             if (message.senderId != currentUserId()) {
                 val id = message.id
@@ -369,9 +389,17 @@ class ChatFragment : Fragment() {
                     )
                 }
                 markConversationRead(conversationId.orEmpty())
-                binding.messagesRecycler.scrollToPosition(adapter.itemCount - 1)
+                if (shouldScrollToLatest) {
+                    binding.messagesRecycler.scrollToPosition(adapter.itemCount - 1)
+                }
             }
         }
+    }
+
+    private fun isNearLatestMessage(): Boolean {
+        if (adapter.itemCount == 0) return true
+        val layoutManager = binding.messagesRecycler.layoutManager as? LinearLayoutManager ?: return false
+        return layoutManager.findLastVisibleItemPosition() >= adapter.itemCount - 2
     }
 
     private fun refreshSocketAuthentication(socket: Socket) {

@@ -105,6 +105,219 @@ export function createContentRouter(config: AppConfig): Router {
     }
   });
 
+  router.get('/explore', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const limit = pageSizeSchema.parse(request.query.limit ?? 30);
+      const cursor = parseHashtagCursor(request.query.after);
+      if (request.query.after !== undefined && !cursor) {
+        response.status(400).json({ error: 'Invalid discovery cursor.' });
+        return;
+      }
+      console.info(JSON.stringify({ event: 'explore_feed_started', limit }));
+      const cursorFilter = cursor
+        ? {
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+          ],
+        }
+        : {};
+      const [posts, reels] = await Promise.all([
+        PostModel.find(cursorFilter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+        ReelModel.find(cursorFilter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+      ]);
+      const merged = [
+        ...posts.map((item) => ({ item, kind: 'post' as const })),
+        ...reels.map((item) => ({ item, kind: 'reel' as const })),
+      ].sort((first, second) =>
+        new Date(second.item.createdAt ?? 0).getTime() - new Date(first.item.createdAt ?? 0).getTime() ||
+        String(second.item._id).localeCompare(String(first.item._id)));
+      const hasMore = merged.length > limit;
+      const page = hasMore ? merged.slice(0, limit) : merged;
+      const serializationCounts = {
+        excludedWithoutActiveOwner: 0,
+        excludedWithoutReadyMedia: 0,
+        excludedByBoth: 0,
+      };
+      const [postPayloads, reelPayloads] = await Promise.all([
+        contentListPayload(
+          page.filter((entry) => entry.kind === 'post').map((entry) => entry.item),
+          authenticatedUserId(request),
+          'post',
+          serializationCounts,
+        ),
+        contentListPayload(
+          page.filter((entry) => entry.kind === 'reel').map((entry) => entry.item),
+          authenticatedUserId(request),
+          'reel',
+          serializationCounts,
+        ),
+      ]);
+      const payloadByKey = new Map([
+        ...postPayloads.map((item) => [`post:${item.id}`, item] as const),
+        ...reelPayloads.map((item) => [`reel:${item.id}`, item] as const),
+      ]);
+      const items = page.flatMap(({ item, kind }) => {
+        const content = payloadByKey.get(`${kind}:${String(item._id)}`);
+        return content ? [{ ...content, contentType: kind }] : [];
+      });
+      const lastItem = page.at(-1)?.item;
+      response.json({
+        items,
+        nextCursor: hasMore && lastItem?.createdAt
+          ? `${new Date(lastItem.createdAt).getTime()}_${String(lastItem._id)}`
+          : null,
+      });
+      console.info(JSON.stringify({
+        event: 'explore_feed_completed',
+        status: response.statusCode,
+        postsQueried: posts.length,
+        reelsQueried: reels.length,
+        postsReturned: postPayloads.length,
+        reelsReturned: reelPayloads.length,
+        totalReturned: items.length,
+        excludedWithoutActiveOwner: serializationCounts.excludedWithoutActiveOwner,
+        excludedWithoutReadyMedia: serializationCounts.excludedWithoutReadyMedia,
+        excludedByBoth: serializationCounts.excludedByBoth,
+      }));
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid discovery page size.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.get('/search/content', authenticate, async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const query = typeof request.query.q === 'string' ? request.query.q.trim() : '';
+      const contentType = request.query.type === undefined ? 'all' : request.query.type;
+      console.info(JSON.stringify({
+        event: 'content_search_started',
+        queryLength: query.length,
+        contentType: typeof contentType === 'string' ? contentType : 'invalid',
+      }));
+      if (
+        query.length < 2 ||
+        query.length > 80 ||
+        (contentType !== 'all' && contentType !== 'posts' &&
+          contentType !== 'reels' && contentType !== 'videos')
+      ) {
+        response.status(400).json({ error: 'Invalid content search query.' });
+        return;
+      }
+      const limit = pageSizeSchema.parse(request.query.limit ?? 30);
+      const cursor = parseHashtagCursor(request.query.after);
+      if (request.query.after !== undefined && !cursor) {
+        response.status(400).json({ error: 'Invalid content search cursor.' });
+        return;
+      }
+      const cursorFilter = cursor
+        ? {
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+          ],
+        }
+        : {};
+      const escapedQuery = escapeRegex(query.replace(/^#/, ''));
+      const videoMediaIds = contentType === 'videos'
+        ? await MediaModel.distinct('_id', { resourceType: 'video', status: 'ready' })
+        : null;
+      const commonSearchFilters = [
+        ...(videoMediaIds ? [{ mediaId: { $in: videoMediaIds } }] : []),
+        cursorFilter,
+      ];
+      const textSearchFilters = [
+        { caption: { $regex: escapedQuery, $options: 'i' } },
+        { hashtags: { $regex: escapedQuery, $options: 'i' } },
+      ];
+      const postSearchFilter = {
+        $and: [
+          {
+            $or: [
+              ...textSearchFilters,
+              { altText: { $regex: escapedQuery, $options: 'i' } },
+            ],
+          },
+          ...commonSearchFilters,
+        ],
+      };
+      const reelSearchFilter = {
+        $and: [
+          { $or: textSearchFilters },
+          ...commonSearchFilters,
+        ],
+      };
+      const [posts, reels] = await Promise.all([
+        contentType === 'reels' ? Promise.resolve([]) :
+          PostModel.find(postSearchFilter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+        contentType === 'posts' ? Promise.resolve([]) :
+          ReelModel.find(reelSearchFilter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+      ]);
+      const merged = [
+        ...posts.map((item) => ({ item, kind: 'post' as const })),
+        ...reels.map((item) => ({ item, kind: 'reel' as const })),
+      ].sort((first, second) =>
+        new Date(second.item.createdAt ?? 0).getTime() - new Date(first.item.createdAt ?? 0).getTime() ||
+        String(second.item._id).localeCompare(String(first.item._id)));
+      const hasMore = merged.length > limit;
+      const page = hasMore ? merged.slice(0, limit) : merged;
+      const serializationCounts = {
+        excludedWithoutActiveOwner: 0,
+        excludedWithoutReadyMedia: 0,
+        excludedByBoth: 0,
+      };
+      const [postPayloads, reelPayloads] = await Promise.all([
+        contentListPayload(
+          page.filter((entry) => entry.kind === 'post').map((entry) => entry.item),
+          authenticatedUserId(request),
+          'post',
+          serializationCounts,
+        ),
+        contentListPayload(
+          page.filter((entry) => entry.kind === 'reel').map((entry) => entry.item),
+          authenticatedUserId(request),
+          'reel',
+          serializationCounts,
+        ),
+      ]);
+      const payloadByKey = new Map([
+        ...postPayloads.map((item) => [`post:${item.id}`, item] as const),
+        ...reelPayloads.map((item) => [`reel:${item.id}`, item] as const),
+      ]);
+      const items = page.flatMap(({ item, kind }) => {
+        const content = payloadByKey.get(`${kind}:${String(item._id)}`);
+        return content ? [{ ...content, contentType: kind }] : [];
+      });
+      const lastItem = page.at(-1)?.item;
+      response.json({
+        items,
+        nextCursor: hasMore && lastItem?.createdAt
+          ? `${new Date(lastItem.createdAt).getTime()}_${String(lastItem._id)}`
+          : null,
+      });
+      console.info(JSON.stringify({
+        event: 'content_search_completed',
+        status: response.statusCode,
+        queryLength: query.length,
+        postsReturned: postPayloads.length,
+        reelsReturned: reelPayloads.length,
+        totalReturned: items.length,
+        excludedWithoutActiveOwner: serializationCounts.excludedWithoutActiveOwner,
+        excludedWithoutReadyMedia: serializationCounts.excludedWithoutReadyMedia,
+        excludedByBoth: serializationCounts.excludedByBoth,
+      }));
+    } catch (error) {
+      if (error instanceof ZodError) {
+        response.status(400).json({ error: 'Invalid content search page size.' });
+        return;
+      }
+      next(error);
+    }
+  });
+
   router.get('/hashtags/:tag', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const tag = normalizeHashtagName(request.params.tag ?? '');

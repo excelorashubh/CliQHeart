@@ -202,8 +202,20 @@ export function createUserRouter(
 
   router.get('/users/search', authenticate, async (request: Request, response: Response, next: NextFunction) => {
     try {
-      const query = typeof request.query.q === 'string' ? request.query.q.trim() : '';
+      const query = typeof request.query.q === 'string'
+        ? request.query.q.trim().normalize('NFKC').replace(/^@+/, '').replace(/\s+/g, ' ').trim()
+        : '';
+      const normalizedQuery = query.toLowerCase();
+      console.info(JSON.stringify({
+        event: 'people_search_started',
+        normalizedQueryLength: normalizedQuery.length,
+      }));
       if (query.length < 2 || query.length > 80) {
+        console.info(JSON.stringify({
+          event: 'people_search_completed',
+          status: 400,
+          resultCount: 0,
+        }));
         response.status(400).json({ error: 'Search query must be between 2 and 80 characters.' });
         return;
       }
@@ -224,7 +236,7 @@ export function createUserRouter(
         $and: [
           {
             $or: [
-              { username: { $regex: escapeRegex(query), $options: 'i' } },
+              { username: { $regex: `^${escapeRegex(normalizedQuery)}` } },
               { displayName: { $regex: escapeRegex(query), $options: 'i' } },
             ],
           },
@@ -254,6 +266,11 @@ export function createUserRouter(
         })),
         nextCursor: hasMore ? page.at(-1)?.username ?? null : null,
       });
+      console.info(JSON.stringify({
+        event: 'people_search_completed',
+        status: response.statusCode,
+        resultCount: page.length,
+      }));
     } catch (error) {
       next(error);
     }

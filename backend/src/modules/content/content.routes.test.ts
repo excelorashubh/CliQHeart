@@ -13,6 +13,8 @@ import { PostModel } from './post.model';
 import { ReelModel } from './reel.model';
 import { HashtagModel } from './hashtag.model';
 import { StoryModel } from './story.model';
+import { BookmarkModel } from './bookmark.model';
+import { CommentModel, LikeModel, RepostModel } from './engagement.models';
 import { StoryLikeModel, StoryViewModel } from './story-engagement.models';
 import { createContentRouter } from './content.routes';
 
@@ -197,6 +199,105 @@ test('hashtag search uses normalized backend records and returns popularity coun
     normalizedName: { $regex: '^tra' },
     usageCount: { $gt: 0 },
   });
+});
+
+test('Explore returns a merged, ordered page and a stable continuation cursor', async (t) => {
+  const { app, token } = createContentApp(t);
+  const createdAt = new Date('2026-10-01T10:00:00Z');
+  const post = {
+    _id: new Types.ObjectId(mediaIds.post),
+    ownerId: new Types.ObjectId(userId),
+    mediaId: new Types.ObjectId(mediaIds.post),
+    caption: 'An image',
+    createdAt,
+  };
+  const reel = {
+    _id: new Types.ObjectId(mediaIds.reel),
+    ownerId: new Types.ObjectId(userId),
+    mediaId: new Types.ObjectId(mediaIds.reel),
+    caption: 'A video',
+    createdAt: new Date(createdAt.getTime() + 1_000),
+  };
+  const query = (items: unknown[]) => ({
+    sort() { return this; },
+    limit() { return this; },
+    lean: async () => items,
+  });
+  t.mock.method(PostModel, 'find', () => query([post]));
+  t.mock.method(ReelModel, 'find', () => query([reel]));
+  t.mock.method(UserModel, 'find', () => ({
+    select() { return this; },
+    lean: async () => [owner],
+  }));
+  t.mock.method(MediaModel, 'find', () => ({
+    lean: async () => [
+      {
+        _id: new Types.ObjectId(mediaIds.post),
+        status: 'ready',
+        resourceType: 'image',
+        secureUrl: 'https://res.cloudinary.com/test/image/upload/post.jpg',
+      },
+      {
+        _id: new Types.ObjectId(mediaIds.reel),
+        status: 'ready',
+        resourceType: 'video',
+        secureUrl: 'https://res.cloudinary.com/test/video/upload/reel.mp4',
+      },
+    ],
+  }));
+  t.mock.method(BookmarkModel, 'find', () => ({ select() { return this; }, lean: async () => [] }));
+  t.mock.method(LikeModel, 'aggregate', async () => []);
+  t.mock.method(CommentModel, 'aggregate', async () => []);
+  t.mock.method(RepostModel, 'aggregate', async () => []);
+  t.mock.method(LikeModel, 'find', () => ({ select() { return this; }, lean: async () => [] }));
+  t.mock.method(RepostModel, 'find', () => ({ select() { return this; }, lean: async () => [] }));
+
+  const response = await request(app)
+    .get('/api/v1/explore?limit=2')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.items.map((item: { contentType: string }) => item.contentType), ['reel', 'post']);
+  assert.equal(response.body.items[0].media.resourceType, 'video');
+  assert.equal(response.body.nextCursor, null);
+});
+
+test('content search escapes query text and limits the requested content category', async (t) => {
+  const { app, token } = createContentApp(t);
+  let capturedFilter: Record<string, unknown> | undefined;
+  t.mock.method(PostModel, 'find', (filter: Record<string, unknown>) => {
+    capturedFilter = filter;
+    return {
+      sort() { return this; },
+      limit() { return this; },
+      lean: async () => [],
+    };
+  });
+  const reelFind = t.mock.method(ReelModel, 'find', () => ({
+    sort() { return this; },
+    limit() { return this; },
+    lean: async () => [],
+  }));
+
+  const response = await request(app)
+    .get('/api/v1/search/content?q=%23travel%5B%5D&type=posts')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(reelFind.mock.calls.length, 0);
+  assert.deepEqual(capturedFilter, {
+    $and: [
+      {
+        $or: [
+          { caption: { $regex: 'travel\\[\\]', $options: 'i' } },
+          { hashtags: { $regex: 'travel\\[\\]', $options: 'i' } },
+          { altText: { $regex: 'travel\\[\\]', $options: 'i' } },
+        ],
+      },
+      {},
+    ],
+  });
+  assert.deepEqual(response.body, { items: [], nextCursor: null });
 });
 
 test('Reel publishing requires verified video media and accepts its supported metadata', async (t) => {

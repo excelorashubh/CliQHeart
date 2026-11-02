@@ -336,3 +336,74 @@ test('suggestions use the username cursor and a bounded page size', async (t) =>
   assert.equal(response.body.users.length, 1);
   assert.equal(response.body.nextCursor, 'first_person');
 });
+
+test('people search strips leading at signs and matches usernames case-insensitively', async (t) => {
+  const { app, token } = createTestApp(t);
+  const profile = {
+    _id: ownerId,
+    username: 'test_user',
+    displayName: 'Test User',
+    avatarUrl: 'https://res.cloudinary.com/test-cloud/image/upload/profile.jpg',
+  };
+  let searchFilter: unknown;
+  t.mock.method(UserModel, 'find', (filter: unknown) => {
+    searchFilter = filter;
+    return {
+      select() { return this; },
+      sort() { return this; },
+      limit() { return this; },
+      lean: async () => [profile],
+    };
+  });
+  t.mock.method(FollowModel, 'find', () => ({
+    select() { return this; },
+    lean: async () => [],
+  }));
+
+  const response = await request(app)
+    .get('/users/search')
+    .query({ q: '@TEST_user', limit: '10' })
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.users.length, 1);
+  assert.equal(response.body.users[0].username, 'test_user');
+  assert.equal(response.body.users[0].avatarUrl, profile.avatarUrl);
+  assert.equal('email' in response.body.users[0], false);
+  assert.ok(searchFilter && typeof searchFilter === 'object' && '$and' in searchFilter);
+  const andFilters = (searchFilter as { $and: Array<Record<string, unknown>> }).$and;
+  const matchingFilters = andFilters[0]?.$or as Array<Record<string, unknown>>;
+  const usernameFilter = matchingFilters[0]?.username as { $regex: string };
+  assert.equal(usernameFilter.$regex, '^test_user');
+});
+
+test('people search escapes partial display-name queries and uses case-insensitive matching', async (t) => {
+  const { app, token } = createTestApp(t);
+  let searchFilter: unknown;
+  t.mock.method(UserModel, 'find', (filter: unknown) => {
+    searchFilter = filter;
+    return {
+      select() { return this; },
+      sort() { return this; },
+      limit() { return this; },
+      lean: async () => [],
+    };
+  });
+
+  const response = await request(app)
+    .get('/users/search')
+    .query({ q: '  MiXeD.  ' })
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.users, []);
+  assert.ok(searchFilter && typeof searchFilter === 'object' && '$and' in searchFilter);
+  const andFilters = (searchFilter as { $and: Array<Record<string, unknown>> }).$and;
+  const matchingFilters = andFilters[0]?.$or as Array<Record<string, unknown>>;
+  const displayNameFilter = matchingFilters[1]?.displayName as {
+    $regex: string;
+    $options: string;
+  };
+  assert.equal(displayNameFilter.$regex, 'MiXeD\\.');
+  assert.equal(displayNameFilter.$options, 'i');
+});

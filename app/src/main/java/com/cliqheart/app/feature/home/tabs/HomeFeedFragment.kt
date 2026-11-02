@@ -70,6 +70,8 @@ class HomeFeedFragment : Fragment() {
     private var postsExhausted = false
     private var reelsExhausted = false
     private var loadingPosts = false
+    private var pendingContentId: String? = null
+    private var pendingContentType: String? = null
     private val pendingInteractions = mutableSetOf<String>()
     private var storyItems: List<StoryModel> = emptyList()
     private val homeDataViewModel: MainShellViewModel by activityViewModels()
@@ -220,6 +222,7 @@ class HomeFeedFragment : Fragment() {
     fun onTabSelected() {
         loadUnreadBadges()
         connectRealtime()
+        if (pendingContentId != null && !loadingPosts) focusPendingContent()
         bindingOrNull()?.feedRecyclerView?.post {
             feedAdapter?.updateVisibleVideoPlayback()
         }
@@ -227,6 +230,39 @@ class HomeFeedFragment : Fragment() {
 
     fun pauseFeedPlayback() {
         feedAdapter?.pauseVideos()
+    }
+
+    fun openContent(contentId: String, contentType: String) {
+        val expectedContentType = if (isReelsMode) "reel" else "post"
+        if (contentType != expectedContentType) return
+        pendingContentId = contentId
+        pendingContentType = contentType
+        focusPendingContent()
+    }
+
+    private fun focusPendingContent() {
+        if (_binding == null || loadingPosts) return
+        val contentId = pendingContentId ?: return
+        val contentType = pendingContentType ?: return
+        val feedIndex = feedAdapter?.postsSnapshot()?.indexOfFirst {
+            it.id == contentId && it.contentType == contentType
+        } ?: -1
+        if (feedIndex >= 0) {
+            pendingContentId = null
+            pendingContentType = null
+            val headerCount = if (isReelsMode) 0 else headerAdapter?.itemCount ?: 0
+            (binding.feedRecyclerView.layoutManager as? LinearLayoutManager)
+                ?.scrollToPositionWithOffset(headerCount + feedIndex, 0)
+            binding.feedRecyclerView.post { feedAdapter?.updateVisibleVideoPlayback() }
+            return
+        }
+        if (isFeedExhausted()) {
+            pendingContentId = null
+            pendingContentType = null
+            Log.i(TAG, "Requested content is unavailable in the existing feed.")
+            return
+        }
+        loadPosts(refresh = false)
     }
 
     fun refreshUnreadCounts() {
@@ -249,6 +285,7 @@ class HomeFeedFragment : Fragment() {
         }
         if (refresh) binding.swipeRefreshLayout.isRefreshing = true
 
+        var pageLoaded = false
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val postPage = if (isReelsMode || postsExhausted) {
@@ -291,6 +328,7 @@ class HomeFeedFragment : Fragment() {
                 } else {
                     hideFeedState()
                 }
+                pageLoaded = true
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
@@ -310,6 +348,9 @@ class HomeFeedFragment : Fragment() {
             } finally {
                 loadingPosts = false
                 _binding?.swipeRefreshLayout?.isRefreshing = false
+                if (pageLoaded && pendingContentId != null) {
+                    bindingOrNull()?.feedRecyclerView?.post { focusPendingContent() }
+                }
             }
         }
     }

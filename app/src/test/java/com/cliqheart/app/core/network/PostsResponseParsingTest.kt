@@ -98,4 +98,56 @@ class PostsResponseParsingTest {
         assertEquals("story-id", story.story?.id)
         assertEquals("https://media.example/story.jpg", story.story?.media?.secureUrl)
     }
+
+    @Test
+    fun parsesMixedExploreItemsAndHashtagSuggestions() {
+        val explore = Gson().fromJson(
+            """
+                {
+                  "items": [
+                    {
+                      "id": "reel-id",
+                      "contentType": "reel",
+                      "owner": { "id": "creator-id", "username": "creator" },
+                      "media": {
+                        "resourceType": "video",
+                        "secureUrl": "https://media.example/reel.mp4",
+                        "thumbnailUrl": "https://media.example/reel.jpg",
+                        "duration": 12.5
+                      }
+                    },
+                    {
+                      "id": "post-id",
+                      "contentType": "post",
+                      "media": {
+                        "resourceType": "image",
+                        "secureUrl": "https://media.example/post.jpg"
+                      }
+                    }
+                  ],
+                  "nextCursor": "1780308000000_0123456789abcdef01234567"
+                }
+            """.trimIndent(),
+            DiscoveryResponse::class.java,
+        )
+        val hashtags = Gson().fromJson(
+            """
+                {
+                  "hashtags": [{
+                    "name": "travel",
+                    "normalizedName": "travel",
+                    "usageCount": 17
+                  }]
+                }
+            """.trimIndent(),
+            HashtagsResponse::class.java,
+        )
+
+        assertEquals(listOf("reel", "post"), explore.items.map { it.contentType })
+        assertEquals("https://media.example/reel.jpg", explore.items.first().media?.thumbnailUrl)
+        assertEquals(12.5, explore.items.first().media?.duration)
+        assertEquals("1780308000000_0123456789abcdef01234567", explore.nextCursor)
+        assertEquals("travel", hashtags.hashtags.single().normalizedName)
+        assertEquals(17, hashtags.hashtags.single().usageCount)
+    }
 }

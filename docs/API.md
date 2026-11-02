@@ -184,11 +184,13 @@ account remains active. Follow mutations also use transactions and lock both
 active user records so they cannot race past account deletion.
 ### `GET /api/v1/users/search?q=<text>&limit=<n>&after=<username>`
 
-Searches active users by escaped username or display name, excluding the
-authenticated user. Query text must contain 2–80 characters; page size is
-1–50 (default 30). Results are ordered by username and include `nextCursor`
-when another page is available. Each result includes `isFollowing` for the
-authenticated viewer. Private email and account status are excluded.
+Searches active users by username prefix or case-insensitive display-name
+substring, excluding the authenticated user. A leading `@` is optional;
+queries are Unicode-normalized and regex-escaped. Query text must contain
+2–80 characters after normalization; page size is 1–50 (default 30). Results
+are ordered by username and include `nextCursor` when another page is
+available. Each result includes `isFollowing` for the authenticated viewer.
+Private email and account status are excluded.
 
 ### `GET /api/v1/users/suggestions?limit=<n>&after=<username>`
 
@@ -292,6 +294,14 @@ and 250 MiB for Reels. Reels must be no longer than 180 seconds.
   `GET /api/v1/reels/:reelId` returns a Reel detail;
   `GET /api/v1/users/:userId/reels` returns a user's Reels; owners can remove
   their own Reels with `DELETE /api/v1/reels/:reelId`.
+- `GET /api/v1/explore?limit=<n>&after=<cursor>` returns recent Posts and Reels
+  in one stable, cursor-paginated timeline. Items include `contentType` and use
+  the same active-owner and ready-media checks as ordinary content feeds.
+- `GET /api/v1/search/content?q=<text>&type=all|posts|reels|videos&limit=<n>&after=<cursor>`
+  searches Post and Reel captions and normalized hashtags; Posts also search
+  their alternative text. Results are merged by recency; `videos` searches
+  video media in Posts and Reels. Results are filtered through the active-owner
+  and ready-media checks.
 - Post and Reel captions support up to 30 unique hashtags. Names are Unicode
   normalized and case-insensitive; content stores normalized names without
   the leading `#`. Owners can update their own caption and metadata with
