@@ -115,6 +115,14 @@
     <string name="professional_dashboard_unavailable">Professional insights are unavailable right now.</string>
     <string name="change_profile_photo">Change profile photo</string>
     <string name="profile_photo_uploading">Uploading profile photo…</string>
+    <string name="open_profile_menu">Open menu</string>
+    <string name="profile_menu_title">More</string>
+    <string name="profile_menu_account">ACCOUNT</string>
+    <string name="profile_menu_your_activity">YOUR ACTIVITY</string>
+    <string name="profile_menu_professional">CREATOR / PROFESSIONAL</string>
+    <string name="profile_menu_preferences">PREFERENCES</string>
+    <string name="profile_menu_session">SESSION</string>
+    <string name="confirm_log_out">Are you sure you want to log out?</string>
     <string name="posts">Posts</string>
     <string name="followers">Followers</string>
     <string name="no_posts_yet">No posts yet</string>

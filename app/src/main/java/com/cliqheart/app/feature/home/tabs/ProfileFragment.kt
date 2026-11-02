@@ -43,6 +43,7 @@ class ProfileFragment : Fragment() {
     private lateinit var profilePostsAdapter: GridPostsAdapter
     private var currentProfile: UserResponse? = null
     private var profileLoaded = false
+    private var isLoggingOut = false
     private var profileContentOwnerId: String? = null
     private var selectedSection = ProfileSection.POSTS
     private val sectionItems = mutableMapOf<ProfileSection, MutableList<PostResponse>>()
@@ -85,6 +86,13 @@ class ProfileFragment : Fragment() {
             StoryCreationDialogFragment().show(parentFragmentManager, PROFILE_STORY_CREATION_TAG)
         }
         binding.btnProfessionalDashboard.setOnClickListener { openProfessionalDashboard() }
+        binding.profileMenuButton.setOnClickListener { openProfileMenu() }
+        childFragmentManager.setFragmentResultListener(
+            ProfileMoreMenuBottomSheetFragment.REQUEST_KEY,
+            viewLifecycleOwner,
+        ) { _, result ->
+            handleProfileMenuAction(result.getString(ProfileMoreMenuBottomSheetFragment.KEY_ACTION))
+        }
         parentFragmentManager.setFragmentResultListener(
             STORY_PUBLISHED_REQUEST_KEY,
             viewLifecycleOwner,
@@ -132,8 +140,7 @@ class ProfileFragment : Fragment() {
         }
         binding.profileBackButton.visibility = if (isOwnProfile) View.GONE else View.VISIBLE
         binding.profileBackButton.setOnClickListener { findNavController().popBackStack() }
-        binding.btnLogout.visibility = if (isOwnProfile) View.VISIBLE else View.GONE
-        binding.btnLogout.setOnClickListener { logout() }
+        binding.profileMenuButton.visibility = if (isOwnProfile) View.VISIBLE else View.GONE
         binding.btnEditProfile.setOnClickListener {
             if (isOwnProfile) {
                 findNavController().navigate(R.id.editProfileFragment)
@@ -394,6 +401,7 @@ class ProfileFragment : Fragment() {
                     ).show()
                     return@launch
                 }
+
                 val message = getString(
                     R.string.professional_dashboard_summary,
                     analytics.rangeDays ?: 30,
@@ -419,6 +427,45 @@ class ProfileFragment : Fragment() {
                 if (_binding != null) binding.btnProfessionalDashboard.isEnabled = true
             }
         }
+    }
+
+    private fun openProfileMenu() {
+        if (!isOwnProfile || childFragmentManager.isStateSaved ||
+            childFragmentManager.findFragmentByTag(PROFILE_MENU_TAG) != null
+        ) return
+        val accountType = currentProfile?.accountType.orEmpty().uppercase()
+        ProfileMoreMenuBottomSheetFragment.newInstance(
+            username = currentProfile?.username,
+            showSaved = true,
+            showProfessional = accountType == "CREATOR" || accountType == "BUSINESS",
+        ).show(childFragmentManager, PROFILE_MENU_TAG)
+    }
+
+    private fun handleProfileMenuAction(action: String?) {
+        if (!isOwnProfile) return
+        when (action) {
+            ProfileMoreMenuBottomSheetFragment.ACTION_EDIT_PROFILE -> {
+                if (findNavController().currentDestination?.id != R.id.editProfileFragment) {
+                    findNavController().navigate(R.id.editProfileFragment)
+                }
+            }
+            ProfileMoreMenuBottomSheetFragment.ACTION_SAVED -> selectSection(ProfileSection.SAVED)
+            ProfileMoreMenuBottomSheetFragment.ACTION_PROFESSIONAL -> openProfessionalDashboard()
+            ProfileMoreMenuBottomSheetFragment.ACTION_NOTIFICATIONS -> {
+                (parentFragment as? MainShellFragment)?.openActivity()
+            }
+            ProfileMoreMenuBottomSheetFragment.ACTION_LOGOUT -> showLogoutConfirmation()
+        }
+    }
+
+    private fun showLogoutConfirmation() {
+        if (isLoggingOut) return
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.log_out)
+            .setMessage(R.string.confirm_log_out)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.log_out) { _, _ -> logout() }
+            .show()
     }
 
     private fun toggleFollow() {
@@ -505,6 +552,8 @@ class ProfileFragment : Fragment() {
     }
 
     private fun logout() {
+        if (isLoggingOut) return
+        isLoggingOut = true
         val store = SecureTokenStore(requireContext())
         val refreshToken = store.readSession()?.refreshToken
         if (refreshToken.isNullOrBlank()) {
@@ -513,8 +562,6 @@ class ProfileFragment : Fragment() {
             return
         }
 
-        binding.btnLogout.isEnabled = false
-        binding.btnLogout.text = getString(R.string.logging_out)
         store.savePendingRevocation(refreshToken)
         store.clearSessionPreservingPendingRevocation()
         viewLifecycleOwner.lifecycleScope.launch {
@@ -574,5 +621,6 @@ class ProfileFragment : Fragment() {
         const val FOLLOWING = "following"
         const val PROFILE_COMMENTS_TAG = "profile_post_comments"
         const val PROFILE_STORY_CREATION_TAG = "profile_story_creation"
+        const val PROFILE_MENU_TAG = "profile_more_menu"
     }
 }
