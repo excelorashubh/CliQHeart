@@ -858,29 +858,82 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'User not found.' });
         return;
       }
+      const limit = await parsePageSize(request);
+      const cursor = parseHashtagCursor(request.query.after);
+      if (request.query.after !== undefined && !cursor) {
+        response.status(400).json({ error: 'Invalid profile-post cursor.' });
+        return;
+      }
+      const cursorFilter = cursor
+        ? {
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+          ],
+        }
+        : {};
       const [posts, reposts] = await Promise.all([
-        PostModel.find({ ownerId: userId }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
-        RepostModel.find({ userId, contentType: 'post' }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
+        PostModel.find({ ownerId: userId, ...cursorFilter })
+          .sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+        RepostModel.find({ userId, contentType: 'post', ...cursorFilter })
+          .sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
       ]);
-      const repostedPosts = reposts.length
-        ? await PostModel.find({ _id: { $in: reposts.map((repost) => repost.contentId) } }).lean()
+      const events: Array<{
+        post?: (typeof posts)[number];
+        repost?: (typeof reposts)[number];
+        contentId?: string;
+        createdAt: Date;
+        sortId: string;
+      }> = [
+        ...posts.map((post) => ({
+          post,
+          createdAt: post.createdAt,
+          sortId: String(post._id),
+        })),
+        ...reposts.map((repost) => ({
+          repost,
+          contentId: String(repost.contentId),
+          createdAt: repost.createdAt,
+          sortId: String(repost._id),
+        })),
+      ].sort((first, second) =>
+        second.createdAt.getTime() - first.createdAt.getTime() ||
+        second.sortId.localeCompare(first.sortId));
+      const hasMore = events.length > limit;
+      const page = hasMore ? events.slice(0, limit) : events;
+      const repostedPostIds = page.flatMap((event) => event.contentId ? [event.contentId] : []);
+      const repostedPosts = repostedPostIds.length
+        ? await PostModel.find({ _id: { $in: repostedPostIds } }).lean()
         : [];
       const [postPayloads, repostPayloads] = await Promise.all([
-        contentListPayload(posts, authenticatedUserId(request), 'post'),
+        contentListPayload(page.flatMap((event) => event.post ? [event.post] : []), authenticatedUserId(request), 'post'),
         contentListPayload(repostedPosts, authenticatedUserId(request), 'post'),
       ]);
-      const repostByContentId = new Map(reposts.map((repost) => [String(repost.contentId), repost]));
+      const postPayloadById = new Map(postPayloads.map((item) => [item.id, item]));
+      const repostPayloadById = new Map(repostPayloads.map((item) => [item.id, item]));
       const profile = { id: userId, username: profileOwner.username };
-      const items = [
-        ...postPayloads.map((item) => ({ ...item, repostedAt: item.createdAt })),
-        ...repostPayloads.flatMap((item) => {
-          const repost = repostByContentId.get(item.id);
-          return repost ? [{ ...item, repostedAt: repost.createdAt, repostedBy: profile, feedKey: String(repost._id) }] : [];
-        }),
-      ].sort((first, second) =>
-        new Date(second.repostedAt || second.createdAt || 0).getTime() -
-        new Date(first.repostedAt || first.createdAt || 0).getTime());
-      response.json({ posts: items });
+      const items = page.flatMap((event) => {
+        if (event.post) {
+          const item = postPayloadById.get(String(event.post._id));
+          return item ? [{ ...item, contentType: 'post', repostedAt: item.createdAt }] : [];
+        }
+        if (!event.repost) return [];
+        const item = repostPayloadById.get(event.contentId ?? '');
+        return item ? [{
+          ...item,
+          contentType: 'post',
+          repostedAt: event.createdAt,
+          repostedBy: profile,
+          feedKey: event.sortId,
+        }] : [];
+      });
+      const lastEvent = page.at(-1);
+      response.json({
+        posts: items,
+        nextCursor: hasMore && lastEvent
+          ? `${lastEvent.createdAt.getTime()}_${lastEvent.sortId}`
+          : null,
+      });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });
@@ -1436,29 +1489,82 @@ export function createContentRouter(config: AppConfig): Router {
         response.status(404).json({ error: 'User not found.' });
         return;
       }
+      const limit = await parsePageSize(request);
+      const cursor = parseHashtagCursor(request.query.after);
+      if (request.query.after !== undefined && !cursor) {
+        response.status(400).json({ error: 'Invalid profile-Reel cursor.' });
+        return;
+      }
+      const cursorFilter = cursor
+        ? {
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+          ],
+        }
+        : {};
       const [reels, reposts] = await Promise.all([
-        ReelModel.find({ ownerId: userId }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
-        RepostModel.find({ userId, contentType: 'reel' }).sort({ createdAt: -1 }).limit(await parsePageSize(request)).lean(),
+        ReelModel.find({ ownerId: userId, ...cursorFilter })
+          .sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+        RepostModel.find({ userId, contentType: 'reel', ...cursorFilter })
+          .sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
       ]);
-      const repostedReels = reposts.length
-        ? await ReelModel.find({ _id: { $in: reposts.map((repost) => repost.contentId) } }).lean()
+      const events: Array<{
+        reel?: (typeof reels)[number];
+        repost?: (typeof reposts)[number];
+        contentId?: string;
+        createdAt: Date;
+        sortId: string;
+      }> = [
+        ...reels.map((reel) => ({
+          reel,
+          createdAt: reel.createdAt,
+          sortId: String(reel._id),
+        })),
+        ...reposts.map((repost) => ({
+          repost,
+          contentId: String(repost.contentId),
+          createdAt: repost.createdAt,
+          sortId: String(repost._id),
+        })),
+      ].sort((first, second) =>
+        second.createdAt.getTime() - first.createdAt.getTime() ||
+        second.sortId.localeCompare(first.sortId));
+      const hasMore = events.length > limit;
+      const page = hasMore ? events.slice(0, limit) : events;
+      const repostedReelIds = page.flatMap((event) => event.contentId ? [event.contentId] : []);
+      const repostedReels = repostedReelIds.length
+        ? await ReelModel.find({ _id: { $in: repostedReelIds } }).lean()
         : [];
       const [reelPayloads, repostPayloads] = await Promise.all([
-        contentListPayload(reels, authenticatedUserId(request), 'reel'),
+        contentListPayload(page.flatMap((event) => event.reel ? [event.reel] : []), authenticatedUserId(request), 'reel'),
         contentListPayload(repostedReels, authenticatedUserId(request), 'reel'),
       ]);
-      const repostByContentId = new Map(reposts.map((repost) => [String(repost.contentId), repost]));
+      const reelPayloadById = new Map(reelPayloads.map((item) => [item.id, item]));
+      const repostPayloadById = new Map(repostPayloads.map((item) => [item.id, item]));
       const profile = { id: userId, username: profileOwner.username };
-      const items = [
-        ...reelPayloads.map((item) => ({ ...item, repostedAt: item.createdAt })),
-        ...repostPayloads.flatMap((item) => {
-          const repost = repostByContentId.get(item.id);
-          return repost ? [{ ...item, repostedAt: repost.createdAt, repostedBy: profile, feedKey: String(repost._id) }] : [];
-        }),
-      ].sort((first, second) =>
-        new Date(second.repostedAt || second.createdAt || 0).getTime() -
-        new Date(first.repostedAt || first.createdAt || 0).getTime());
-      response.json({ reels: items });
+      const items = page.flatMap((event) => {
+        if (event.reel) {
+          const item = reelPayloadById.get(String(event.reel._id));
+          return item ? [{ ...item, contentType: 'reel', repostedAt: item.createdAt }] : [];
+        }
+        if (!event.repost) return [];
+        const item = repostPayloadById.get(event.contentId ?? '');
+        return item ? [{
+          ...item,
+          contentType: 'reel',
+          repostedAt: event.createdAt,
+          repostedBy: profile,
+          feedKey: event.sortId,
+        }] : [];
+      });
+      const lastEvent = page.at(-1);
+      response.json({
+        reels: items,
+        nextCursor: hasMore && lastEvent
+          ? `${lastEvent.createdAt.getTime()}_${lastEvent.sortId}`
+          : null,
+      });
     } catch (error) {
       if (error instanceof ZodError) {
         response.status(400).json({ error: 'Invalid page size.' });

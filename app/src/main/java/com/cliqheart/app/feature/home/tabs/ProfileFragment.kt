@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
@@ -21,11 +22,13 @@ import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentProfileBinding
 import com.cliqheart.app.feature.home.MainShellViewModel
+import com.cliqheart.app.feature.home.MainShellFragment
 import com.cliqheart.app.feature.home.RemoteImageLoader
 import com.cliqheart.app.feature.home.adapters.GridPostsAdapter
 import com.cliqheart.app.feature.home.getEffectiveAvatarUrl
 import com.cliqheart.app.feature.home.getFallbackAvatarUrl
 import com.cliqheart.app.feature.home.apiErrorMessage
+import com.cliqheart.app.core.network.PostResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
@@ -37,11 +40,17 @@ class ProfileFragment : Fragment() {
     private val binding get() = requireNotNull(_binding)
     private val homeDataViewModel: MainShellViewModel by activityViewModels()
     private var profileJob: Job? = null
-    private var profilePostsJob: Job? = null
-    private var profilePostsOwnerId: String? = null
     private lateinit var profilePostsAdapter: GridPostsAdapter
     private var currentProfile: UserResponse? = null
     private var profileLoaded = false
+    private var profileContentOwnerId: String? = null
+    private var selectedSection = ProfileSection.POSTS
+    private val sectionItems = mutableMapOf<ProfileSection, MutableList<PostResponse>>()
+    private val sectionCursors = mutableMapOf<ProfileSection, String>()
+    private val loadedSections = mutableSetOf<ProfileSection>()
+    private val exhaustedSections = mutableSetOf<ProfileSection>()
+    private val loadingSections = mutableSetOf<ProfileSection>()
+    private val failedSections = mutableSetOf<ProfileSection>()
     private val viewedUserId: String? get() = arguments?.getString(ARG_PROFILE_USER_ID)
     private val isOwnProfile: Boolean get() = viewedUserId == null
 
@@ -56,19 +65,30 @@ class ProfileFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.limitContentWidth(720)
-        profilePostsAdapter = GridPostsAdapter { post ->
-            post.id?.let {
-                CommentsBottomSheetFragment.newInstance(it, "post")
-                    .show(parentFragmentManager, PROFILE_COMMENTS_TAG)
-            }
-        }
+        profilePostsAdapter = GridPostsAdapter(::openProfileContent)
         binding.profileGridRecycler.layoutManager = GridLayoutManager(requireContext(), 3)
         binding.profileGridRecycler.adapter = profilePostsAdapter
-        binding.profilePostsState.setOnClickListener {
-            profilePostsOwnerId = null
-            (currentProfile?.id ?: currentProfile?._id ?: viewedUserId)
-                ?.let(::loadProfilePosts)
+        binding.profilePostsState.setOnClickListener { loadSection(selectedSection) }
+        binding.profileScrollView.setOnScrollChangeListener { _, _, scrollY, _, _ ->
+            val content = binding.profileScrollView.getChildAt(0)
+            if (content != null &&
+                scrollY + binding.profileScrollView.height >= content.height - resources.getDimensionPixelSize(R.dimen.profile_pagination_threshold)
+            ) {
+                loadSection(selectedSection)
+            }
         }
+        binding.profileTabPosts.setOnClickListener { selectSection(ProfileSection.POSTS) }
+        binding.profileTabReels.setOnClickListener { selectSection(ProfileSection.REELS) }
+        binding.profileTabSaved.setOnClickListener { selectSection(ProfileSection.SAVED) }
+        binding.profileTabTagged.setOnClickListener { selectSection(ProfileSection.TAGGED) }
+        binding.btnAddStory.setOnClickListener {
+            StoryCreationDialogFragment().show(parentFragmentManager, PROFILE_STORY_CREATION_TAG)
+        }
+        binding.btnProfessionalDashboard.setOnClickListener { openProfessionalDashboard() }
+        parentFragmentManager.setFragmentResultListener(
+            STORY_PUBLISHED_REQUEST_KEY,
+            viewLifecycleOwner,
+        ) { _, _ -> homeDataViewModel.refreshStories() }
 
         if (isOwnProfile) {
             homeDataViewModel.currentUser.value?.let {
@@ -128,6 +148,9 @@ class ProfileFragment : Fragment() {
         binding.followingStat.setOnClickListener { openUserList(FOLLOWING) }
         binding.profilePostsState.text = getString(R.string.posts_unavailable)
         binding.profileState.setOnClickListener { loadProfile() }
+        binding.profileSavedSection.visibility = if (isOwnProfile) View.VISIBLE else View.GONE
+        binding.btnAddStory.visibility = if (isOwnProfile) View.VISIBLE else View.GONE
+        selectSection(ProfileSection.POSTS)
     }
 
     override fun onResume() {
@@ -194,46 +217,208 @@ class ProfileFragment : Fragment() {
         } else {
             getString(R.string.follow)
         }
-        (user.id ?: user._id ?: viewedUserId)?.let(::loadProfilePosts)
-
-    }
-
-    private fun loadProfilePosts(userId: String) {
-        if (profilePostsOwnerId == userId || profilePostsJob?.isActive == true) return
-        profilePostsOwnerId = userId
-        binding.profilePostsState.text = getString(R.string.loading_profile_posts)
-        binding.profilePostsState.visibility = View.VISIBLE
-        profilePostsJob = viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val response = ApiClient.service.getUserPosts(userId)
-                if (!response.isSuccessful) {
-                    profilePostsOwnerId = null
-                    binding.profilePostsState.text =
-                        apiErrorMessage(response, getString(R.string.profile_posts_load_failed))
-                    return@launch
-                }
-                val posts = response.body()?.posts
-                    ?: throw IOException(getString(R.string.profile_posts_load_failed))
-                profilePostsAdapter.submitPosts(posts)
-                binding.profilePostsState.text = getString(R.string.no_posts_yet)
-                binding.profilePostsState.visibility =
-                    if (posts.isEmpty()) View.VISIBLE else View.GONE
-            } catch (exception: CancellationException) {
-                throw exception
-            } catch (_: IOException) {
-                profilePostsOwnerId = null
-                binding.profilePostsState.text = getString(R.string.profile_posts_load_failed)
-                binding.profilePostsState.visibility = View.VISIBLE
-            } catch (_: RuntimeException) {
-                profilePostsOwnerId = null
-                binding.profilePostsState.text = getString(R.string.profile_posts_load_failed)
-                binding.profilePostsState.visibility = View.VISIBLE
+        val accountType = user.accountType.orEmpty().uppercase()
+        val hasProfessionalDashboard = isOwnProfile && accountType in setOf("CREATOR", "BUSINESS")
+        binding.profileOwnerActions.visibility = if (hasProfessionalDashboard) View.VISIBLE else View.GONE
+        binding.btnProfessionalDashboard.visibility = if (hasProfessionalDashboard) View.VISIBLE else View.GONE
+        (user.id ?: user._id ?: viewedUserId)?.let { userId ->
+            if (profileContentOwnerId != userId) {
+                resetProfileSections(userId)
+                loadSection(ProfileSection.POSTS)
             }
         }
     }
 
-    private fun loadAvatar(imageUrl: String?) {
-        RemoteImageLoader.load(binding.profileAvatar, imageUrl, R.drawable.ic_profile)
+    private fun resetProfileSections(userId: String) {
+        profileContentOwnerId = userId
+        sectionItems.clear()
+        sectionCursors.clear()
+        loadedSections.clear()
+        exhaustedSections.clear()
+        loadingSections.clear()
+        failedSections.clear()
+        profilePostsAdapter.submitPosts(emptyList())
+        renderSectionState()
+    }
+
+    private fun selectSection(section: ProfileSection) {
+        selectedSection = section
+        setSectionTab(binding.profileTabPosts, binding.profileTabPostsIndicator, section == ProfileSection.POSTS)
+        setSectionTab(binding.profileTabReels, binding.profileTabReelsIndicator, section == ProfileSection.REELS)
+        setSectionTab(binding.profileTabSaved, binding.profileTabSavedIndicator, section == ProfileSection.SAVED)
+        setSectionTab(binding.profileTabTagged, binding.profileTabTaggedIndicator, section == ProfileSection.TAGGED)
+        profilePostsAdapter.submitPosts(sectionItems[section].orEmpty())
+        renderSectionState()
+        loadSection(section)
+    }
+
+    private fun setSectionTab(label: View, indicator: View, selected: Boolean) {
+        (label as? android.widget.TextView)?.setTextColor(
+            requireContext().getColor(if (selected) R.color.heart_primary else R.color.heart_muted),
+        )
+        indicator.visibility = if (selected) View.VISIBLE else View.GONE
+    }
+
+    private fun loadSection(section: ProfileSection) {
+        val userId = profileContentOwnerId ?: return
+        if (section in loadingSections || section in exhaustedSections) return
+        if (section !in loadedSections && section == ProfileSection.SAVED && !isOwnProfile) return
+        loadingSections += section
+        failedSections -= section
+        renderSectionState()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val cursor = sectionCursors[section]
+                val page = when (section) {
+                    ProfileSection.POSTS -> {
+                        val response = ApiClient.service.getUserPosts(userId, after = cursor)
+                        if (!response.isSuccessful) {
+                            throw IOException(apiErrorMessage(response, getString(R.string.profile_posts_load_failed)))
+                        }
+                        val body = response.body() ?: throw IOException(getString(R.string.profile_posts_load_failed))
+                        ProfileSectionPage(body.posts, body.nextCursor)
+                    }
+                    ProfileSection.REELS -> {
+                        val response = ApiClient.service.getUserReels(userId, after = cursor)
+                        if (!response.isSuccessful) {
+                            throw IOException(apiErrorMessage(response, getString(R.string.profile_posts_load_failed)))
+                        }
+                        val body = response.body() ?: throw IOException(getString(R.string.profile_posts_load_failed))
+                        ProfileSectionPage(body.reels, body.nextCursor)
+                    }
+                    ProfileSection.SAVED -> {
+                        val response = ApiClient.service.getSavedContent(after = cursor)
+                        if (!response.isSuccessful) {
+                            throw IOException(apiErrorMessage(response, getString(R.string.profile_posts_load_failed)))
+                        }
+                        val body = response.body() ?: throw IOException(getString(R.string.profile_posts_load_failed))
+                        ProfileSectionPage(body.items, body.nextCursor)
+                    }
+                    ProfileSection.TAGGED -> {
+                        val response = ApiClient.service.getTaggedContent(userId, after = cursor)
+                        if (!response.isSuccessful) {
+                            throw IOException(apiErrorMessage(response, getString(R.string.profile_posts_load_failed)))
+                        }
+                        val body = response.body() ?: throw IOException(getString(R.string.profile_posts_load_failed))
+                        ProfileSectionPage(body.items, body.nextCursor)
+                    }
+                }
+                val items = sectionItems.getOrPut(section) { mutableListOf() }
+                val existingKeys = items.mapTo(mutableSetOf()) { it.feedKey ?: it.id }
+                items += page.items.filter { item ->
+                    val key = item.feedKey ?: item.id
+                    key != null && existingKeys.add(key)
+                }
+                loadedSections += section
+                if (page.nextCursor.isNullOrBlank()) {
+                    exhaustedSections += section
+                } else {
+                    sectionCursors[section] = page.nextCursor
+                }
+                if (selectedSection == section) {
+                    profilePostsAdapter.submitPosts(items)
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                failedSections += section
+                if (selectedSection == section) {
+                    binding.profilePostsState.text = exception.message
+                        ?: getString(R.string.profile_section_load_failed, section.label)
+                }
+            } finally {
+                loadingSections -= section
+                if (_binding != null && selectedSection == section) {
+                    renderSectionState()
+                    binding.profileScrollView.post {
+                        val content = binding.profileScrollView.getChildAt(0)
+                        if (content != null &&
+                            binding.profileScrollView.scrollY + binding.profileScrollView.height >=
+                            content.height - resources.getDimensionPixelSize(R.dimen.profile_pagination_threshold)
+                        ) {
+                            loadSection(section)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun renderSectionState() {
+        val items = sectionItems[selectedSection].orEmpty()
+        if (items.isNotEmpty()) {
+            binding.profilePostsState.visibility = if (selectedSection in loadingSections ||
+                selectedSection in failedSections
+            ) View.VISIBLE else View.GONE
+            if (selectedSection in loadingSections) {
+                binding.profilePostsState.text =
+                    getString(R.string.profile_section_loading, selectedSection.label)
+            } else if (selectedSection in failedSections) {
+                binding.profilePostsState.text =
+                    getString(R.string.profile_section_load_failed, selectedSection.label)
+            }
+            return
+        }
+        binding.profilePostsState.visibility = View.VISIBLE
+        binding.profilePostsState.text = when {
+            selectedSection in loadingSections ->
+                getString(R.string.profile_section_loading, selectedSection.label)
+            selectedSection in failedSections ->
+                getString(R.string.profile_section_load_failed, selectedSection.label)
+            selectedSection in loadedSections -> getString(R.string.profile_section_empty)
+            else -> getString(R.string.profile_section_loading, selectedSection.label)
+        }
+    }
+
+    private fun openProfileContent(post: PostResponse) {
+        val contentId = post.id ?: return
+        val shell = parentFragment as? MainShellFragment
+        when (post.contentType) {
+            "reel" -> shell?.openReelInViewer(contentId)
+            else -> shell?.openPostInFeed(contentId)
+        }
+    }
+
+    private fun openProfessionalDashboard() {
+        binding.btnProfessionalDashboard.isEnabled = false
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val response = ApiClient.service.getProfessionalDashboard()
+                val analytics = response.body()?.analytics
+                val totals = analytics?.totals
+                if (!response.isSuccessful || analytics == null || totals == null) {
+                    Toast.makeText(
+                        requireContext(),
+                        apiErrorMessage(response, getString(R.string.professional_dashboard_unavailable)),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+                val message = getString(
+                    R.string.professional_dashboard_summary,
+                    analytics.rangeDays ?: 30,
+                    totals.followers ?: 0,
+                    totals.following ?: 0,
+                    totals.posts ?: 0,
+                    totals.reels ?: 0,
+                )
+                AlertDialog.Builder(requireContext())
+                    .setTitle(R.string.professional_dashboard)
+                    .setMessage(message)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.professional_dashboard_unavailable,
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                if (_binding != null) binding.btnProfessionalDashboard.isEnabled = true
+            }
+        }
     }
 
     private fun toggleFollow() {
@@ -303,10 +488,18 @@ class ProfileFragment : Fragment() {
     }
 
     private fun shareProfile() {
-        val username = binding.profileUsernameTitle.text.toString()
+        val username = currentProfile?.username.orEmpty()
+        val userId = currentProfile?.id ?: currentProfile?._id ?: username
+        val apiBaseUrl = com.cliqheart.app.BuildConfig.API_BASE_URL
+            .ifBlank { "https://cliqheart.onrender.com/api/v1/" }
+        val siteBaseUrl = apiBaseUrl.substringBefore("/api/v1/").trimEnd('/')
+        val profileUrl = "$siteBaseUrl/profile/$userId"
         val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(android.content.Intent.EXTRA_TEXT, username)
+            putExtra(
+                android.content.Intent.EXTRA_TEXT,
+                getString(R.string.profile_share_text, username, profileUrl),
+            )
         }
         startActivity(android.content.Intent.createChooser(shareIntent, getString(R.string.share_profile)))
     }
@@ -353,11 +546,25 @@ class ProfileFragment : Fragment() {
 
     override fun onDestroyView() {
         profileJob?.cancel()
-        profilePostsJob?.cancel()
-        profilePostsOwnerId = null
+        loadingSections.clear()
         _binding = null
         super.onDestroyView()
     }
+
+    private val ProfileSection.label: String
+        get() = getString(labelResId)
+
+    private enum class ProfileSection(val labelResId: Int) {
+        POSTS(R.string.profile_section_posts),
+        REELS(R.string.profile_section_reels),
+        SAVED(R.string.profile_section_saved),
+        TAGGED(R.string.profile_section_tagged),
+    }
+
+    private data class ProfileSectionPage(
+        val items: List<PostResponse>,
+        val nextCursor: String?,
+    )
 
     private companion object {
         const val ARG_PROFILE_USER_ID = "profileUserId"
@@ -366,5 +573,6 @@ class ProfileFragment : Fragment() {
         const val FOLLOWERS = "followers"
         const val FOLLOWING = "following"
         const val PROFILE_COMMENTS_TAG = "profile_post_comments"
+        const val PROFILE_STORY_CREATION_TAG = "profile_story_creation"
     }
 }

@@ -300,6 +300,83 @@ test('content search escapes query text and limits the requested content categor
   assert.deepEqual(response.body, { items: [], nextCursor: null });
 });
 
+test('profile posts and Reels reject malformed pagination cursors', async (t) => {
+  const { app, token } = createContentApp(t);
+  const [postsResponse, reelsResponse] = await Promise.all([
+    request(app)
+      .get(`/api/v1/users/${userId}/posts?after=invalid`)
+      .set('Authorization', `Bearer ${token}`),
+    request(app)
+      .get(`/api/v1/users/${userId}/reels?after=invalid`)
+      .set('Authorization', `Bearer ${token}`),
+  ]);
+
+  assert.equal(postsResponse.status, 400);
+  assert.equal(postsResponse.body.error, 'Invalid profile-post cursor.');
+  assert.equal(reelsResponse.status, 400);
+  assert.equal(reelsResponse.body.error, 'Invalid profile-Reel cursor.');
+});
+
+test('profile posts returns a stable cursor for the next merged page', async (t) => {
+  const { app, token } = createContentApp(t);
+  const newestAt = new Date('2026-10-01T10:00:00Z');
+  const olderPost = {
+    _id: new Types.ObjectId(mediaIds.post),
+    ownerId: new Types.ObjectId(userId),
+    mediaId: new Types.ObjectId(mediaIds.post),
+    caption: 'Newest profile post',
+    createdAt: newestAt,
+  };
+  const newerPost = {
+    _id: new Types.ObjectId(mediaIds.reel),
+    ownerId: new Types.ObjectId(userId),
+    mediaId: new Types.ObjectId(mediaIds.post),
+    caption: 'Older profile post',
+    createdAt: new Date(newestAt.getTime() - 1_000),
+  };
+  const query = (items: unknown[]) => ({
+    sort() { return this; },
+    limit() { return this; },
+    select() { return this; },
+    lean: async () => items,
+  });
+  t.mock.method(PostModel, 'find', () => query([olderPost, newerPost]));
+  t.mock.method(RepostModel, 'find', () => query([]));
+  t.mock.method(UserModel, 'find', () => ({
+    select() { return this; },
+    lean: async () => [owner],
+  }));
+  t.mock.method(MediaModel, 'find', () => ({
+    lean: async () => [{
+      _id: olderPost.mediaId,
+      status: 'ready',
+      resourceType: 'image',
+      secureUrl: 'https://res.cloudinary.com/test/image/upload/post.jpg',
+    }],
+  }));
+  t.mock.method(BookmarkModel, 'find', () => ({
+    select() { return this; },
+    lean: async () => [],
+  }));
+  t.mock.method(LikeModel, 'aggregate', async () => []);
+  t.mock.method(CommentModel, 'aggregate', async () => []);
+  t.mock.method(RepostModel, 'aggregate', async () => []);
+  t.mock.method(LikeModel, 'find', () => ({
+    select() { return this; },
+    lean: async () => [],
+  }));
+
+  const response = await request(app)
+    .get(`/api/v1/users/${userId}/posts?limit=1`)
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.posts.length, 1);
+  assert.equal(response.body.posts[0].id, String(olderPost._id));
+  assert.equal(response.body.posts[0].contentType, 'post');
+  assert.equal(response.body.nextCursor, `${newestAt.getTime()}_${olderPost._id}`);
+});
+
 test('Reel publishing requires verified video media and accepts its supported metadata', async (t) => {
   const reelMedia = {
     _id: new Types.ObjectId(mediaIds.reel),

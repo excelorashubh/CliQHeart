@@ -40,6 +40,13 @@ class GridPostsAdapter(
             val imageUrl = media?.thumbnailUrl?.takeIf(String::isNotBlank)
                 ?: media?.secureUrl?.takeIf(String::isNotBlank)
             RemoteImageLoader.load(gridPostImage, imageUrl, R.drawable.ic_cliqheart_logo)
+            gridContentIndicator.text = when {
+                post.contentType == "reel" -> "REEL"
+                media?.resourceType == "video" -> "▶"
+                else -> ""
+            }
+            gridContentIndicator.visibility =
+                if (gridContentIndicator.text.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
             root.setOnClickListener {
                 onPostClick(post)
             }

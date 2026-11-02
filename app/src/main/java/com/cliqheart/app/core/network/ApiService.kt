@@ -59,7 +59,7 @@ data class ProfileUpdateRequest(
     val username: String,
     val displayName: String,
     val bio: String,
-    val avatarUrl: String? = null,
+    val avatarMediaId: String? = null,
 )
 data class ConversationCreateRequest(val participantId: String)
 data class ConversationResponse(
@@ -163,10 +163,23 @@ data class PostResponse(
     val isSaved: Boolean? = null,
     val isReposted: Boolean? = null,
     val isFollowing: Boolean? = null,
+    val feedKey: String? = null,
 )
 data class PostsResponse(val posts: List<PostResponse> = emptyList(), val nextCursor: String? = null)
 data class ReelsResponse(val reels: List<PostResponse> = emptyList(), val nextCursor: String? = null)
 data class DiscoveryResponse(val items: List<PostResponse> = emptyList(), val nextCursor: String? = null)
+data class ProfessionalDashboardResponse(val analytics: ProfessionalAnalytics? = null)
+data class ProfessionalAnalytics(
+    val rangeDays: Int? = null,
+    val totals: ProfessionalTotals? = null,
+    val metricDefinition: String? = null,
+)
+data class ProfessionalTotals(
+    val followers: Int? = null,
+    val following: Int? = null,
+    val posts: Int? = null,
+    val reels: Int? = null,
+)
 data class HashtagFeedResponse(
     val hashtag: HashtagResponse? = null,
     val items: List<PostResponse> = emptyList(),
@@ -308,7 +321,33 @@ interface ApiService {
     suspend fun getUserPosts(
         @Path("userId") userId: String,
         @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
     ): Response<PostsResponse>
+
+    @GET("users/{userId}/reels")
+    suspend fun getUserReels(
+        @Path("userId") userId: String,
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<ReelsResponse>
+
+    @GET("users/me/saved")
+    suspend fun getSavedContent(
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<DiscoveryResponse>
+
+    @GET("users/{userId}/tagged")
+    suspend fun getTaggedContent(
+        @Path("userId") userId: String,
+        @Query("limit") limit: Int = 30,
+        @Query("after") after: String? = null,
+    ): Response<DiscoveryResponse>
+
+    @GET("professional/dashboard")
+    suspend fun getProfessionalDashboard(
+        @Query("days") days: Int = 30,
+    ): Response<ProfessionalDashboardResponse>
 
     @PATCH("users/me")
     suspend fun updateMyProfile(@Body request: ProfileUpdateRequest): Response<UserEnvelope>

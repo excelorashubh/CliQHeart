@@ -12,4 +12,18 @@
         android:scaleType="centerCrop"
         android:src="@drawable/ic_cliqheart_logo" />
 
+    <TextView
+        android:id="@+id/grid_content_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="5dp"
+        android:background="#99000000"
+        android:paddingHorizontal="5dp"
+        android:paddingVertical="2dp"
+        android:textColor="@color/white"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
 </FrameLayout>
