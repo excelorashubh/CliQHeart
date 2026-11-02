@@ -261,4 +261,5 @@
     <string name="username_at">@%1$s</string>
     <string name="reposts_count">%1$s reposts</string>
     <string name="story_by_user">Story by %1$s</string>
+    <string name="insert_emoji_label">Insert emoji %1$s</string>
 </resources>

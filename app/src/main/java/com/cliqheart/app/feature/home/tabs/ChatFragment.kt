@@ -13,11 +13,16 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.Gravity
 import android.view.inputmethod.EditorInfo
+import android.widget.GridLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
@@ -65,6 +70,12 @@ class ChatFragment : Fragment() {
     private var nextMessageCursor: String? = null
     private var refreshingSocketAuth = false
     private var isKeyboardVisible = false
+    private val sendingClientMessageIds = mutableSetOf<String>()
+    private val emojiBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            setEmojiPanelVisible(false)
+        }
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, state: Bundle?): View {
         _binding = FragmentChatBinding.inflate(inflater, container, false)
@@ -87,6 +98,7 @@ class ChatFragment : Fragment() {
             insets
         }
         ViewCompat.requestApplyInsets(view)
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, emojiBackCallback)
 
         conversationId = arguments?.getString(ARG_CONVERSATION_ID)
         participantId = arguments?.getString(ARG_PARTICIPANT_ID)
@@ -102,9 +114,23 @@ class ChatFragment : Fragment() {
             arguments?.getString(ARG_PARTICIPANT_AVATAR),
             R.drawable.ic_profile,
         )
-        binding.chatBackButton.setOnClickListener { findNavController().navigateUp() }
-        binding.chatMoreButton.setOnClickListener { showConversationMenu() }
-        binding.chatAvatar.setOnClickListener { openParticipantProfile() }
+        binding.chatBackButton.setOnClickListener {
+            if (binding.emojiPanel.visibility == View.VISIBLE) {
+                setEmojiPanelVisible(false)
+                return@setOnClickListener
+            }
+            val shell = parentFragment as? com.cliqheart.app.feature.home.MainShellFragment
+            if (shell?.closeConversation() != true) findNavController().navigateUp()
+        }
+        binding.chatMoreButton.setOnClickListener {
+            setEmojiPanelVisible(false)
+            showConversationMenu()
+        }
+        binding.chatAvatar.setOnClickListener {
+            setEmojiPanelVisible(false)
+            openParticipantProfile()
+        }
+        binding.chatTitle.setOnClickListener { setEmojiPanelVisible(false) }
 
         val currentUserId = SecureTokenStore(requireContext()).readSession()?.currentUser.let { user ->
             user?.id?.takeIf(String::isNotBlank) ?: user?._id
@@ -123,10 +149,42 @@ class ChatFragment : Fragment() {
             }
         })
 
-        binding.sendMessageButton.setOnClickListener { sendMessage() }
+        binding.sendMessageButton.setOnClickListener {
+            setEmojiPanelVisible(false)
+            sendMessage()
+        }
+        setupEmojiPicker()
+        binding.emojiPanel.setOnClickListener { }
         binding.emojiButton.setOnClickListener {
-            val cursor = binding.messageInput.selectionStart.coerceAtLeast(0)
-            binding.messageInput.text?.insert(cursor, "\uD83D\uDE0A")
+            if (binding.emojiPanel.visibility == View.VISIBLE) {
+                setEmojiPanelVisible(false)
+            } else {
+                if (isKeyboardVisible) {
+                    WindowInsetsControllerCompat(
+                        requireActivity().window,
+                        binding.messageInput,
+                    ).hide(WindowInsetsCompat.Type.ime())
+                }
+                setEmojiPanelVisible(true)
+            }
+        }
+        binding.messageInput.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus && binding.emojiPanel.visibility == View.VISIBLE) {
+                setEmojiPanelVisible(false)
+            }
+        }
+        binding.messageInput.setOnClickListener {
+            if (binding.emojiPanel.visibility == View.VISIBLE) {
+                setEmojiPanelVisible(false)
+            }
+        }
+        binding.messagesRecycler.setOnTouchListener { _, event ->
+            if (event.action == android.view.MotionEvent.ACTION_DOWN &&
+                binding.emojiPanel.visibility == View.VISIBLE
+            ) {
+                setEmojiPanelVisible(false)
+            }
+            false
         }
         binding.messageInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) {
@@ -225,6 +283,7 @@ class ChatFragment : Fragment() {
         val text = retry?.text ?: binding.messageInput.text?.toString()?.trim().orEmpty()
         if (text.isEmpty()) return
         val clientMessageId = retry?.clientMessageId ?: UUID.randomUUID().toString()
+        if (!sendingClientMessageIds.add(clientMessageId)) return
         if (retry == null) {
             adapter.addMessage(
                 MessageResponse(
@@ -238,6 +297,8 @@ class ChatFragment : Fragment() {
                 ),
             )
             binding.messagesRecycler.scrollToPosition(adapter.itemCount - 1)
+            binding.messageInput.text?.clear()
+            persistDraft("")
         } else {
             adapter.markSending(clientMessageId)
         }
@@ -254,10 +315,6 @@ class ChatFragment : Fragment() {
                     throw IOException(apiErrorMessage(response, getString(R.string.chat_failed)))
                 }
                 adapter.addMessage(message)
-                if (retry == null) {
-                    binding.messageInput.text?.clear()
-                    persistDraft("")
-                }
                 binding.messagesRecycler.scrollToPosition(adapter.itemCount - 1)
             } catch (exception: CancellationException) {
                 adapter.updateFailed(clientMessageId)
@@ -270,6 +327,7 @@ class ChatFragment : Fragment() {
                     Toast.LENGTH_SHORT,
                 ).show()
             } finally {
+                sendingClientMessageIds.remove(clientMessageId)
                 setComposerEnabled(true)
             }
         }
@@ -472,6 +530,87 @@ class ChatFragment : Fragment() {
         }
     }
 
+    private fun setupEmojiPicker() {
+        val context = requireContext()
+        val emojis = listOf(
+            "\uD83D\uDE00", "\uD83D\uDE02", "\uD83D\uDE0D", "\uD83D\uDE0A",
+            "\uD83D\uDE0E", "\uD83D\uDE18", "\uD83D\uDE22", "\uD83D\uDE2E",
+            "\uD83D\uDE4C", "\uD83D\uDC4D", "\uD83D\uDC4F", "\uD83D\uDE4F",
+            "\u2764\uFE0F", "\uD83D\uDD25", "\uD83D\uDE80", "\uD83C\uDF89",
+            "\uD83D\uDC95", "\uD83D\uDE2D", "\uD83E\uDD14", "\uD83D\uDE09",
+            "\uD83D\uDE1C", "\uD83D\uDE3B", "\uD83D\uDE07", "\uD83D\uDC4B",
+            "\uD83E\uDD1D", "\uD83D\uDC9C", "\uD83C\uDF1F", "\uD83D\uDE0B",
+        )
+        binding.emojiGrid.removeAllViews()
+        emojis.forEach { emoji ->
+            val emojiButton = TextView(context).apply {
+                text = emoji
+                textSize = 23f
+                gravity = Gravity.CENTER
+                contentDescription = getString(R.string.insert_emoji_label, emoji)
+                background = androidx.core.content.ContextCompat.getDrawable(
+                    context,
+                    android.R.drawable.list_selector_background,
+                )
+                setOnClickListener { insertEmoji(emoji) }
+            }
+            binding.emojiGrid.addView(
+                emojiButton,
+                GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = dp(42)
+                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                    setGravity(Gravity.CENTER)
+                },
+            )
+        }
+    }
+
+    private fun insertEmoji(emoji: String) {
+        val input = binding.messageInput
+        val editable = input.text ?: return
+        val start = input.selectionStart.coerceIn(0, editable.length)
+        val end = input.selectionEnd.coerceIn(0, editable.length)
+        val selectionStart = minOf(start, end)
+        val selectionEnd = maxOf(start, end)
+        editable.replace(selectionStart, selectionEnd, emoji)
+        input.setSelection(selectionStart + emoji.length)
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
+    private fun setEmojiPanelVisible(visible: Boolean) {
+        val panel = _binding?.emojiPanel ?: return
+        if (visible == (panel.visibility == View.VISIBLE)) return
+        panel.animate().cancel()
+        if (visible) {
+            panel.visibility = View.VISIBLE
+            panel.alpha = 0f
+            panel.translationY = dp(8).toFloat()
+            emojiBackCallback.isEnabled = true
+            panel.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(170)
+                .start()
+        } else {
+            emojiBackCallback.isEnabled = false
+            panel.animate()
+                .alpha(0f)
+                .translationY(dp(8).toFloat())
+                .setDuration(140)
+                .withEndAction {
+                    if (_binding?.emojiPanel === panel) {
+                        panel.visibility = View.GONE
+                        panel.alpha = 1f
+                        panel.translationY = 0f
+                    }
+                }
+                .start()
+        }
+    }
+
     private fun showConversationMenu() {
         val username = participantUsername?.takeIf(String::isNotBlank) ?: return
         MaterialAlertDialogBuilder(requireContext())
@@ -516,7 +655,10 @@ class ChatFragment : Fragment() {
     private fun showFailure(message: String = getString(R.string.chat_failed)) {
         binding.chatState.text = message
         binding.chatState.visibility = View.VISIBLE
-        binding.chatState.setOnClickListener { loadMessages() }
+        binding.chatState.setOnClickListener {
+            setEmojiPanelVisible(false)
+            loadMessages()
+        }
     }
 
     private fun closeRealtime() {

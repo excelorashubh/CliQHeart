@@ -22,11 +22,13 @@ import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.widget.PopupMenu
 import androidx.core.view.doOnLayout
+import androidx.core.view.doOnNextLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.R
@@ -60,6 +62,7 @@ class FeedAdapter(
         var boundPost: PostModel? = null
         var videoSource: String? = null
         var videoHasFrame = false
+        var videoTrackUnavailable = false
         var isMuted = true
     }
 
@@ -638,6 +641,7 @@ class FeedAdapter(
         pauseVideo(holder)
         holder.videoSource = null
         holder.videoHasFrame = false
+        holder.videoTrackUnavailable = false
         holder.boundPost = null
         attachedHolders.remove(holder)
         super.onViewRecycled(holder)
@@ -657,6 +661,7 @@ class FeedAdapter(
                 postMediaImage.visibility = View.VISIBLE
                 holder.videoSource = null
                 holder.videoHasFrame = false
+                holder.videoTrackUnavailable = false
                 return
             }
             val uri = Uri.parse(videoUrl)
@@ -670,6 +675,7 @@ class FeedAdapter(
                 postVideoError.visibility = View.VISIBLE
                 postMediaImage.visibility = View.VISIBLE
                 holder.videoSource = null
+                holder.videoTrackUnavailable = false
                 return
             }
 
@@ -677,6 +683,7 @@ class FeedAdapter(
             if (isNewSource) {
                 holder.isMuted = true
                 holder.videoHasFrame = false
+                holder.videoTrackUnavailable = false
             }
             postMediaVideo.player = if (activeVideoHolder == holder) player else null
             postMediaVideo.resizeMode = if (reelsMode) {
@@ -720,6 +727,18 @@ class FeedAdapter(
         if (reelsMode && (holder !in attachedHolders || !holder.itemView.isShown)) return
         val post = holder.boundPost ?: return
         val videoUrl = post.videoUrl?.takeIf(String::isNotBlank) ?: return
+        if (holder.videoTrackUnavailable && !retry) return
+        val videoView = holder.binding.postMediaVideo
+        if (videoView.width <= 0 || videoView.height <= 0) {
+            Log.w(TAG, "Waiting for a measured video view before playback.")
+            videoView.doOnNextLayout {
+                if (holder.boundPost?.contentKey == post.contentKey) {
+                    startVideo(holder, retry)
+                }
+            }
+            return
+        }
+        Log.d(TAG, "Attaching video output size=${videoView.width}x${videoView.height}")
         val context = holder.itemView.context
         if (retry) Log.i(TAG, "Retrying video playback.")
         if (activeVideoHolder != holder || activeContentKey != post.contentKey) {
@@ -732,7 +751,43 @@ class FeedAdapter(
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (created.currentMediaItem?.mediaId != activeContentKey) return
                     Log.d(TAG, "Video playback state=${playbackStateName(playbackState)}")
+                    if (playbackState == Player.STATE_READY &&
+                        created.currentTracks.groups.none { it.type == C.TRACK_TYPE_VIDEO }
+                    ) {
+                        Log.w(TAG, "Playable media contains no video track: $activeContentKey")
+                        activeVideoHolder?.let { active ->
+                            active.videoTrackUnavailable = true
+                            active.binding.postVideoLoading.visibility = View.GONE
+                            active.binding.postVideoError.visibility = View.VISIBLE
+                            active.binding.postMediaImage.visibility = View.VISIBLE
+                        }
+                        created.pause()
+                        return
+                    }
                     updateActiveVideoState(playbackState)
+                }
+
+                override fun onRenderedFirstFrame() {
+                    if (created.currentMediaItem?.mediaId != activeContentKey) return
+                    val active = activeVideoHolder ?: return
+                    active.videoHasFrame = true
+                    active.binding.postMediaImage.visibility = View.GONE
+                    active.binding.postMediaVideo.visibility = View.VISIBLE
+                    active.binding.postVideoLoading.visibility = View.GONE
+                    Log.d(TAG, "Video first frame rendered for ${active.boundPost?.contentKey}")
+                }
+
+                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                    if (created.currentMediaItem?.mediaId != activeContentKey) return
+                    Log.d(TAG, "Video dimensions=${videoSize.width}x${videoSize.height}")
+                }
+
+                override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                    if (created.currentMediaItem?.mediaId != activeContentKey) return
+                    val hasVideoTrack = tracks.groups.any { it.type == C.TRACK_TYPE_VIDEO }
+                    if (!hasVideoTrack) {
+                        Log.w(TAG, "Selected media has no video track: $activeContentKey")
+                    }
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -760,9 +815,10 @@ class FeedAdapter(
 
         if (activeVideoHolder != holder) {
             activeVideoHolder?.binding?.postMediaVideo?.player = null
-            holder.binding.postMediaVideo.player = exoPlayer
             activeVideoHolder = holder
         }
+        holder.binding.postMediaVideo.visibility = View.VISIBLE
+        holder.binding.postMediaVideo.player = exoPlayer
         exoPlayer.volume = if (holder.isMuted) 0f else 1f
         val shouldReload = retry || activeContentKey != post.contentKey ||
             exoPlayer.playerError != null || holder.videoSource != videoUrl
@@ -770,8 +826,8 @@ class FeedAdapter(
             activeContentKey = post.contentKey
             holder.videoSource = videoUrl
             holder.videoHasFrame = false
+            holder.videoTrackUnavailable = false
             holder.binding.postVideoError.visibility = View.GONE
-            holder.binding.postMediaVideo.visibility = View.INVISIBLE
             holder.binding.postMediaImage.visibility = View.VISIBLE
             val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
                 .setMediaId(post.contentKey)
@@ -789,6 +845,7 @@ class FeedAdapter(
         if (activeVideoHolder != holder) return
         player?.pause()
         holder.binding.postMediaVideo.player = null
+        holder.binding.postMediaVideo.visibility = View.INVISIBLE
         holder.binding.postVideoLoading.visibility = View.GONE
         activeVideoHolder = null
     }
@@ -802,11 +859,8 @@ class FeedAdapter(
                 binding.postVideoError.visibility = View.GONE
             }
             Player.STATE_READY -> {
-                holder.videoHasFrame = true
                 binding.postVideoLoading.visibility = View.GONE
                 binding.postVideoError.visibility = View.GONE
-                binding.postMediaImage.visibility = View.GONE
-                binding.postMediaVideo.visibility = View.VISIBLE
             }
             Player.STATE_IDLE -> binding.postVideoLoading.visibility = View.GONE
             Player.STATE_ENDED -> player?.seekToDefaultPosition()

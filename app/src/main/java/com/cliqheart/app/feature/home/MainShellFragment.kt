@@ -21,6 +21,7 @@ import com.cliqheart.app.databinding.FragmentMainShellBinding
 import com.cliqheart.app.feature.home.RemoteImageLoader
 import com.cliqheart.app.feature.home.tabs.ActivityFragment
 import com.cliqheart.app.feature.home.tabs.CreatePostFragment
+import com.cliqheart.app.feature.home.tabs.ChatFragment
 import com.cliqheart.app.feature.home.tabs.DiscoverFragment
 import com.cliqheart.app.feature.home.tabs.HomeFeedFragment
 import com.cliqheart.app.feature.home.tabs.MessagesFragment
@@ -44,7 +45,9 @@ class MainShellFragment : Fragment() {
     private var profileAvatarLoadedUrl: String? = null
     private var profileAvatarAttempts = 0
     private var profileAvatarLastAttemptAt = 0L
+    private var pendingConversationTag: String? = null
     private val backStackListener = androidx.fragment.app.FragmentManager.OnBackStackChangedListener {
+        pendingConversationTag = null
         if (childFragmentManager.backStackEntryCount == 0) {
             (childFragmentManager.findFragmentByTag(HOME_FRAGMENT_TAG) as? HomeFeedFragment)
                 ?.takeIf { it.isVisible }
@@ -358,6 +361,27 @@ class MainShellFragment : Fragment() {
             .commit()
     }
 
+    fun openConversation(arguments: Bundle) {
+        val conversationId = arguments.getString(ARG_CONVERSATION_ID)
+            ?.takeIf(String::isNotBlank) ?: return
+        val manager = childFragmentManager
+        if (_binding == null || manager.isStateSaved) return
+        val tag = "$CHAT_OVERLAY_TAG_PREFIX$conversationId"
+        if (pendingConversationTag == tag || manager.findFragmentByTag(tag)?.isAdded == true) return
+        pendingConversationTag = tag
+        showOverlay(tag) {
+            ChatFragment().apply { this.arguments = Bundle(arguments) }
+        }
+    }
+
+    fun closeConversation(): Boolean {
+        val manager = childFragmentManager
+        val topFragment = manager.fragments.lastOrNull { it.isAdded && it.isVisible }
+        if (topFragment !is ChatFragment || manager.backStackEntryCount == 0) return false
+        manager.popBackStack()
+        return true
+    }
+
     override fun onDestroyView() {
         childFragmentManager.removeOnBackStackChangedListener(backStackListener)
         profileAvatarUrl = null
@@ -456,6 +480,8 @@ class MainShellFragment : Fragment() {
     }
 
     private companion object {
+        const val ARG_CONVERSATION_ID = "conversationId"
+        const val CHAT_OVERLAY_TAG_PREFIX = "chat:"
         val NAVIGATION_TAB_IDS = setOf(
             R.id.homeTab,
             R.id.reelsTab,

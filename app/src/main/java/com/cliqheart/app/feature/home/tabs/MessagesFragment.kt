@@ -294,16 +294,19 @@ class MessagesFragment : Fragment() {
         username: String?,
         avatarUrl: String?,
     ) {
-        findNavController().navigate(
-            R.id.chatFragment,
-            Bundle().apply {
-                putString(ARG_CONVERSATION_ID, conversationId)
-                putString(ARG_PARTICIPANT_ID, participantId)
-                putString(ARG_PARTICIPANT_NAME, displayName)
-                putString(ARG_PARTICIPANT_USERNAME, username)
-                putString(ARG_PARTICIPANT_AVATAR, avatarUrl)
-            },
-        )
+        val arguments = Bundle().apply {
+            putString(ARG_CONVERSATION_ID, conversationId)
+            putString(ARG_PARTICIPANT_ID, participantId)
+            putString(ARG_PARTICIPANT_NAME, displayName)
+            putString(ARG_PARTICIPANT_USERNAME, username)
+            putString(ARG_PARTICIPANT_AVATAR, avatarUrl)
+        }
+        val shell = parentFragment as? com.cliqheart.app.feature.home.MainShellFragment
+        if (shell != null) {
+            shell.openConversation(arguments)
+        } else {
+            findNavController().navigate(R.id.chatFragment, arguments)
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
