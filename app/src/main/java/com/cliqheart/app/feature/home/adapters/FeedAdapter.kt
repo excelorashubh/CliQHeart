@@ -26,6 +26,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.AudioAttributes
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.RecyclerView
 import com.cliqheart.app.R
@@ -44,6 +45,7 @@ class FeedAdapter(
     private val onRepostClicked: (PostModel) -> Unit,
     private val onFollowClicked: (PostModel) -> Unit,
     private val reelsMode: Boolean = false,
+    private val onReelsLayoutReady: () -> Unit = {},
 ) : RecyclerView.Adapter<FeedAdapter.PostViewHolder>() {
     private val posts = posts.toMutableList()
     private val expandedCaptions = mutableSetOf<String>()
@@ -119,6 +121,23 @@ class FeedAdapter(
         attachedHolders.forEach { holder ->
             if (holder == visibleHolder) startVideo(holder) else pauseVideo(holder)
         }
+    }
+
+    fun playReel(holder: PostViewHolder?) {
+        if (!reelsMode) return
+        val target = holder?.takeIf {
+            it in attachedHolders &&
+                it.itemView.isShown &&
+                !it.boundPost?.videoUrl.isNullOrBlank()
+        }
+        attachedHolders.forEach { attached ->
+            if (attached != target) pauseVideo(attached)
+        }
+        if (target == null) {
+            pauseVideos()
+            return
+        }
+        startVideo(target)
     }
 
     fun pauseVideos() {
@@ -602,7 +621,11 @@ class FeedAdapter(
     override fun onViewAttachedToWindow(holder: PostViewHolder) {
         super.onViewAttachedToWindow(holder)
         attachedHolders.add(holder)
-        holder.itemView.post { updateVisibleVideoPlayback() }
+        if (reelsMode) {
+            holder.itemView.post(onReelsLayoutReady)
+        } else {
+            holder.itemView.post { updateVisibleVideoPlayback() }
+        }
     }
 
     override fun onViewDetachedFromWindow(holder: PostViewHolder) {
@@ -638,6 +661,7 @@ class FeedAdapter(
             }
             val uri = Uri.parse(videoUrl)
             if (uri.scheme != "https" || uri.host.isNullOrBlank()) {
+                Log.w(TAG, "Skipping video with an invalid HTTPS URL.")
                 pauseVideo(holder)
                 postMediaVideo.player = null
                 postMediaVideo.visibility = View.INVISIBLE
@@ -686,23 +710,43 @@ class FeedAdapter(
             }
             btnRetryVideo.setOnClickListener { startVideo(holder, retry = true) }
             if (isNewSource) holder.videoSource = videoUrl
-            postMediaFrame.post { updateVisibleVideoPlayback() }
+            if (!reelsMode) {
+                postMediaFrame.post { updateVisibleVideoPlayback() }
+            }
         }
     }
 
     private fun startVideo(holder: PostViewHolder, retry: Boolean = false) {
+        if (reelsMode && (holder !in attachedHolders || !holder.itemView.isShown)) return
         val post = holder.boundPost ?: return
         val videoUrl = post.videoUrl?.takeIf(String::isNotBlank) ?: return
         val context = holder.itemView.context
+        if (retry) Log.i(TAG, "Retrying video playback.")
+        if (activeVideoHolder != holder || activeContentKey != post.contentKey) {
+            Log.d(TAG, "Selecting video contentType=${post.contentType} format=${post.videoFormat ?: "unknown"}")
+        }
         val exoPlayer = player ?: ExoPlayer.Builder(context).build().also { created ->
             created.repeatMode = Player.REPEAT_MODE_ONE
+            created.setAudioAttributes(AudioAttributes.DEFAULT, true)
             created.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (created.currentMediaItem?.mediaId != activeContentKey) return
+                    Log.d(TAG, "Video playback state=${playbackStateName(playbackState)}")
                     updateActiveVideoState(playbackState)
                 }
 
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (created.currentMediaItem?.mediaId != activeContentKey) return
+                    Log.d(TAG, "Video playback state=${if (isPlaying) "playing" else "paused"}")
+                }
+
                 override fun onPlayerError(error: PlaybackException) {
-                    Log.w(TAG, "Post video playback failed.", error)
+                    if (created.currentMediaItem?.mediaId != activeContentKey) return
+                    Log.w(
+                        TAG,
+                        "Video playback failed code=${error.errorCodeName} " +
+                            "mediaFormat=${activeVideoHolder?.boundPost?.videoFormat ?: "unknown"}",
+                    )
                     activeVideoHolder?.let { active ->
                         active.binding.postVideoLoading.visibility = View.GONE
                         active.binding.postMediaVideo.visibility = View.INVISIBLE
@@ -730,6 +774,7 @@ class FeedAdapter(
             holder.binding.postMediaVideo.visibility = View.INVISIBLE
             holder.binding.postMediaImage.visibility = View.VISIBLE
             val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+                .setMediaId(post.contentKey)
             when (post.videoFormat?.lowercase(Locale.ROOT)) {
                 "mp4" -> mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP4)
                 "mov" -> mediaItemBuilder.setMimeType("video/quicktime")
@@ -737,7 +782,7 @@ class FeedAdapter(
             exoPlayer.setMediaItem(mediaItemBuilder.build())
             exoPlayer.prepare()
         }
-        exoPlayer.playWhenReady = true
+        exoPlayer.play()
     }
 
     private fun pauseVideo(holder: PostViewHolder) {
@@ -766,6 +811,14 @@ class FeedAdapter(
             Player.STATE_IDLE -> binding.postVideoLoading.visibility = View.GONE
             Player.STATE_ENDED -> player?.seekToDefaultPosition()
         }
+    }
+
+    private fun playbackStateName(state: Int): String = when (state) {
+        Player.STATE_IDLE -> "idle"
+        Player.STATE_BUFFERING -> "buffering"
+        Player.STATE_READY -> "ready"
+        Player.STATE_ENDED -> "ended"
+        else -> "unknown"
     }
 
     private fun updateLikeButton(binding: ItemPostBinding, isLiked: Boolean) {

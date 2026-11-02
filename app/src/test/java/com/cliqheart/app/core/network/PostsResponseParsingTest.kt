@@ -150,4 +150,30 @@ class PostsResponseParsingTest {
         assertEquals("travel", hashtags.hashtags.single().normalizedName)
         assertEquals(17, hashtags.hashtags.single().usageCount)
     }
+
+    @Test
+    fun parsesPeopleSearchUserProfileAndFollowState() {
+        val response = Gson().fromJson(
+            """
+                {
+                  "users": [{
+                    "id": "user-id",
+                    "username": "ragxshubh",
+                    "displayName": "Ragx Shubh",
+                    "avatarUrl": "https://images.example/profile.jpg",
+                    "isFollowing": true
+                  }],
+                  "nextCursor": null
+                }
+            """.trimIndent(),
+            UsersResponse::class.java,
+        )
+
+        val user = response.users.single()
+        assertEquals("user-id", user.id)
+        assertEquals("ragxshubh", user.username)
+        assertEquals("Ragx Shubh", user.displayName)
+        assertEquals("https://images.example/profile.jpg", user.avatarUrl)
+        assertTrue(user.isFollowing == true)
+    }
 }

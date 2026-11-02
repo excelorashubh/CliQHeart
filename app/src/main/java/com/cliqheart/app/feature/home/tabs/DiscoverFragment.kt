@@ -246,6 +246,12 @@ class DiscoverFragment : Fragment() {
     private fun search(rawQuery: String, immediate: Boolean = false) {
         searchJob?.cancel()
         val query = normalizeSearchQuery(rawQuery)
+        if (filter == ExploreFilter.PEOPLE) {
+            Log.i(
+                TAG,
+                "People search input receivedLength=${rawQuery.length} normalizedLength=${query.length}",
+            )
+        }
         val generation = ++searchGeneration
         nextSearchCursor = null
         searchExhausted = false
@@ -378,7 +384,11 @@ class DiscoverFragment : Fragment() {
     }
 
     private suspend fun loadPeopleSearch(query: String, generation: Long, append: Boolean) {
-        Log.i(TAG, "People search request started queryLength=${query.length} append=$append")
+        Log.i(
+            TAG,
+            "People search request endpoint=GET /api/v1/users/search queryParam=q " +
+                "normalizedLength=${query.length} append=$append",
+        )
         val response = ApiClient.service.searchUsers(
             query = query,
             limit = PAGE_SIZE,
@@ -398,6 +408,7 @@ class DiscoverFragment : Fragment() {
             showStatus(getString(R.string.explore_search_failed))
             return
         }
+        Log.i(TAG, "People search mappedCount=${body.users.size}")
         if (append) usersAdapter.appendUsers(body.users) else usersAdapter.submitUsers(body.users)
         Log.i(TAG, "People search adapterCount=${usersAdapter.itemCount}")
         nextUserCursor = body.nextCursor

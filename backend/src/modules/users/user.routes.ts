@@ -208,6 +208,7 @@ export function createUserRouter(
       const normalizedQuery = query.toLowerCase();
       console.info(JSON.stringify({
         event: 'people_search_started',
+        route: 'GET /api/v1/users/search',
         normalizedQueryLength: normalizedQuery.length,
       }));
       if (query.length < 2 || query.length > 80) {
@@ -237,7 +238,12 @@ export function createUserRouter(
           {
             $or: [
               { username: { $regex: `^${escapeRegex(normalizedQuery)}` } },
-              { displayName: { $regex: escapeRegex(query), $options: 'i' } },
+              {
+                displayName: {
+                  $regex: query.split(' ').map(escapeRegex).join('\\s+'),
+                  $options: 'i',
+                },
+              },
             ],
           },
           ...(after ? [{ username: { $gt: after.toLowerCase() } }] : []),
@@ -268,8 +274,10 @@ export function createUserRouter(
       });
       console.info(JSON.stringify({
         event: 'people_search_completed',
+        route: 'GET /api/v1/users/search',
         status: response.statusCode,
-        resultCount: page.length,
+        mongoResultCount: users.length,
+        apiResultCount: page.length,
       }));
     } catch (error) {
       next(error);

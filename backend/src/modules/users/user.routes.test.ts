@@ -407,3 +407,29 @@ test('people search escapes partial display-name queries and uses case-insensiti
   assert.equal(displayNameFilter.$regex, 'MiXeD\\.');
   assert.equal(displayNameFilter.$options, 'i');
 });
+
+test('people search matches multiword display names despite repeated query whitespace', async (t) => {
+  const { app, token } = createTestApp(t);
+  let searchFilter: unknown;
+  t.mock.method(UserModel, 'find', (filter: unknown) => {
+    searchFilter = filter;
+    return {
+      select() { return this; },
+      sort() { return this; },
+      limit() { return this; },
+      lean: async () => [],
+    };
+  });
+
+  const response = await request(app)
+    .get('/users/search')
+    .query({ q: 'Ragx    Shubh' })
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.ok(searchFilter && typeof searchFilter === 'object' && '$and' in searchFilter);
+  const andFilters = (searchFilter as { $and: Array<Record<string, unknown>> }).$and;
+  const matchingFilters = andFilters[0]?.$or as Array<Record<string, unknown>>;
+  const displayNameFilter = matchingFilters[1]?.displayName as { $regex: string };
+  assert.equal(displayNameFilter.$regex, 'Ragx\\s+Shubh');
+});

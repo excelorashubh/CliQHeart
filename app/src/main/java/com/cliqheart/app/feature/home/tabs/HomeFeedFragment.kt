@@ -65,6 +65,7 @@ class HomeFeedFragment : Fragment() {
     private val binding get() = requireNotNull(_binding)
     private var feedAdapter: FeedAdapter? = null
     private var headerAdapter: HomeFeedHeaderAdapter? = null
+    private var reelsSnapHelper: PagerSnapHelper? = null
     private var nextPostCursor: String? = null
     private var nextReelCursor: String? = null
     private var postsExhausted = false
@@ -162,13 +163,16 @@ class HomeFeedFragment : Fragment() {
             onRepostClicked = ::toggleRepost,
             onFollowClicked = ::followAuthor,
             reelsMode = isReelsMode,
+            onReelsLayoutReady = ::scheduleActiveReelPlayback,
         )
         feedAdapter = adapter
         if (isReelsMode) {
             headerAdapter = null
             binding.feedRecyclerView.layoutManager = LinearLayoutManager(requireContext())
             binding.feedRecyclerView.adapter = adapter
-            PagerSnapHelper().attachToRecyclerView(binding.feedRecyclerView)
+            reelsSnapHelper = PagerSnapHelper().also {
+                it.attachToRecyclerView(binding.feedRecyclerView)
+            }
         } else {
             val header = HomeFeedHeaderAdapter(
                 onFeedRetry = {
@@ -191,7 +195,15 @@ class HomeFeedFragment : Fragment() {
         }
         binding.feedRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                feedAdapter?.updateVisibleVideoPlayback()
+                if (isReelsMode) {
+                    if (recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE) {
+                        scheduleActiveReelPlayback()
+                    } else {
+                        feedAdapter?.pauseVideos()
+                    }
+                } else {
+                    feedAdapter?.updateVisibleVideoPlayback()
+                }
                 if (dy <= 0 || loadingPosts || isFeedExhausted()) return
                 val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
                 if (layoutManager.findLastVisibleItemPosition() >=
@@ -201,6 +213,14 @@ class HomeFeedFragment : Fragment() {
                 }
             }
 
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (!isReelsMode) return
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    scheduleActiveReelPlayback()
+                } else {
+                    feedAdapter?.pauseVideos()
+                }
+            }
         })
     }
 
@@ -214,22 +234,46 @@ class HomeFeedFragment : Fragment() {
         super.onResume()
         loadUnreadBadges()
         connectRealtime()
-        bindingOrNull()?.feedRecyclerView?.post {
-            feedAdapter?.updateVisibleVideoPlayback()
-        }
+        updatePlaybackForCurrentScreen()
     }
 
     fun onTabSelected() {
         loadUnreadBadges()
         connectRealtime()
         if (pendingContentId != null && !loadingPosts) focusPendingContent()
-        bindingOrNull()?.feedRecyclerView?.post {
-            feedAdapter?.updateVisibleVideoPlayback()
-        }
+        updatePlaybackForCurrentScreen()
     }
 
     fun pauseFeedPlayback() {
         feedAdapter?.pauseVideos()
+    }
+
+    private fun updatePlaybackForCurrentScreen() {
+        if (isReelsMode) {
+            scheduleActiveReelPlayback()
+        } else {
+            bindingOrNull()?.feedRecyclerView?.post {
+                if (isVisible && view?.isShown == true) {
+                    feedAdapter?.updateVisibleVideoPlayback()
+                }
+            }
+        }
+    }
+
+    private fun scheduleActiveReelPlayback() {
+        if (!isReelsMode) return
+        val recyclerView = bindingOrNull()?.feedRecyclerView ?: return
+        recyclerView.post {
+            if (!isVisible || view?.isShown != true ||
+                recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE
+            ) return@post
+            val layoutManager = recyclerView.layoutManager ?: return@post
+            val snappedView = reelsSnapHelper?.findSnapView(layoutManager)
+            val snappedHolder = snappedView
+                ?.let(recyclerView::getChildViewHolder)
+                as? FeedAdapter.PostViewHolder
+            feedAdapter?.playReel(snappedHolder)
+        }
     }
 
     fun openContent(contentId: String, contentType: String) {
@@ -253,7 +297,7 @@ class HomeFeedFragment : Fragment() {
             val headerCount = if (isReelsMode) 0 else headerAdapter?.itemCount ?: 0
             (binding.feedRecyclerView.layoutManager as? LinearLayoutManager)
                 ?.scrollToPositionWithOffset(headerCount + feedIndex, 0)
-            binding.feedRecyclerView.post { feedAdapter?.updateVisibleVideoPlayback() }
+            updatePlaybackForCurrentScreen()
             return
         }
         if (isFeedExhausted()) {
@@ -329,6 +373,7 @@ class HomeFeedFragment : Fragment() {
                     hideFeedState()
                 }
                 pageLoaded = true
+                updatePlaybackForCurrentScreen()
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
@@ -854,6 +899,7 @@ class HomeFeedFragment : Fragment() {
         feedAdapter?.releaseVideos()
         feedAdapter = null
         headerAdapter = null
+        reelsSnapHelper = null
         _binding = null
         super.onDestroyView()
     }
