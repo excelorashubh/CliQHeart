@@ -82,7 +82,7 @@
 
                 <LinearLayout
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
+                    android:layout_height="88dp"
                     android:layout_weight="1"
                     android:gravity="center"
                     android:orientation="horizontal">
@@ -98,8 +98,10 @@
 
                         <TextView
                             android:id="@+id/stat_posts_count"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:textAlignment="center"
                             android:text="—"
                             android:textColor="@color/heart_text"
                             android:textSize="16sp"
@@ -108,6 +110,9 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:gravity="center"
+                            android:maxLines="1"
                             android:text="@string/posts"
                             android:textColor="@color/heart_muted"
                             android:textSize="12sp" />
@@ -125,14 +130,17 @@
                         <ImageView
                             android:layout_width="24dp"
                             android:layout_height="24dp"
+                            android:layout_gravity="center_horizontal"
                             android:contentDescription="@string/followers"
                             android:src="@drawable/ic_followers"
                             android:tint="@color/heart_primary" />
 
                         <TextView
                             android:id="@+id/stat_followers_count"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:textAlignment="center"
                             android:text="—"
                             android:textColor="@color/heart_text"
                             android:textSize="16sp"
@@ -141,6 +149,9 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:gravity="center"
+                            android:maxLines="1"
                             android:text="@string/followers"
                             android:textColor="@color/heart_muted"
                             android:textSize="12sp" />
@@ -158,14 +169,17 @@
                         <ImageView
                             android:layout_width="24dp"
                             android:layout_height="24dp"
+                            android:layout_gravity="center_horizontal"
                             android:contentDescription="@string/following"
                             android:src="@drawable/ic_following"
                             android:tint="@color/heart_primary" />
 
                         <TextView
                             android:id="@+id/stat_following_count"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:textAlignment="center"
                             android:text="—"
                             android:textColor="@color/heart_text"
                             android:textSize="16sp"
@@ -174,6 +188,9 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:gravity="center"
+                            android:maxLines="1"
                             android:text="Following"
                             android:textColor="@color/heart_muted"
                             android:textSize="12sp" />
