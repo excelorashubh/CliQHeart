@@ -142,6 +142,7 @@ data class PostOwnerResponse(
     val avatarUrl: String? = null,
 )
 data class PostMediaResponse(
+    val id: String? = null,
     val resourceType: String? = null,
     val secureUrl: String? = null,
     val thumbnailUrl: String? = null,
@@ -442,6 +443,7 @@ interface ApiService {
     suspend fun getPosts(
         @Query("limit") limit: Int = 30,
         @Query("after") after: String? = null,
+        @Query("mediaType") mediaType: String? = null,
     ): Response<PostsResponse>
 
     @GET("reels")

@@ -8,6 +8,7 @@ data class PostModel(
     val authorUsername: String,
     val authorAvatarUrl: String,
     val location: String? = null,
+    val mediaId: String? = null,
     val imageUrl: String,
     val videoUrl: String? = null,
     val videoFormat: String? = null,
@@ -25,4 +26,8 @@ data class PostModel(
     val createdAtMillis: Long = 0,
 ) {
     val contentKey: String get() = "$contentType:$id"
+    val videoMediaKey: String?
+        get() = videoUrl?.takeIf(String::isNotBlank)?.let {
+            "video:${mediaId?.takeIf(String::isNotBlank) ?: it.trim()}"
+        }
 }

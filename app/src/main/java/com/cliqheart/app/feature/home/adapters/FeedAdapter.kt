@@ -68,11 +68,14 @@ class FeedAdapter(
 
     fun submitPosts(results: List<PostModel>, append: Boolean = false) {
         if (!append) posts.clear()
-        val existingKeys = posts.mapTo(mutableSetOf()) { it.contentKey }
-        posts.addAll(results.filter { existingKeys.add(it.contentKey) })
+        val existingKeys = posts.mapTo(mutableSetOf(), ::deduplicationKey)
+        posts.addAll(results.filter { existingKeys.add(deduplicationKey(it)) })
         posts.sortByDescending { it.createdAtMillis }
         notifyDataSetChanged()
     }
+
+    private fun deduplicationKey(post: PostModel): String =
+        if (reelsMode) post.videoMediaKey ?: post.contentKey else post.contentKey
 
     fun updatePost(post: PostModel) {
         val position = posts.indexOfFirst { it.contentKey == post.contentKey }
@@ -206,9 +209,18 @@ class FeedAdapter(
             holder.binding.reelOverlay.visibility = View.VISIBLE
             holder.binding.reelDoubleTapHeart.visibility = View.GONE
             holder.binding.reelPlayPauseIndicator.visibility = View.GONE
-            holder.binding.postMediaImage.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            holder.binding.postMediaImage.scaleType =
+                if (post.contentType == "post") {
+                    android.widget.ImageView.ScaleType.FIT_CENTER
+                } else {
+                    android.widget.ImageView.ScaleType.CENTER_CROP
+                }
             holder.binding.postMediaVideo.resizeMode =
-                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                if (post.contentType == "post") {
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                } else {
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                }
             (holder.binding.btnMuteVideo.layoutParams as? android.widget.FrameLayout.LayoutParams)
                 ?.let { params ->
                     params.gravity = Gravity.TOP or Gravity.END
@@ -687,7 +699,11 @@ class FeedAdapter(
             }
             postMediaVideo.player = if (activeVideoHolder == holder) player else null
             postMediaVideo.resizeMode = if (reelsMode) {
-                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                if (post.contentType == "post") {
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                } else {
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                }
             } else {
                 androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
             }

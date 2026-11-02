@@ -29,6 +29,8 @@ import com.cliqheart.app.core.security.SecureTokenStore
 import com.cliqheart.app.core.ui.limitContentWidth
 import com.cliqheart.app.databinding.FragmentHomeFeedBinding
 import com.cliqheart.app.feature.home.MainShellViewModel
+import com.cliqheart.app.feature.home.ReelsFeedItem
+import com.cliqheart.app.feature.home.mergeReelsAndVideoPosts
 import com.cliqheart.app.feature.home.StoryViewerDialogFragment
 import com.cliqheart.app.feature.home.getEffectiveAvatarUrl
 import com.cliqheart.app.feature.home.toStoryModels
@@ -332,10 +334,14 @@ class HomeFeedFragment : Fragment() {
         var pageLoaded = false
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val postPage = if (isReelsMode || postsExhausted) {
+                val postPage = if (postsExhausted) {
                     null
                 } else {
-                    val response = ApiClient.service.getPosts(PAGE_SIZE, nextPostCursor)
+                    val response = ApiClient.service.getPosts(
+                        limit = PAGE_SIZE,
+                        after = nextPostCursor,
+                        mediaType = if (isReelsMode) "video" else null,
+                    )
                     if (!response.isSuccessful) {
                         throw IOException(apiErrorMessage(response, getString(R.string.feed_load_failed)))
                     }
@@ -358,12 +364,22 @@ class HomeFeedFragment : Fragment() {
                     nextReelCursor = it.nextCursor
                     reelsExhausted = it.nextCursor.isNullOrBlank()
                 }
-                val posts = buildList {
-                    postPage?.posts?.forEach { add("post" to it) }
-                    reelPage?.reels?.forEach { add("reel" to it) }
+                val pageItems = if (isReelsMode) {
+                    mergeReelsAndVideoPosts(
+                        videoPosts = postPage?.posts.orEmpty(),
+                        reels = reelPage?.reels.orEmpty(),
+                    )
+                } else {
+                    buildList {
+                        postPage?.posts?.forEach { add("post" to it) }
+                        reelPage?.reels?.forEach { add("reel" to it) }
+                    }.map { (contentType, response) ->
+                        ReelsFeedItem(contentType, response)
+                    }
                 }
-                    .sortedByDescending { (_, response) -> response.createdAt.toEpochMillis() }
-                    .mapNotNull { (contentType, response) -> response.toPostModel(contentType) }
+                val posts = pageItems
+                    .sortedByDescending { it.response.createdAt.toEpochMillis() }
+                    .mapNotNull { item -> item.response.toPostModel(item.contentType) }
                 feedAdapter?.submitPosts(posts, append = !refresh)
                 if (feedAdapter?.postCount == 0) {
                     showFeedState(
@@ -892,7 +908,7 @@ class HomeFeedFragment : Fragment() {
     }
 
     private fun isFeedExhausted(): Boolean =
-        if (isReelsMode) reelsExhausted else postsExhausted && reelsExhausted
+        postsExhausted && reelsExhausted
 
     override fun onDestroyView() {
         disconnectRealtime()
@@ -927,6 +943,7 @@ class HomeFeedFragment : Fragment() {
             authorUsername = username,
             authorAvatarUrl = author.avatarUrl.orEmpty(),
             location = location,
+            mediaId = media.id,
             imageUrl = mediaUrl,
             videoUrl = media.secureUrl?.takeIf { media.resourceType == "video" },
             videoFormat = media.format?.takeIf { media.resourceType == "video" },

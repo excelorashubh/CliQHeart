@@ -58,6 +58,7 @@ class PostsResponseParsingTest {
                     "id": "reel-id",
                     "owner": { "id": "owner-id", "username": "creator" },
                     "media": {
+                      "id": "media-id",
                       "resourceType": "video",
                       "secureUrl": "https://media.example/reel.mp4",
                       "thumbnailUrl": "https://media.example/reel.jpg",
@@ -92,6 +93,7 @@ class PostsResponseParsingTest {
         )
 
         assertEquals("reel-id", reels.reels.single().id)
+        assertEquals("media-id", reels.reels.single().media?.id)
         assertEquals(1920, reels.reels.single().media?.height)
         assertEquals(2, reels.reels.single().repostCount)
         assertTrue(reels.reels.single().isReposted == true)
